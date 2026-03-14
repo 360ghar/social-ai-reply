@@ -1,0 +1,148 @@
+from collections.abc import Iterable
+
+from fastapi import HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.db.saas_models import (
+    DiscoveryKeyword,
+    MonitoredSubreddit,
+    PlanEntitlement,
+    Project,
+    Subscription,
+    SubscriptionStatus,
+    Workspace,
+)
+
+
+PLAN_CATALOG = [
+    {
+        "code": "free",
+        "name": "Free",
+        "price_monthly": 0,
+        "features": [
+            "1 project",
+            "10 active keywords",
+            "5 active subreddits",
+            "Manual Reddit opportunity workflow",
+        ],
+        "limits": {"projects": 1, "keywords": 10, "subreddits": 5},
+    },
+    {
+        "code": "starter",
+        "name": "Starter",
+        "price_monthly": 79,
+        "features": [
+            "3 projects",
+            "50 active keywords",
+            "25 active subreddits",
+            "Priority scan throughput",
+        ],
+        "limits": {"projects": 3, "keywords": 50, "subreddits": 25},
+    },
+    {
+        "code": "growth",
+        "name": "Growth",
+        "price_monthly": 199,
+        "features": [
+            "10 projects",
+            "150 active keywords",
+            "75 active subreddits",
+            "Team collaboration and webhooks",
+        ],
+        "limits": {"projects": 10, "keywords": 150, "subreddits": 75},
+    },
+]
+
+
+def seed_plan_entitlements(db: Session) -> None:
+    existing = {
+        (row.plan_code, row.feature_key): row
+        for row in db.scalars(select(PlanEntitlement)).all()
+    }
+    changed = False
+    for plan in PLAN_CATALOG:
+        for feature_key, limit_value in plan["limits"].items():
+            key = (plan["code"], feature_key)
+            row = existing.get(key)
+            if row:
+                if row.limit_value != limit_value:
+                    row.limit_value = limit_value
+                    changed = True
+                continue
+            db.add(
+                PlanEntitlement(
+                    plan_code=plan["code"],
+                    feature_key=feature_key,
+                    limit_value=limit_value,
+                    description=f"{plan['name']} limit for {feature_key}",
+                )
+            )
+            changed = True
+    if changed:
+        db.commit()
+
+
+def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscription:
+    subscription = db.scalar(select(Subscription).where(Subscription.workspace_id == workspace.id))
+    if subscription:
+        return subscription
+    subscription = Subscription(workspace_id=workspace.id, plan_code="free", status=SubscriptionStatus.TRIALING)
+    db.add(subscription)
+    db.commit()
+    db.refresh(subscription)
+    return subscription
+
+
+def get_limit(db: Session, workspace: Workspace, feature_key: str) -> int:
+    seed_plan_entitlements(db)
+    subscription = get_or_create_subscription(db, workspace)
+    entitlement = db.scalar(
+        select(PlanEntitlement).where(
+            PlanEntitlement.plan_code == subscription.plan_code,
+            PlanEntitlement.feature_key == feature_key,
+        )
+    )
+    return entitlement.limit_value if entitlement else 0
+
+
+def enforce_limit(db: Session, workspace: Workspace, feature_key: str, current_count: int) -> None:
+    limit_value = get_limit(db, workspace, feature_key)
+    if current_count >= limit_value:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{feature_key} limit reached for your current plan.",
+        )
+
+
+def count_projects(db: Session, workspace_id: int) -> int:
+    return db.scalar(select(func.count(Project.id)).where(Project.workspace_id == workspace_id)) or 0
+
+
+def count_active_keywords(db: Session, project_id: int) -> int:
+    return db.scalar(
+        select(func.count(DiscoveryKeyword.id)).where(
+            DiscoveryKeyword.project_id == project_id,
+            DiscoveryKeyword.is_active.is_(True),
+        )
+    ) or 0
+
+
+def count_active_subreddits(db: Session, project_id: int) -> int:
+    return db.scalar(
+        select(func.count(MonitoredSubreddit.id)).where(
+            MonitoredSubreddit.project_id == project_id,
+            MonitoredSubreddit.is_active.is_(True),
+        )
+    ) or 0
+
+
+def serialize_plan_catalog() -> list[dict]:
+    return [{k: v for k, v in plan.items() if k != "limits"} | {"limits": dict(plan["limits"])} for plan in PLAN_CATALOG]
+
+
+def feature_set(plan_code: str) -> Iterable[str]:
+    for plan in PLAN_CATALOG:
+        if plan["code"] == plan_code:
+            return plan["features"]
+    return ()
