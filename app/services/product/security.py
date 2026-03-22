@@ -1,9 +1,12 @@
 import base64
 import hashlib
 import hmac
+import ipaddress
 import os
 import re
+import socket
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import jwt
 
@@ -50,3 +53,26 @@ def decode_access_token(token: str) -> dict:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "workspace"
+
+
+def validate_webhook_url(url: str) -> None:
+    """Validate a webhook URL to prevent SSRF attacks."""
+    parsed = urlparse(url)
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only HTTP(S) URLs are allowed.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Only HTTP(S) URLs are allowed.")
+
+    # Resolve hostname to IP addresses
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        raise ValueError("Only HTTP(S) URLs are allowed.")
+
+    for addr_info in addr_infos:
+        ip = ipaddress.ip_address(addr_info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise ValueError("Internal URLs are not allowed.")

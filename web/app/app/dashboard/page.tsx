@@ -74,10 +74,11 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-    loadDashboardAndDetails().catch((err) => setError(err.message));
+    if (!token) return;
+    let ignore = false;
+    loadDashboardAndDetails()
+      .catch((err) => { if (!ignore) setError(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   const checklist = useMemo<ChecklistItem[]>(() => {

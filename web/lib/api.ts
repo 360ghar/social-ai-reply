@@ -172,6 +172,18 @@ export type SecretRecord = {
   updated_at: string;
 };
 
+export function isAuthError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return [
+    "Authentication required.",
+    "Invalid token.",
+    "User not found.",
+    "No workspace membership found."
+  ].includes(error.message);
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -190,7 +202,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
     throw new Error(detail);
   }
   if (response.status === 204) {
-    return undefined as T;
+    return undefined as unknown as T;
   }
   return response.json() as Promise<T>;
 }

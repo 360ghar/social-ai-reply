@@ -11,31 +11,39 @@ export default function SubredditsPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [subreddits, setSubreddits] = useState<MonitoredSubreddit[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
   const project = dashboard ? getCurrentProject(dashboard) : null;
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-    fetchDashboard(token).then(setDashboard).catch((err) => setMessage(err.message));
+    if (!token) return;
+    let ignore = false;
+    fetchDashboard(token)
+      .then((data) => { if (!ignore) setDashboard(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   useEffect(() => {
-    if (!token || !project) {
-      return;
-    }
+    if (!token || !project) return;
+    let ignore = false;
     apiRequest<MonitoredSubreddit[]>(`/v1/discovery/subreddits?project_id=${project.id}`, {}, token)
-      .then(setSubreddits)
-      .catch((err) => setMessage(err.message));
+      .then((data) => { if (!ignore) setSubreddits(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [project, token]);
 
   async function refreshAnalysis(subredditId: number) {
-    if (!token) {
-      return;
+    if (!token) return;
+    try {
+      setRefreshingId(subredditId);
+      const updated = await apiRequest<MonitoredSubreddit>(`/v1/subreddits/${subredditId}/analyze`, { method: "POST" }, token);
+      setSubreddits((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not refresh analysis.");
+    } finally {
+      setRefreshingId(null);
     }
-    const updated = await apiRequest<MonitoredSubreddit>(`/v1/subreddits/${subredditId}/analyze`, { method: "POST" }, token);
-    setSubreddits((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
   }
 
   return (
@@ -52,8 +60,8 @@ export default function SubredditsPage() {
             <div key={subreddit.id} className="list-row">
               <div className="action-row">
                 <strong>r/{subreddit.name}</strong>
-                <button className="secondary-button" type="button" onClick={() => refreshAnalysis(subreddit.id)}>
-                  Refresh notes
+                <button className="secondary-button" type="button" onClick={() => refreshAnalysis(subreddit.id)} disabled={refreshingId === subreddit.id}>
+                  {refreshingId === subreddit.id ? "Working..." : "Refresh notes"}
                 </button>
               </div>
               <p>{subreddit.description ?? subreddit.title ?? "No description available."}</p>
@@ -65,7 +73,7 @@ export default function SubredditsPage() {
                 <div className="notice">
                   <strong>What to do here:</strong> {subreddit.analyses[0].recommendation}
                   <br />
-                  <span className="muted">People here: {subreddit.analyses[0].audience_signals.join(", ")}</span>
+                  <span className="muted">People here: {subreddit.analyses[0].audience_signals?.join(", ") ?? "Not analyzed yet"}</span>
                 </div>
               ) : null}
               {subreddit.rules_summary ? <p>Rules to watch: {subreddit.rules_summary}</p> : null}

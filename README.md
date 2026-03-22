@@ -22,12 +22,9 @@ This repo now contains two product layers:
 ## Backend Setup
 
 ```bash
-python -m venv .venv
-. .venv/Scripts/activate  # PowerShell: .venv\Scripts\Activate.ps1
-pip install -e .[dev]
-copy .env.example .env
-python scripts/init_db.py
-uvicorn app.main:app --reload
+cp .env.example .env
+uv sync --extra dev
+uv run uvicorn app.main:app --reload
 ```
 
 The default `.env.example` uses SQLite so local setup works immediately. For production, switch `DATABASE_URL` to Postgres and run with Redis/Celery enabled.
@@ -42,7 +39,6 @@ Backend app:
 
 ```bash
 cd web
-copy .env.local.example .env.local
 npm install
 npm run dev
 ```
@@ -66,7 +62,7 @@ Frontend app:
 ## Tests
 
 ```bash
-pytest -q
+uv run pytest -q
 cd web && npm run build
 ```
 

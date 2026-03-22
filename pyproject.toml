@@ -1,7 +1,7 @@
 [project]
-name = "instagram-poacher"
+name = "redditflow"
 version = "0.1.0"
-description = "Competitor Audience Poacher backend"
+description = "RedditFlow backend"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

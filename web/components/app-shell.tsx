@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { apiRequest, type Dashboard } from "../lib/api";
+import { apiRequest, isAuthError, type Dashboard } from "../lib/api";
+import { formatPlan, formatStatus } from "../lib/format";
 import { resolveProjectId, setStoredProjectId } from "../lib/project";
 import { useAuth } from "./auth-provider";
 
@@ -23,49 +24,6 @@ const secondaryNav = [
 ];
 
 const navItems = [...primaryNav, ...secondaryNav];
-
-function isAuthError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  return [
-    "Authentication required.",
-    "Invalid token.",
-    "User not found.",
-    "No workspace membership found."
-  ].includes(error.message);
-}
-
-function formatPlan(planCode?: string) {
-  const key = (planCode ?? "free").toLowerCase();
-  if (key === "free") {
-    return "Free plan";
-  }
-  if (key === "starter") {
-    return "Starter";
-  }
-  if (key === "growth") {
-    return "Growth";
-  }
-  return planCode ?? "Free plan";
-}
-
-function formatStatus(status?: string) {
-  const key = (status ?? "trialing").toLowerCase();
-  if (key === "trialing") {
-    return "Ready";
-  }
-  if (key === "active") {
-    return "Active";
-  }
-  if (key === "past_due") {
-    return "Needs attention";
-  }
-  if (key === "canceled") {
-    return "Canceled";
-  }
-  return status ?? "Ready";
-}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -121,6 +79,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (!token) {
+    return null;
+  }
+
   return (
     <div className="app-frame">
       <aside className="sidebar">
@@ -166,8 +128,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <label className="field">
               <span>Current business</span>
               <select
-                defaultValue={String(resolveProjectId(dashboard.projects) ?? "")}
-                onChange={(event) => setStoredProjectId(Number(event.target.value))}
+                value={String(resolveProjectId(dashboard.projects) ?? "")}
+                onChange={(event) => {
+                  setStoredProjectId(Number(event.target.value));
+                  window.location.reload();
+                }}
               >
                 {dashboard.projects.map((project) => (
                   <option key={project.id} value={project.id}>

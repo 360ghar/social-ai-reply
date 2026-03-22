@@ -90,7 +90,7 @@ from app.services.product.entitlements import (
 )
 from app.services.product.reddit import RedditClient
 from app.services.product.scoring import score_post
-from app.services.product.security import create_access_token, hash_password, slugify, verify_password
+from app.services.product.security import create_access_token, hash_password, slugify, validate_webhook_url, verify_password
 
 
 router = APIRouter(prefix="/v1", tags=["v1"])
@@ -140,6 +140,9 @@ def _record_audit(
     )
 
 
+_ALLOWED_SLUG_FILTERS = {"workspace_id"}
+
+
 def _unique_slug(
     db: Session,
     model: type[Workspace] | type[Project],
@@ -147,6 +150,8 @@ def _unique_slug(
     filter_field: str | None = None,
     filter_value: int | None = None,
 ) -> str:
+    if filter_field and filter_field not in _ALLOWED_SLUG_FILTERS:
+        raise ValueError(f"Invalid filter field: {filter_field}")
     candidate = slugify(base)
     suffix = 1
     while True:
@@ -286,7 +291,7 @@ def _run_scan(db: Session, project: Project, payload: ScanRequest) -> ScanRun:
                     continue
                 posts_scanned += 1
                 score = score_post(post, brand, subreddit, keywords, rules)
-                if score.total < 25:
+                if score.total < payload.min_score:
                     continue
                 opportunity = db.scalar(
                     select(Opportunity).where(
@@ -951,6 +956,8 @@ def create_scan(
 def list_opportunities(
     project_id: int = Query(..., ge=1),
     status_filter: str = Query(default="all", alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     current_user: AccountUser = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: Session = Depends(get_db),
@@ -960,8 +967,21 @@ def list_opportunities(
     stmt = select(Opportunity).where(Opportunity.project_id == project_id)
     if status_filter != "all":
         stmt = stmt.where(Opportunity.status == OpportunityStatus(status_filter))
-    rows = db.scalars(stmt.order_by(Opportunity.score.desc(), Opportunity.created_at.desc())).all()
+    rows = db.scalars(
+        stmt.order_by(Opportunity.score.desc(), Opportunity.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
     return [OpportunityResponse.model_validate(row) for row in rows]
+
+
+_VALID_TRANSITIONS: dict[OpportunityStatus, set[OpportunityStatus]] = {
+    OpportunityStatus.NEW: {OpportunityStatus.SAVED, OpportunityStatus.DRAFTING, OpportunityStatus.IGNORED},
+    OpportunityStatus.SAVED: {OpportunityStatus.DRAFTING, OpportunityStatus.IGNORED},
+    OpportunityStatus.DRAFTING: {OpportunityStatus.POSTED, OpportunityStatus.SAVED, OpportunityStatus.IGNORED},
+    OpportunityStatus.POSTED: set(),
+    OpportunityStatus.IGNORED: {OpportunityStatus.NEW},
+}
 
 
 @router.put("/opportunities/{opportunity_id}/status", response_model=OpportunityResponse)
@@ -978,7 +998,14 @@ def update_opportunity_status(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    row.status = OpportunityStatus(payload.status)
+    new_status = OpportunityStatus(payload.status)
+    allowed = _VALID_TRANSITIONS.get(row.status, set())
+    if new_status not in allowed:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot transition from '{row.status.value}' to '{new_status.value}'.",
+        )
+    row.status = new_status
     if row.status == OpportunityStatus.POSTED:
         row.posted_at = datetime.now(timezone.utc)
     db.commit()
@@ -1134,6 +1161,10 @@ def create_webhook(
     db: Session = Depends(get_db),
 ) -> WebhookResponse:
     _ensure_workspace_membership(db, workspace.id, current_user.id)
+    try:
+        validate_webhook_url(str(payload.target_url))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     row = WebhookEndpoint(
         workspace_id=workspace.id,
         target_url=str(payload.target_url),
@@ -1195,6 +1226,10 @@ def test_webhook(
     row = db.scalar(select(WebhookEndpoint).where(WebhookEndpoint.id == webhook_id, WebhookEndpoint.workspace_id == workspace.id))
     if not row:
         raise HTTPException(status_code=404, detail="Webhook not found.")
+    try:
+        validate_webhook_url(row.target_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     sample = {
         "event_type": payload.event_type,
         "sent_at": datetime.now(timezone.utc).isoformat(),
@@ -1302,6 +1337,31 @@ def create_invitation(
     membership = _ensure_workspace_membership(db, workspace.id, current_user.id)
     if membership.role == MembershipRole.MEMBER:
         raise HTTPException(status_code=403, detail="Only admins can invite teammates.")
+
+    # Check if email is already a workspace member
+    target_user = db.scalar(select(AccountUser).where(AccountUser.email == payload.email.lower()))
+    if target_user:
+        existing_member = db.scalar(
+            select(Membership).where(
+                Membership.workspace_id == workspace.id,
+                Membership.user_id == target_user.id,
+            )
+        )
+        if existing_member:
+            raise HTTPException(status_code=409, detail="User is already a member of this workspace.")
+
+    # Check for pending invitation
+    pending = db.scalar(
+        select(Invitation).where(
+            Invitation.workspace_id == workspace.id,
+            Invitation.email == payload.email.lower(),
+            Invitation.accepted_at.is_(None),
+            Invitation.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    if pending:
+        raise HTTPException(status_code=409, detail="A pending invitation already exists for this email.")
+
     invitation = Invitation(
         workspace_id=workspace.id,
         email=payload.email.lower(),
@@ -1325,6 +1385,8 @@ def accept_invitation(
         raise HTTPException(status_code=404, detail="Invitation not found.")
     if invitation.accepted_at:
         raise HTTPException(status_code=400, detail="Invitation already accepted.")
+    if invitation.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Invitation has expired.")
     if invitation.email != current_user.email:
         raise HTTPException(status_code=403, detail="Invitation email does not match the current user.")
     existing = db.scalar(
