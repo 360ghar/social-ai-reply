@@ -16,6 +16,9 @@ export default function DiscoveryPage() {
   const [draftingId, setDraftingId] = useState<number | null>(null);
   const [keywordInput, setKeywordInput] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [generatingKeywords, setGeneratingKeywords] = useState(false);
+  const [discoveringSubreddits, setDiscoveringSubreddits] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   const project = dashboard ? getCurrentProject(dashboard) : null;
 
@@ -34,17 +37,20 @@ export default function DiscoveryPage() {
   }
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-    fetchDashboard(token).then(setDashboard).catch((err) => setMessage(err.message));
+    if (!token) return;
+    let ignore = false;
+    fetchDashboard(token)
+      .then((data) => { if (!ignore) setDashboard(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   useEffect(() => {
-    if (!token || !project) {
-      return;
-    }
-    loadPageData(project.id).catch((err) => setMessage(err.message));
+    if (!token || !project) return;
+    let ignore = false;
+    loadPageData(project.id)
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [project, token]);
 
   async function createKeyword(event: FormEvent) {
@@ -71,9 +77,11 @@ export default function DiscoveryPage() {
   }
 
   async function generateKeywords() {
+    if (generatingKeywords) return;
     if (!token || !project) {
       return;
     }
+    setGeneratingKeywords(true);
     try {
       const created = await apiRequest<Keyword[]>(`/v1/discovery/keywords/generate?project_id=${project.id}`, {
         method: "POST",
@@ -83,13 +91,17 @@ export default function DiscoveryPage() {
       setMessage("Suggested search words created.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not create search word suggestions.");
+    } finally {
+      setGeneratingKeywords(false);
     }
   }
 
   async function discoverSubreddits() {
+    if (discoveringSubreddits) return;
     if (!token || !project) {
       return;
     }
+    setDiscoveringSubreddits(true);
     try {
       const created = await apiRequest<MonitoredSubreddit[]>(`/v1/discovery/subreddits/discover?project_id=${project.id}`, {
         method: "POST",
@@ -99,13 +111,17 @@ export default function DiscoveryPage() {
       setMessage("Communities found. Review them below.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not find communities.");
+    } finally {
+      setDiscoveringSubreddits(false);
     }
   }
 
   async function runScan() {
+    if (scanning) return;
     if (!token || !project) {
       return;
     }
+    setScanning(true);
     try {
       await apiRequest("/v1/scans", {
         method: "POST",
@@ -115,6 +131,8 @@ export default function DiscoveryPage() {
       setMessage("Scan finished. Matching Reddit posts are listed below.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not scan Reddit right now.");
+    } finally {
+      setScanning(false);
     }
   }
 
@@ -180,9 +198,9 @@ export default function DiscoveryPage() {
         <h2>What should we look for?</h2>
         <p>Start with 5 to 10 phrases a customer might write when they need help.</p>
         <form className="inline-form" onSubmit={createKeyword}>
-          <input value={keywordInput} onChange={(event) => setKeywordInput(event.target.value)} placeholder="example: best crm for small team" />
+          <input value={keywordInput} onChange={(event) => setKeywordInput(event.target.value)} placeholder="example: best crm for small team" required />
           <button className="secondary-button" type="submit">Add word</button>
-          <button className="primary-button" type="button" onClick={generateKeywords}>Create suggestions</button>
+          <button className="primary-button" type="button" onClick={generateKeywords} disabled={generatingKeywords}>{generatingKeywords ? "Working..." : "Create suggestions"}</button>
         </form>
         <div className="table-list">
           {keywords.length ? (
@@ -202,8 +220,8 @@ export default function DiscoveryPage() {
         <div className="eyebrow">Communities and scan</div>
         <h2>Where should we search?</h2>
         <div className="action-row">
-          <button className="primary-button" type="button" onClick={discoverSubreddits}>Find communities</button>
-          <button className="secondary-button" type="button" onClick={runScan}>Find matching posts</button>
+          <button className="primary-button" type="button" onClick={discoverSubreddits} disabled={discoveringSubreddits}>{discoveringSubreddits ? "Working..." : "Find communities"}</button>
+          <button className="secondary-button" type="button" onClick={runScan} disabled={scanning}>{scanning ? "Scanning..." : "Find matching posts"}</button>
         </div>
         <div className="table-list">
           {subreddits.length ? (
@@ -236,7 +254,7 @@ export default function DiscoveryPage() {
                 </div>
                 <strong>{opportunity.title}</strong>
                 <p>{opportunity.body_excerpt?.slice(0, 220) ?? "No preview available."}</p>
-                {opportunity.score_reasons.length ? (
+                {opportunity.score_reasons?.length ? (
                   <p className="muted">Why it matches: {opportunity.score_reasons.join(" ")}</p>
                 ) : null}
                 <div className="action-row">

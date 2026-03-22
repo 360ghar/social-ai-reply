@@ -11,27 +11,31 @@ export default function BrandPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [brand, setBrand] = useState<BrandProfile | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const project = dashboard ? getCurrentProject(dashboard) : null;
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-    fetchDashboard(token).then(setDashboard).catch((err) => setMessage(err.message));
+    if (!token) return;
+    let ignore = false;
+    fetchDashboard(token)
+      .then((data) => { if (!ignore) setDashboard(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   useEffect(() => {
-    if (!token || !project) {
-      return;
-    }
-    apiRequest<BrandProfile>(`/v1/brand/${project.id}`, {}, token).then(setBrand).catch((err) => setMessage(err.message));
+    if (!token || !project) return;
+    let ignore = false;
+    apiRequest<BrandProfile>(`/v1/brand/${project.id}`, {}, token)
+      .then((data) => { if (!ignore) setBrand(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [project, token]);
 
   async function fillFromWebsite() {
-    if (!token || !project || !brand?.website_url) {
-      return;
-    }
+    if (!token || !project || !brand?.website_url) return;
+    setAnalyzing(true);
     try {
       const analyzed = await apiRequest<BrandProfile>(`/v1/brand/${project.id}/analyze`, {
         method: "POST",
@@ -41,6 +45,8 @@ export default function BrandPage() {
       setMessage("Website details filled in.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not read the website.");
+    } finally {
+      setAnalyzing(false);
     }
   }
 
@@ -79,7 +85,7 @@ export default function BrandPage() {
         {message ? <div className="notice">{message}</div> : null}
         <label className="field">
           <span>Business name</span>
-          <input value={brand.brand_name} onChange={(event) => setBrand({ ...brand, brand_name: event.target.value })} />
+          <input value={brand.brand_name} onChange={(event) => setBrand({ ...brand, brand_name: event.target.value })} required />
         </label>
         <label className="field">
           <span>Website URL</span>
@@ -103,8 +109,8 @@ export default function BrandPage() {
         </label>
         <div className="action-row">
           <button className="primary-button" type="submit">Save details</button>
-          <button className="secondary-button" type="button" onClick={fillFromWebsite} disabled={!brand.website_url}>
-            Fill from website
+          <button className="secondary-button" type="button" onClick={fillFromWebsite} disabled={!brand.website_url || analyzing}>
+            {analyzing ? "Analyzing..." : "Fill from website"}
           </button>
         </div>
       </form>
@@ -113,7 +119,7 @@ export default function BrandPage() {
         <div className="eyebrow">Quick help</div>
         <h2>Fastest way to fill this page</h2>
         <p>Paste your website, click "Analyze website", then edit the results into simple language.</p>
-        <button className="secondary-button" type="submit" disabled={!brand.website_url}>Analyze website</button>
+        <button className="secondary-button" type="submit" disabled={!brand.website_url || analyzing}>{analyzing ? "Analyzing..." : "Analyze website"}</button>
         <div className="item-list">
           <div className="list-row">
             <strong>Short summary</strong>

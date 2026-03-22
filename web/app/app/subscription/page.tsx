@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "../../../components/auth-provider";
 import { apiRequest, type Subscription } from "../../../lib/api";
+import { formatStatus } from "../../../lib/format";
 
 type Plan = {
   code: string;
@@ -13,23 +14,6 @@ type Plan = {
   limits: Record<string, number>;
 };
 
-function formatStatus(status?: string) {
-  const key = (status ?? "trialing").toLowerCase();
-  if (key === "trialing") {
-    return "Ready";
-  }
-  if (key === "active") {
-    return "Active";
-  }
-  if (key === "past_due") {
-    return "Needs attention";
-  }
-  if (key === "canceled") {
-    return "Canceled";
-  }
-  return status ?? "Ready";
-}
-
 export default function SubscriptionPage() {
   const { token } = useAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -37,18 +21,20 @@ export default function SubscriptionPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
+    if (!token) return;
+    let ignore = false;
     Promise.all([
       apiRequest<Plan[]>("/v1/billing/plans", {}, token),
       apiRequest<Subscription>("/v1/billing/current", {}, token)
     ])
       .then(([planRows, currentPlan]) => {
-        setPlans(planRows);
-        setCurrent(currentPlan);
+        if (!ignore) {
+          setPlans(planRows);
+          setCurrent(currentPlan);
+        }
       })
-      .catch((err) => setMessage(err.message));
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   return (

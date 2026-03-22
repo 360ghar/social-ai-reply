@@ -14,18 +14,20 @@ export default function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
+    if (!token) return;
+    let ignore = false;
     Promise.all([
       apiRequest<WebhookEndpoint[]>("/v1/webhooks", {}, token),
       apiRequest<SecretRecord[]>("/v1/secrets", {}, token)
     ])
       .then(([webhookRows, secretRows]) => {
-        setWebhooks(webhookRows);
-        setSecrets(secretRows);
+        if (!ignore) {
+          setWebhooks(webhookRows);
+          setSecrets(secretRows);
+        }
       })
-      .catch((err) => setMessage(err.message));
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   async function createWebhook(event: FormEvent) {
@@ -71,7 +73,7 @@ export default function SettingsPage() {
         <h2>Optional: send updates to your own tools</h2>
         <p>You can ignore this while testing the product.</p>
         <form className="inline-form" onSubmit={createWebhook}>
-          <input value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="https://your-app.com/webhook" />
+          <input type="url" required value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="https://your-app.com/webhook" />
           <button className="secondary-button" type="submit">Add connection</button>
         </form>
         <div className="item-list">
@@ -100,7 +102,7 @@ export default function SettingsPage() {
           </label>
           <label className="field">
             <span>Secret value</span>
-            <input value={secret.value} onChange={(event) => setSecret({ ...secret, value: event.target.value })} />
+            <input type="password" autoComplete="off" required value={secret.value} onChange={(event) => setSecret({ ...secret, value: event.target.value })} />
           </label>
           <button className="secondary-button" type="submit">Save key</button>
         </form>

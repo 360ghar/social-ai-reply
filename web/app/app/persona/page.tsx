@@ -24,21 +24,26 @@ export default function PersonaPage() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [draft, setDraft] = useState(emptyPersona);
   const [message, setMessage] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const project = dashboard ? getCurrentProject(dashboard) : null;
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-    fetchDashboard(token).then(setDashboard).catch((err) => setMessage(err.message));
+    if (!token) return;
+    let ignore = false;
+    fetchDashboard(token)
+      .then((data) => { if (!ignore) setDashboard(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [token]);
 
   useEffect(() => {
-    if (!token || !project) {
-      return;
-    }
-    apiRequest<Persona[]>(`/v1/personas?project_id=${project.id}`, {}, token).then(setPersonas).catch((err) => setMessage(err.message));
+    if (!token || !project) return;
+    let ignore = false;
+    apiRequest<Persona[]>(`/v1/personas?project_id=${project.id}`, {}, token)
+      .then((data) => { if (!ignore) setPersonas(data); })
+      .catch((err) => { if (!ignore) setMessage(err.message); });
+    return () => { ignore = true; };
   }, [project, token]);
 
   async function createPersona(event: FormEvent) {
@@ -60,9 +65,8 @@ export default function PersonaPage() {
   }
 
   async function generateSeedPersonas() {
-    if (!token || !project) {
-      return;
-    }
+    if (!token || !project) return;
+    setGenerating(true);
     try {
       const created = await apiRequest<Persona[]>(`/v1/personas/generate?project_id=${project.id}&count=4`, {
         method: "POST"
@@ -71,6 +75,8 @@ export default function PersonaPage() {
       setMessage("Example customer types created.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not create example customer types.");
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -82,7 +88,7 @@ export default function PersonaPage() {
         <p>Write 2 or 3 customer types in simple language. Example: "Small business owner looking for a better CRM".</p>
         <label className="field">
           <span>Customer type</span>
-          <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          <input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
         </label>
         <label className="field">
           <span>Job title or role</span>
@@ -94,7 +100,7 @@ export default function PersonaPage() {
         </label>
         <div className="action-row">
           <button className="secondary-button" type="submit">Save customer type</button>
-          <button className="primary-button" type="button" onClick={generateSeedPersonas}>Create examples</button>
+          <button className="primary-button" type="button" onClick={generateSeedPersonas} disabled={generating}>{generating ? "Working..." : "Create examples"}</button>
         </div>
         {message ? <div className="notice">{message}</div> : null}
       </form>

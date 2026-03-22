@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -8,6 +9,8 @@ from bs4 import BeautifulSoup
 
 from app.core.config import get_settings
 from app.db.saas_models import BrandProfile, Opportunity, Persona, PromptTemplate
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -240,6 +243,7 @@ class ProductCopilot:
                 voice_notes=payload.get("voice_notes") or "Helpful, grounded, and specific.",
             )
         except Exception:
+            logger.exception("_structured_brand_analysis failed")
             return None
 
     def _ai_reply(
@@ -293,6 +297,7 @@ class ProductCopilot:
                 return None
             return content, payload.get("rationale") or "AI generated reply draft.", prompt_context
         except Exception:
+            logger.exception("_ai_reply failed")
             return None
 
     def _ai_post(self, brand: BrandProfile | None, prompt_context: str) -> tuple[str, str, str] | None:
@@ -329,4 +334,5 @@ class ProductCopilot:
                 return None
             return title, body, payload.get("rationale") or "AI generated post draft."
         except Exception:
+            logger.exception("_ai_post failed")
             return None

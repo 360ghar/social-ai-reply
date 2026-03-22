@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { apiRequest, type AuthPayload } from "../lib/api";
+import { apiRequest, isAuthError, type AuthPayload } from "../lib/api";
 
 type AuthContextValue = {
   token: string | null;
@@ -18,18 +18,6 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const STORAGE_KEY = "redditflow-auth";
 const LEGACY_STORAGE_KEY = "reply-radar-auth";
-
-function isAuthError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  return [
-    "Authentication required.",
-    "Invalid token.",
-    "User not found.",
-    "No workspace membership found."
-  ].includes(error.message);
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);

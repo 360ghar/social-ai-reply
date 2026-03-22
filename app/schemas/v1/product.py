@@ -171,6 +171,7 @@ class ScanRequest(BaseModel):
     project_id: int
     search_window_hours: int = Field(default=72, ge=1, le=720)
     max_posts_per_subreddit: int = Field(default=10, ge=1, le=50)
+    min_score: int = Field(default=25, ge=0, le=100)
 
 
 class ScanRunResponse(BaseModel):

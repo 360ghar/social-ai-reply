@@ -3,7 +3,7 @@
   --surface: rgba(255, 255, 255, 0.78);
   --surface-strong: #fffaf2;
   --ink: #1f1b16;
-  --muted: #6a6155;
+  --muted: #52493f;
   --line: rgba(54, 40, 22, 0.12);
   --brand: #cf4c21;
   --brand-dark: #9f3412;
@@ -473,4 +473,9 @@ p {
     justify-items: start;
     grid-column: 2;
   }
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
