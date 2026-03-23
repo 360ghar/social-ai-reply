@@ -69,9 +69,10 @@ class MockLLMProvider:
 
 
 @dataclass
-class OpenAILLMProvider:
+class GeminiLLMProvider:
     api_key: str
     model: str
+    api_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     def generate_adjacent_personas(
         self,
@@ -79,9 +80,8 @@ class OpenAILLMProvider:
         locale: str | None,
         max_personas: int,
     ) -> list[dict[str, Any]]:
-        from openai import OpenAI
+        import httpx
 
-        client = OpenAI(api_key=self.api_key)
         prompt = (
             "Generate adjacent, non-competing persona niches that share the same customer base. "
             f"Business: {business_description}. "
@@ -89,26 +89,33 @@ class OpenAILLMProvider:
             f"Return exactly {max_personas} items as JSON with key 'personas'. "
             "Each item must contain keyword, profile_type, overlap_reason, priority_score(1-100)."
         )
-        completion = client.chat.completions.create(
-            model=self.model,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You are a precise GTM strategist."},
-                {"role": "user", "content": prompt},
+        url = f"{self.api_url}/models/{self.model}:generateContent?key={self.api_key}"
+        payload = {
+            "contents": [
+                {"role": "user", "parts": [{"text": "You are a precise GTM strategist.\n\n" + prompt}]}
             ],
-        )
-        content = completion.choices[0].message.content or "{}"
-        parsed = json.loads(content)
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json"
+            }
+        }
+        resp = httpx.post(url, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+        parsed = json.loads(text)
         personas = parsed.get("personas", [])
         return [p for p in personas if isinstance(p, dict)]
 
 
 def select_llm_provider(
     use_mock_llm: bool,
-    openai_api_key: str | None,
-    openai_model: str,
+    gemini_api_key: str | None = None,
+    gemini_model: str = "gemini-3-flash-preview",
+    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta",
+    openai_api_key: str | None = None,
+    openai_model: str = "gpt-4.1-mini",
 ) -> LLMProvider:
-    if not use_mock_llm and openai_api_key:
-        return OpenAILLMProvider(api_key=openai_api_key, model=openai_model)
+    if not use_mock_llm and gemini_api_key:
+        return GeminiLLMProvider(api_key=gemini_api_key, model=gemini_model, api_url=gemini_api_url)
     return MockLLMProvider()

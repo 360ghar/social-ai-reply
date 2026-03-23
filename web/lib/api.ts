@@ -1,4 +1,4 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 export type AuthPayload = {
   access_token: string;
@@ -59,18 +59,9 @@ export type ReplyDraft = {
   created_at: string;
 };
 
-export type Subscription = {
-  plan_code: string;
-  status: string;
-  current_period_end: string | null;
-  features: string[];
-  limits: Record<string, number>;
-};
-
 export type Dashboard = {
   projects: Project[];
   top_opportunities: Opportunity[];
-  subscription: Subscription;
 };
 
 export type BrandProfile = {
@@ -205,4 +196,155 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
     return undefined as unknown as T;
   }
   return response.json() as Promise<T>;
+}
+
+// ── New Types ────────────────────────────────────────────────────
+
+export interface NotificationItem {
+  id: number;
+  type: string;
+  title: string;
+  body: string | null;
+  action_url: string | null;
+  is_read: boolean;
+  created_at: string | null;
+}
+
+export interface ActivityItem {
+  id: number;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  metadata: Record<string, any>;
+  created_at: string | null;
+}
+
+export interface PromptSetItem {
+  id: number;
+  name: string;
+  category: string;
+  prompts: string[];
+  target_models: string[];
+  is_active: boolean;
+  schedule: string;
+  created_at: string | null;
+}
+
+export interface VisibilitySummary {
+  total_runs: number;
+  brand_mentioned: number;
+  share_of_voice: number;
+  total_citations: number;
+  models: Record<string, { total_runs: number; brand_mentioned: number; share_of_voice: number }>;
+}
+
+export interface PromptRunResult {
+  id: number;
+  prompt_text: string;
+  model_name: string;
+  status: string;
+  brand_mentioned: boolean;
+  competitor_mentions: any[];
+  sentiment: string | null;
+  citations_count: number;
+  completed_at: string | null;
+}
+
+export interface CitationItem {
+  id: number;
+  url: string;
+  domain: string;
+  title: string | null;
+  content_type: string | null;
+  first_seen_at: string | null;
+}
+
+// ── New API Functions ────────────────────────────────────────────
+
+export async function getNotifications(token: string, unreadOnly = false) {
+  return apiRequest<{ items: NotificationItem[]; total: number; unread_count: number }>(
+    `/v1/notifications?unread_only=${unreadOnly}`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function markNotificationRead(token: string, id: number) {
+  return apiRequest<{ ok: boolean }>(
+    `/v1/notifications/${id}/read`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function markAllNotificationsRead(token: string) {
+  return apiRequest<{ ok: boolean }>(
+    `/v1/notifications/read-all`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getActivity(token: string) {
+  return apiRequest<{ items: ActivityItem[] }>(
+    `/v1/activity`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getPromptSets(token: string) {
+  return apiRequest<{ items: PromptSetItem[] }>(
+    `/v1/prompt-sets`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function createPromptSet(token: string, data: { name: string; category: string; prompts: string[]; target_models: string[]; schedule: string }) {
+  return apiRequest<{ id: number; name: string }>(
+    `/v1/prompt-sets`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(data) }
+  );
+}
+
+export async function runPromptSet(token: string, id: number) {
+  return apiRequest<{ prompt_set_id: number; results: any[]; total_runs: number }>(
+    `/v1/prompt-sets/${id}/run`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getVisibilitySummary(token: string) {
+  return apiRequest<VisibilitySummary>(
+    `/v1/visibility/summary`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getVisibilityPrompts(token: string, model?: string, limit = 20, offset = 0) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (model) params.set("model", model);
+  return apiRequest<{ items: PromptRunResult[]; total: number }>(
+    `/v1/visibility/prompts?${params}`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getCitations(token: string, domain?: string, limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (domain) params.set("domain", domain);
+  return apiRequest<{ items: CitationItem[]; total: number }>(
+    `/v1/citations?${params}`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getSourceDomains(token: string) {
+  return apiRequest<{ items: { domain: string; total_citations: number }[] }>(
+    `/v1/sources/domains`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getSourceGaps(token: string) {
+  return apiRequest<{ items: any[] }>(
+    `/v1/sources/gaps`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function forgotPassword(email: string) {
+  return apiRequest<{ ok: boolean }>(
+    `/v1/auth/forgot-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }
+  );
+}
+
+export async function resetPassword(token: string, password: string) {
+  return apiRequest<{ ok: boolean; message: string }>(
+    `/v1/auth/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password }) }
+  );
 }

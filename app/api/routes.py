@@ -63,7 +63,14 @@ def _build_instagram_client(challenge_code: str | None = None) -> InstagrapiClie
 @router.post("/phase1/persona-plan", response_model=PersonaPlanResponse)
 def generate_persona_plan(payload: BusinessInputRequest, db: Session = Depends(get_db)) -> PersonaPlanResponse:
     settings = get_settings()
-    provider = select_llm_provider(settings.use_mock_llm, settings.openai_api_key, settings.openai_model)
+    provider = select_llm_provider(
+        settings.use_mock_llm,
+        gemini_api_key=settings.gemini_api_key,
+        gemini_model=settings.gemini_model,
+        gemini_api_url=settings.gemini_api_url,
+        openai_api_key=settings.openai_api_key,
+        openai_model=settings.openai_model,
+    )
     service = PersonaEngine(provider)
     return service.build_plan(payload, db=db)
 

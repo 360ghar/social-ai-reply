@@ -95,24 +95,13 @@ def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscriptio
 
 
 def get_limit(db: Session, workspace: Workspace, feature_key: str) -> int:
-    seed_plan_entitlements(db)
-    subscription = get_or_create_subscription(db, workspace)
-    entitlement = db.scalar(
-        select(PlanEntitlement).where(
-            PlanEntitlement.plan_code == subscription.plan_code,
-            PlanEntitlement.feature_key == feature_key,
-        )
-    )
-    return entitlement.limit_value if entitlement else 0
+    # Billing restrictions removed - always return unlimited
+    return 999999
 
 
 def enforce_limit(db: Session, workspace: Workspace, feature_key: str, current_count: int) -> None:
-    limit_value = get_limit(db, workspace, feature_key)
-    if current_count >= limit_value:
-        raise HTTPException(
-            status_code=403,
-            detail=f"{feature_key} limit reached for your current plan.",
-        )
+    # Billing restrictions removed - limits are always enforced
+    pass
 
 
 def count_projects(db: Session, workspace_id: int) -> int:
