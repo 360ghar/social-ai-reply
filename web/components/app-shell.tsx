@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState, ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "./auth-provider";
 import { ToastProvider } from "./toast";
 import { NotificationBell, UsageMeter } from "./ui";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, isAuthError } from "@/lib/api";
 
 interface DashData {
   workspace_name?: string;
@@ -57,7 +58,7 @@ const NAV_SECTIONS = [
 export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { token, logout } = useAuth();
+  const { token, loading: authLoading, logout } = useAuth();
   const [dash, setDash] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -66,12 +67,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
     if (!token) {
       router.replace("/login");
       return;
     }
-    loadShell();
-  }, [token]);
+    void loadShell();
+  }, [authLoading, router, token]);
 
   async function loadShell() {
     try {
@@ -90,6 +94,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
       }
       if (usageRes.status === "fulfilled") {
         setUsage(usageRes.value);
+      }
+      const authFailure = [dashRes, notifRes, usageRes].some(
+        (result) => result.status === "rejected" && isAuthError(result.reason)
+      );
+      if (authFailure) {
+        logout();
+        router.replace("/login");
+        return;
       }
     } catch (e: any) {
       if (
@@ -111,7 +123,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     router.replace("/login");
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
         <div style={{ textAlign: "center" }}>
@@ -167,9 +179,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
           <div className="sidebar-header">
-            <a href="/app/dashboard" className="sidebar-brand" style={{ textDecoration: "none" }}>
+            <Link href="/app/dashboard" className="sidebar-brand" style={{ textDecoration: "none" }}>
               <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent)" }}>RedditFlow</span>
-            </a>
+            </Link>
             {dash?.workspace_name && (
               <p className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>{dash.workspace_name}</p>
             )}
@@ -180,7 +192,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <div key={section.title} className="nav-section">
                 <div className="nav-section-title">{section.title}</div>
                 {section.items.map((item) => (
-                  <a
+                  <Link
                     key={item.href}
                     href={item.href}
                     className={`nav-link ${pathname === item.href ? "active" : ""}`}
@@ -194,7 +206,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                         NEW
                       </span>
                     )}
-                  </a>
+                  </Link>
                 ))}
               </div>
             ))}
