@@ -52,10 +52,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       persist(payload);
     } catch (err) {
       if (isAuthError(err)) {
+        // Token is truly invalid (expired or tampered) — clear auth state
         logout();
-      } else {
-        setError(err instanceof Error ? err.message : "Could not refresh your session.");
       }
+      // For all other errors (network, server, etc.), keep the existing token
+      // The user is still logged in, we just couldn't refresh their session data
     } finally {
       setLoading(false);
     }
