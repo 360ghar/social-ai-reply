@@ -18,7 +18,7 @@ export default function SettingsPage() {
 
   // General tab state
   const [workspaceName, setWorkspaceName] = useState("My Workspace");
-  const [userProfile, setUserProfile] = useState({ name: user?.name || "", email: user?.email || "" });
+  const [userProfile, setUserProfile] = useState({ name: user?.full_name || "", email: user?.email || "" });
   const [notifications, setNotifications] = useState({
     emailNotifications: true,
     digestEmail: false,
@@ -46,6 +46,10 @@ export default function SettingsPage() {
     if (!token) return;
     loadData();
   }, [token]);
+
+  useEffect(() => {
+    setUserProfile({ name: user?.full_name || "", email: user?.email || "" });
+  }, [user]);
 
   async function loadData() {
     if (!token) return;

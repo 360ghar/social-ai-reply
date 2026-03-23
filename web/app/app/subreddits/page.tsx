@@ -104,22 +104,10 @@ export default function SubredditsPage() {
       {/* KPI Cards */}
       {!loading && subreddits.length > 0 && (
         <div className="section-grid">
-          <KpiCard>
-            <div className="kpi-value">{subreddits.length}</div>
-            <div className="kpi-label">Total Communities</div>
-          </KpiCard>
-          <KpiCard>
-            <div className="kpi-value">{avgFitScore}</div>
-            <div className="kpi-label">Avg Fit Score</div>
-          </KpiCard>
-          <KpiCard>
-            <div className="kpi-value">{avgActivityScore}</div>
-            <div className="kpi-label">Avg Activity Score</div>
-          </KpiCard>
-          <KpiCard>
-            <div className="kpi-value">{activeCount}</div>
-            <div className="kpi-label">Active</div>
-          </KpiCard>
+          <KpiCard label="Total Communities" value={subreddits.length} />
+          <KpiCard label="Avg Fit Score" value={avgFitScore} />
+          <KpiCard label="Avg Activity Score" value={avgActivityScore} />
+          <KpiCard label="Active" value={activeCount} />
         </div>
       )}
 
@@ -189,10 +177,10 @@ export default function SubredditsPage() {
                     variant="secondary"
                   >
                     {refreshingId === subreddit.id ? (
-                      <>
-                        <Spinner style={{ width: "0.9rem", height: "0.9rem", marginRight: "0.5rem" }} />
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                        <Spinner size="sm" />
                         Refreshing...
-                      </>
+                      </span>
                     ) : (
                       "Refresh Analysis"
                     )}
@@ -208,8 +196,10 @@ export default function SubredditsPage() {
 
                 {/* Scores */}
                 <div className="badge-row" style={{ marginBottom: "1rem" }}>
-                  <ScoreBadge score={subreddit.fit_score} label="Fit Score" />
-                  <ScoreBadge score={subreddit.activity_score} label="Activity Score" />
+                  <span className="badge">Fit</span>
+                  <ScoreBadge score={subreddit.fit_score} />
+                  <span className="badge">Activity</span>
+                  <ScoreBadge score={subreddit.activity_score} />
                 </div>
 
                 {/* Subscriber Count */}

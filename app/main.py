@@ -47,6 +47,7 @@ app.add_middleware(RateLimitMiddleware)
 # Routes
 from app.api.routes import router as legacy_router
 from app.api.v1.routes import router as v1_router
+app.include_router(v1_router)
 app.include_router(legacy_router, prefix="/api")
 app.include_router(v1_router, prefix="/api")
 

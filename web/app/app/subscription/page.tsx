@@ -158,7 +158,7 @@ export default function SubscriptionPage() {
   const [plans, setPlans] = useState<Plan[]>(MOCK_PLANS);
   const [current, setCurrent] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(false);
-  const [expandedFaq, setExpandedFaq] = useState<string | null>(null);
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token) {

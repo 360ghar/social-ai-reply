@@ -1,5 +1,6 @@
 from app.schemas.v1.auth import AuthLoginRequest, AuthRegisterRequest, AuthResponse, UserResponse, WorkspaceSummary
 from app.schemas.v1.product import (
+    BillingUpgradeRequest,
     BrandAnalysisRequest,
     BrandProfileRequest,
     BrandProfileResponse,
@@ -35,6 +36,7 @@ from app.schemas.v1.product import (
     WebhookRequest,
     WebhookResponse,
     WebhookTestRequest,
+    WebhookUpdateRequest,
     WorkspaceResponse,
 )
 
@@ -45,6 +47,7 @@ __all__ = [
     "UserResponse",
     "WorkspaceSummary",
     "BrandAnalysisRequest",
+    "BillingUpgradeRequest",
     "BrandProfileRequest",
     "BrandProfileResponse",
     "DashboardResponse",
@@ -79,5 +82,6 @@ __all__ = [
     "WebhookRequest",
     "WebhookResponse",
     "WebhookTestRequest",
+    "WebhookUpdateRequest",
     "WorkspaceResponse",
 ]
