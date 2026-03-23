@@ -1,256 +1,385 @@
 "use client";
-
-import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-
-import { useAuth } from "../../../components/auth-provider";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/toast";
 import {
-  apiRequest,
-  type BrandProfile,
-  type Dashboard,
-  type Keyword,
-  type MonitoredSubreddit,
-  type Opportunity,
-  type Persona,
-  type Project
-} from "../../../lib/api";
-import { setStoredProjectId } from "../../../lib/project";
-import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
+  Button,
+  EmptyState,
+  KpiCard,
+  StepIndicator,
+  UsageMeter,
+  Spinner,
+  ScoreBadge,
+  PlatformIcon,
+  SkeletonCard,
+} from "@/components/ui";
+import { apiRequest } from "@/lib/api";
 
-type ChecklistItem = {
-  label: string;
-  description: string;
-  done: boolean;
-  href: string;
-};
+interface SetupStatus {
+  brand_configured: boolean;
+  personas_count: number;
+  subreddits_count: number;
+}
+
+interface DashData {
+  projects: any[];
+  top_opportunities: any[];
+  subscription: any;
+  setup_status?: SetupStatus;
+}
+
+interface UsageData {
+  plan?: string;
+  metrics?: {
+    projects?: { used: number; limit: number };
+    keywords?: { used: number; limit: number };
+    subreddits?: { used: number; limit: number };
+  };
+}
+
+interface VisibilitySummary {
+  share_of_voice?: number;
+  total_citations?: number;
+  total_runs?: number;
+}
+
+interface ActivityItem {
+  id: number;
+  action: string;
+  created_at?: string;
+}
 
 export default function DashboardPage() {
   const { token } = useAuth();
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [brand, setBrand] = useState<BrandProfile | null>(null);
-  const [personas, setPersonas] = useState<Persona[]>([]);
-  const [keywords, setKeywords] = useState<Keyword[]>([]);
-  const [subreddits, setSubreddits] = useState<MonitoredSubreddit[]>([]);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-  const [businessName, setBusinessName] = useState("");
-  const [businessDescription, setBusinessDescription] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const project = dashboard ? getCurrentProject(dashboard) : null;
-
-  async function loadDashboardAndDetails(selectedProjectId?: number) {
-    if (!token) {
-      return;
-    }
-    const dashboardPayload = await fetchDashboard(token);
-    setDashboard(dashboardPayload);
-    const currentProject =
-      (selectedProjectId ? dashboardPayload.projects.find((item) => item.id === selectedProjectId) : null) ??
-      getCurrentProject(dashboardPayload);
-
-    if (!currentProject) {
-      setBrand(null);
-      setPersonas([]);
-      setKeywords([]);
-      setSubreddits([]);
-      setOpportunities([]);
-      return;
-    }
-
-    const [brandPayload, personaPayload, keywordPayload, subredditPayload, opportunityPayload] = await Promise.all([
-      apiRequest<BrandProfile>(`/v1/brand/${currentProject.id}`, {}, token),
-      apiRequest<Persona[]>(`/v1/personas?project_id=${currentProject.id}`, {}, token),
-      apiRequest<Keyword[]>(`/v1/discovery/keywords?project_id=${currentProject.id}`, {}, token),
-      apiRequest<MonitoredSubreddit[]>(`/v1/discovery/subreddits?project_id=${currentProject.id}`, {}, token),
-      apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${currentProject.id}`, {}, token)
-    ]);
-
-    setBrand(brandPayload);
-    setPersonas(personaPayload);
-    setKeywords(keywordPayload);
-    setSubreddits(subredditPayload);
-    setOpportunities(opportunityPayload);
-  }
+  const toast = useToast();
+  const [loading, setLoading] = useState(true);
+  const [dash, setDash] = useState<DashData | null>(null);
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [visibility, setVisibility] = useState<VisibilitySummary | null>(null);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [bizName, setBizName] = useState("");
+  const [bizDesc, setBizDesc] = useState("");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!token) return;
-    let ignore = false;
-    loadDashboardAndDetails()
-      .catch((err) => { if (!ignore) setError(err.message); });
-    return () => { ignore = true; };
+    loadAll();
   }, [token]);
 
-  const checklist = useMemo<ChecklistItem[]>(() => {
-    return [
-      {
-        label: "Add your product",
-        description: "Tell RedditFlow what you sell and paste your website.",
-        done: Boolean(brand?.website_url || brand?.product_summary || brand?.summary),
-        href: "/app/brand"
-      },
-      {
-        label: "Add customer types",
-        description: "Write down who you want to reach on Reddit.",
-        done: personas.length > 0,
-        href: "/app/persona"
-      },
-      {
-        label: "Create search words",
-        description: "Use customer language so we can find the right posts.",
-        done: keywords.length > 0,
-        href: "/app/discovery"
-      },
-      {
-        label: "Pick communities",
-        description: "Choose the subreddits worth checking first.",
-        done: subreddits.length > 0,
-        href: "/app/subreddits"
-      },
-      {
-        label: "Find matching posts",
-        description: "Run a scan and start drafting helpful replies.",
-        done: opportunities.length > 0,
-        href: "/app/discovery"
-      }
-    ];
-  }, [brand, keywords.length, opportunities.length, personas.length, subreddits.length]);
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [dashRes, usageRes, visRes, actRes] = await Promise.allSettled([
+        apiRequest<DashData>("/v1/dashboard", {}, token),
+        apiRequest<UsageData>("/v1/usage", {}, token),
+        apiRequest<VisibilitySummary>("/v1/visibility/summary", {}, token),
+        apiRequest<{ items: ActivityItem[] }>("/v1/activity", {}, token),
+      ]);
 
-  const nextStep = checklist.find((item) => !item.done) ?? checklist[checklist.length - 1];
+      if (dashRes.status === "fulfilled") setDash(dashRes.value);
+      if (usageRes.status === "fulfilled") setUsage(usageRes.value);
+      if (visRes.status === "fulfilled") setVisibility(visRes.value);
+      if (actRes.status === "fulfilled") setActivity(actRes.value.items || []);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }
 
-  async function createBusiness(event: FormEvent) {
-    event.preventDefault();
-    if (!token || !businessName.trim()) {
+  async function handleCreate() {
+    if (!bizName.trim()) {
+      toast.warning("Please enter a business name.");
       return;
     }
-    setSaving(true);
-    setError(null);
+    setCreating(true);
     try {
-      const created = await apiRequest<Project>("/v1/projects", {
+      await apiRequest("/v1/projects", {
         method: "POST",
-        body: JSON.stringify({ name: businessName.trim(), description: businessDescription.trim() || null })
+        body: JSON.stringify({
+          name: bizName.trim(),
+          description: bizDesc.trim() || null,
+        }),
       }, token);
-      setStoredProjectId(created.id);
-      setBusinessName("");
-      setBusinessDescription("");
-      await loadDashboardAndDetails(created.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the business.");
-    } finally {
-      setSaving(false);
+      toast.success("Project created!", "Now set up your brand profile.");
+      setBizName("");
+      setBizDesc("");
+      setShowCreate(false);
+      loadAll();
+    } catch (e: any) {
+      toast.error("Could not create project", e.message);
     }
+    setCreating(false);
+  }
+
+  const hasProject = (dash?.projects?.length || 0) > 0;
+  const topOpps = dash?.top_opportunities || [];
+
+  // Setup steps
+  const setupStatus = dash?.setup_status;
+  const steps = [
+    { label: "Create Project", done: hasProject },
+    { label: "Set Up Brand", done: setupStatus?.brand_configured || false },
+    { label: "Add Audience", done: (setupStatus?.personas_count || 0) > 0 },
+    { label: "First Scan", done: topOpps.length > 0 },
+    { label: "Track AI Visibility", done: (visibility?.total_runs || 0) > 0 },
+  ];
+  const currentStep = steps.findIndex((s) => !s.done);
+  const completedCount = steps.filter((s) => s.done).length;
+
+  if (loading) {
+    return (
+      <div>
+        <h2 className="page-title">Dashboard</h2>
+        <div className="data-grid" style={{ marginTop: 24, gap: 24 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="layout-two">
-      <section className="card">
-        <div className="eyebrow">Start here</div>
-        <h2>{project ? `Use ${project.name} in 5 simple steps` : "Create your first business"}</h2>
-        <p>
-          {project
-            ? "Follow these steps from top to bottom. You do not need to use every page right away."
-            : "Everything starts with one business. Add its name now and you can fill in the rest step by step."}
-        </p>
-        {error ? <div className="notice">{error}</div> : null}
+    <div>
+      <div className="flex justify-between items-center" style={{ marginBottom: 24 }}>
+        <h2 className="page-title">Dashboard</h2>
+        {hasProject && <Button onClick={() => setShowCreate(true)}>+ New Project</Button>}
+      </div>
 
-        {!project ? (
-          <form className="item-list" onSubmit={createBusiness}>
-            <label className="field">
-              <span>Business name</span>
-              <input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Acme Analytics" />
-            </label>
-            <label className="field">
-              <span>What does this business sell?</span>
-              <textarea
-                value={businessDescription}
-                onChange={(event) => setBusinessDescription(event.target.value)}
-                placeholder="Short plain-English description"
-              />
-            </label>
-            <button className="primary-button" type="submit" disabled={saving}>
-              {saving ? "Creating..." : "Create business"}
-            </button>
-          </form>
-        ) : (
-          <>
-            <div className="step-list">
-              {checklist.map((item, index) => (
-                <div key={item.label} className={item.done ? "step-row done" : "step-row"}>
-                  <div className="step-marker">{index + 1}</div>
-                  <div className="step-copy">
-                    <strong>{item.label}</strong>
-                    <p>{item.description}</p>
-                  </div>
-                  <div className="step-action">
-                    <span className={item.done ? "badge success" : "badge"}>{item.done ? "Done" : "Next"}</span>
-                    <Link href={item.href} className="secondary-button">
-                      Open
-                    </Link>
+      {/* Setup Progress */}
+      {completedCount < 5 && (
+        <div className="card" style={{ marginBottom: 32, padding: 24 }}>
+          <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
+            <div>
+              <h3 className="card-title">Getting Started</h3>
+              <p className="text-muted">
+                {completedCount} of {steps.length} steps complete
+              </p>
+            </div>
+            <span
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "var(--accent)",
+              }}
+            >
+              {Math.round((completedCount / steps.length) * 100)}%
+            </span>
+          </div>
+          <StepIndicator steps={steps} currentStep={currentStep >= 0 ? currentStep : steps.length - 1} />
+          <div style={{ marginTop: 16 }}>
+            {currentStep === 0 && !hasProject && (
+              <Button onClick={() => setShowCreate(true)}>Create Your First Project</Button>
+            )}
+            {currentStep === 1 && (
+              <a href="/app/brand" className="primary-button" style={{ textDecoration: "none" }}>
+                Set Up Brand
+              </a>
+            )}
+            {currentStep === 2 && (
+              <a href="/app/persona" className="primary-button" style={{ textDecoration: "none" }}>
+                Add Audience
+              </a>
+            )}
+            {currentStep === 3 && (
+              <a href="/app/discovery" className="primary-button" style={{ textDecoration: "none" }}>
+                Run First Scan
+              </a>
+            )}
+            {currentStep === 4 && (
+              <a href="/app/visibility" className="primary-button" style={{ textDecoration: "none" }}>
+                Track AI Visibility
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* KPI Cards */}
+      <div className="data-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 32, gap: 24 }}>
+        <KpiCard
+          label="AI Visibility"
+          value={`${visibility?.share_of_voice || 0}%`}
+          onClick={() => (window.location.href = "/app/visibility")}
+        />
+        <KpiCard
+          label="Opportunities"
+          value={topOpps.length}
+          onClick={() => (window.location.href = "/app/discovery")}
+        />
+        <KpiCard
+          label="Citations Found"
+          value={visibility?.total_citations || 0}
+          onClick={() => (window.location.href = "/app/sources")}
+        />
+        <KpiCard
+          label="Prompt Runs"
+          value={visibility?.total_runs || 0}
+          onClick={() => (window.location.href = "/app/visibility")}
+        />
+      </div>
+
+      {/* Main Content: Two columns */}
+      <div className="data-grid" style={{ gridTemplateColumns: "1.5fr 1fr", gap: 24 }}>
+        {/* Top Opportunities */}
+        <div className="card" style={{ padding: 24 }}>
+          <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
+            <h3 className="card-title">Top Opportunities</h3>
+            <a href="/app/discovery" className="ghost-button" style={{ fontSize: 13, textDecoration: "none" }}>
+              View all →
+            </a>
+          </div>
+          {topOpps.length === 0 ? (
+            <EmptyState icon="🔍" title="No opportunities yet" description="Run a scan to discover matching Reddit threads." />
+          ) : (
+            <div className="item-list">
+              {topOpps.slice(0, 6).map((opp: any) => (
+                <div key={opp.id} className="list-row" style={{ padding: "12px 0" }}>
+                  <div className="flex justify-between items-center">
+                    <div style={{ flex: 1 }}>
+                      <div className="flex items-center gap-sm">
+                        <PlatformIcon platform="reddit" />
+                        <a
+                          href={opp.permalink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontWeight: 600,
+                            fontSize: 13,
+                            color: "var(--ink)",
+                            textDecoration: "none",
+                          }}
+                        >
+                          {(opp.title || "").substring(0, 60)}
+                          {(opp.title || "").length > 60 ? "..." : ""}
+                        </a>
+                      </div>
+                      <span className="text-muted" style={{ fontSize: 12 }}>
+                        r/{opp.subreddit_name}
+                      </span>
+                    </div>
+                    <ScoreBadge score={opp.score || 0} />
                   </div>
                 </div>
               ))}
             </div>
-            <div className="notice">
-              <strong>Recommended next step:</strong> {nextStep.label}
-              <br />
-              <span className="muted">{nextStep.description}</span>
-            </div>
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="eyebrow">Current business</div>
-        <h2>{project?.name ?? "No business selected yet"}</h2>
-        <p>{project?.description ?? "Create one business first, then follow the step-by-step checklist."}</p>
-        <div className="kpi-grid">
-          <div className="kpi-card">
-            <div className="meta-label">Customer types</div>
-            <strong>{personas.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <div className="meta-label">Search words</div>
-            <strong>{keywords.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <div className="meta-label">Communities</div>
-            <strong>{subreddits.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <div className="meta-label">Matches found</div>
-            <strong>{opportunities.length}</strong>
-          </div>
-        </div>
-        {brand?.summary ? (
-          <div className="list-row">
-            <strong>What RedditFlow knows about your product</strong>
-            <p>{brand.summary}</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="card">
-        <div className="eyebrow">Best matches</div>
-        <h2>Posts worth looking at first</h2>
-        <div className="item-list">
-          {opportunities.length ? (
-            opportunities.slice(0, 6).map((opportunity) => (
-              <a key={opportunity.id} href={opportunity.permalink} target="_blank" rel="noreferrer" className="opportunity-card">
-                <div className="badge-row">
-                  <span className="score-pill">Match {opportunity.score}/100</span>
-                  <span className="badge">r/{opportunity.subreddit_name}</span>
-                </div>
-                <strong>{opportunity.title}</strong>
-                <p>{opportunity.body_excerpt?.slice(0, 180) ?? "No preview available."}</p>
-              </a>
-            ))
-          ) : (
-            <div className="empty-state">
-              Your matches will appear here after you add search words, choose communities, and run a scan.
-            </div>
           )}
         </div>
-      </section>
+
+        {/* Activity + Usage */}
+        <div>
+          {/* Usage */}
+          {usage && (
+            <div className="card" style={{ marginBottom: 24, padding: 24 }}>
+              <h3 className="card-title" style={{ marginBottom: 16 }}>
+                Plan Usage
+              </h3>
+              <UsageMeter
+                label="Projects"
+                used={usage.metrics?.projects?.used || 0}
+                limit={usage.metrics?.projects?.limit || 5}
+              />
+              <div style={{ marginTop: 12 }}>
+                <UsageMeter
+                  label="Keywords"
+                  used={usage.metrics?.keywords?.used || 0}
+                  limit={usage.metrics?.keywords?.limit || 10}
+                />
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <UsageMeter
+                  label="Communities"
+                  used={usage.metrics?.subreddits?.used || 0}
+                  limit={usage.metrics?.subreddits?.limit || 5}
+                />
+              </div>
+              <a
+                href="/app/subscription"
+                className="ghost-button"
+                style={{
+                  display: "block",
+                  textAlign: "center",
+                  marginTop: 16,
+                  fontSize: 13,
+                  textDecoration: "none",
+                }}
+              >
+                {usage.plan === "free" ? "Upgrade Plan →" : "Manage Billing →"}
+              </a>
+            </div>
+          )}
+
+          {/* Activity Timeline */}
+          <div className="card" style={{ padding: 24 }}>
+            <h3 className="card-title" style={{ marginBottom: 16 }}>
+              Recent Activity
+            </h3>
+            {activity.length === 0 ? (
+              <p className="text-muted" style={{ textAlign: "center", padding: 16 }}>
+                No activity yet. Start by setting up your brand.
+              </p>
+            ) : (
+              <div className="item-list">
+                {activity.slice(0, 8).map((a) => (
+                  <div key={a.id} className="list-row" style={{ padding: "8px 0" }}>
+                    <div className="text-muted" style={{ fontSize: 13 }}>
+                      {a.action.replace(/_/g, " ").replace(/\./g, " → ")}
+                    </div>
+                    <div className="text-muted" style={{ fontSize: 11 }}>
+                      {a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Create Project Form */}
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Create New Project</h3>
+              <button className="ghost-button modal-close" onClick={() => setShowCreate(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label className="field-label">Business Name</label>
+                <input
+                  type="text"
+                  value={bizName}
+                  onChange={(e) => setBizName(e.target.value)}
+                  placeholder="Your company or product name"
+                />
+              </div>
+              <div className="field">
+                <label className="field-label">Description (optional)</label>
+                <textarea
+                  rows={3}
+                  value={bizDesc}
+                  onChange={(e) => setBizDesc(e.target.value)}
+                  placeholder="What does your business do?"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
+                <button className="secondary-button" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </button>
+                <Button loading={creating} onClick={handleCreate}>
+                  Create Project
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

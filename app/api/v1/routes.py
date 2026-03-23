@@ -33,6 +33,7 @@ from app.db.saas_models import (
     SubredditAnalysis,
     WebhookEndpoint,
     Workspace,
+    Subscription,
 )
 from app.db.session import get_db
 from app.schemas.v1.auth import AuthLoginRequest, AuthRegisterRequest, AuthResponse, UserResponse, WorkspaceSummary
@@ -41,6 +42,7 @@ from app.schemas.v1.product import (
     BrandProfileRequest,
     BrandProfileResponse,
     DashboardResponse,
+    SetupStatus,
     InvitationRequest,
     InvitationResponse,
     KeywordGenerateRequest,
@@ -426,10 +428,20 @@ def dashboard(
             .order_by(Opportunity.score.desc(), Opportunity.created_at.desc())
             .limit(12)
         ).all()
+    # Build setup status from first active project
+    setup = SetupStatus()
+    if project_ids:
+        pid = project_ids[0]
+        brand = db.scalar(select(BrandProfile).where(BrandProfile.project_id == pid))
+        setup.brand_configured = brand is not None and bool(brand.brand_name)
+        setup.personas_count = db.scalar(select(func.count()).select_from(Persona).where(Persona.project_id == pid)) or 0
+        setup.subreddits_count = db.scalar(select(func.count()).select_from(MonitoredSubreddit).where(MonitoredSubreddit.project_id == pid)) or 0
+
     return DashboardResponse(
         projects=[ProjectResponse.model_validate(project) for project in projects],
         top_opportunities=[OpportunityResponse.model_validate(item) for item in top_opportunities],
         subscription=_subscription_response(db, workspace),
+        setup_status=setup,
     )
 
 
@@ -1049,6 +1061,53 @@ def generate_reply_draft(
     return ReplyDraftResponse.model_validate(draft)
 
 
+@router.get("/drafts/replies")
+def list_reply_drafts(
+    status_filter: str = Query(default="DRAFTING", alias="status"),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """List reply drafts with enriched opportunity data for Content Studio."""
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        return []
+    opp_status = OpportunityStatus(status_filter)
+    # Get latest draft per opportunity using a subquery
+    from sqlalchemy import and_
+    latest_draft_sq = (
+        select(ReplyDraft.opportunity_id, func.max(ReplyDraft.id).label("max_id"))
+        .group_by(ReplyDraft.opportunity_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(ReplyDraft, Opportunity)
+        .join(latest_draft_sq, and_(
+            ReplyDraft.opportunity_id == latest_draft_sq.c.opportunity_id,
+            ReplyDraft.id == latest_draft_sq.c.max_id,
+        ))
+        .join(Opportunity, Opportunity.id == ReplyDraft.opportunity_id)
+        .where(Opportunity.project_id == proj.id, Opportunity.status == opp_status)
+        .order_by(ReplyDraft.created_at.desc())
+    ).all()
+    results = []
+    for draft, opp in rows:
+        results.append({
+            "id": draft.id,
+            "opportunity_id": opp.id,
+            "content": draft.content,
+            "rationale": draft.rationale or "",
+            "version": draft.version,
+            "created_at": draft.created_at.isoformat() if draft.created_at else None,
+            "opportunity_title": opp.title,
+            "opportunity_subreddit": opp.subreddit_name,
+            "permalink": opp.permalink,
+            "body_excerpt": opp.body_excerpt,
+        })
+    return results
+
+
 @router.post("/drafts/posts", response_model=PostDraftResponse, status_code=status.HTTP_201_CREATED)
 def generate_post_draft(
     payload: PostDraftRequest,
@@ -1435,3 +1494,463 @@ def redeem_code(
     redemption.redeemed_at = datetime.now(timezone.utc)
     db.commit()
     return RedemptionResponse(success=True, plan_code=redemption.plan_code, message="Plan upgraded successfully.")
+
+
+# ── Password Reset ──────────────────────────────────────────────
+
+@router.post("/auth/forgot-password")
+def forgot_password(payload: dict, db: Session = Depends(get_db)):
+    email = payload.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(400, "Email is required.")
+    user = db.scalar(select(AccountUser).where(AccountUser.email == email))
+    if not user:
+        return {"ok": True}  # Don't reveal if email exists
+    import secrets
+    from app.db.saas_models import PasswordResetToken
+    token = secrets.token_urlsafe(48)
+    expires = datetime.utcnow() + timedelta(hours=1)
+    db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=expires))
+    db.commit()
+    from app.services.product.email_service import EmailService
+    EmailService.send_password_reset(user.email, token, user.full_name)
+    return {"ok": True}
+
+
+@router.post("/auth/reset-password")
+def reset_password(payload: dict, db: Session = Depends(get_db)):
+    token = payload.get("token", "")
+    new_password = payload.get("password", "")
+    if not token or len(new_password) < 8:
+        raise HTTPException(400, "Token and password (min 8 chars) required.")
+    from app.db.saas_models import PasswordResetToken
+    reset = db.scalar(select(PasswordResetToken).where(
+        PasswordResetToken.token == token,
+        PasswordResetToken.used_at.is_(None),
+        PasswordResetToken.expires_at > datetime.utcnow(),
+    ))
+    if not reset:
+        raise HTTPException(400, "Invalid or expired reset link.")
+    user = db.scalar(select(AccountUser).where(AccountUser.id == reset.user_id))
+    user.password_hash = hash_password(new_password)
+    reset.used_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "message": "Password updated. You can now log in."}
+
+
+# ── Notifications ───────────────────────────────────────────────
+
+@router.get("/notifications")
+def list_notifications(
+    limit: int = 20, offset: int = 0, unread_only: bool = False,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import Notification
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    q = db.query(Notification).filter(Notification.workspace_id == workspace.id)
+    if unread_only:
+        q = q.filter(Notification.is_read == False)
+    total = q.count()
+    items = q.order_by(Notification.created_at.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [
+            {"id": n.id, "type": n.type, "title": n.title, "body": n.body,
+             "action_url": n.action_url, "is_read": n.is_read,
+             "created_at": n.created_at.isoformat() if n.created_at else None}
+            for n in items
+        ],
+        "total": total,
+        "unread_count": db.query(Notification).filter(
+            Notification.workspace_id == workspace.id, Notification.is_read == False
+        ).count(),
+    }
+
+
+@router.put("/notifications/{nid}/read")
+def mark_notification_read(
+    nid: int,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import Notification
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    n = db.scalar(select(Notification).where(Notification.id == nid, Notification.workspace_id == workspace.id))
+    if not n:
+        raise HTTPException(404, "Notification not found.")
+    n.is_read = True
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/notifications/read-all")
+def mark_all_read(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import Notification
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    db.query(Notification).filter(
+        Notification.workspace_id == workspace.id, Notification.is_read == False
+    ).update({"is_read": True})
+    db.commit()
+    return {"ok": True}
+
+
+# ── Activity Log ────────────────────────────────────────────────
+
+@router.get("/activity")
+def list_activity(
+    limit: int = 20, offset: int = 0,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import ActivityLog
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    items = db.query(ActivityLog).filter(ActivityLog.workspace_id == workspace.id) \
+        .order_by(ActivityLog.created_at.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [
+            {"id": a.id, "action": a.action, "entity_type": a.entity_type,
+             "entity_id": a.entity_id, "metadata": a.metadata_json,
+             "created_at": a.created_at.isoformat() if a.created_at else None}
+            for a in items
+        ]
+    }
+
+
+# ── Usage Metrics ───────────────────────────────────────────────
+
+@router.get("/usage")
+def get_usage(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    # Billing restrictions removed - always return free plan with unlimited usage
+    project_id = None
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if proj:
+        project_id = proj.id
+    from app.services.product.entitlements import count_projects, count_active_keywords, count_active_subreddits
+    return {
+        "plan": "free",
+        "metrics": {
+            "projects": {"used": count_projects(db, workspace.id), "limit": 999999},
+            "keywords": {"used": count_active_keywords(db, project_id) if project_id else 0, "limit": 999999},
+            "subreddits": {"used": count_active_subreddits(db, project_id) if project_id else 0, "limit": 999999},
+        },
+    }
+
+
+# ── AI Visibility (Prompt Sets) ─────────────────────────────────
+
+@router.get("/prompt-sets")
+def list_prompt_sets(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import PromptSet
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+    sets = db.query(PromptSet).filter(PromptSet.project_id == proj.id).order_by(PromptSet.created_at.desc()).all()
+    return {
+        "items": [
+            {"id": s.id, "name": s.name, "category": s.category,
+             "prompts": s.prompts or [], "target_models": s.target_models or [],
+             "is_active": s.is_active, "schedule": s.schedule,
+             "created_at": s.created_at.isoformat() if s.created_at else None}
+            for s in sets
+        ]
+    }
+
+
+@router.post("/prompt-sets", status_code=201)
+def create_prompt_set(
+    payload: dict,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import PromptSet
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+    ps = PromptSet(
+        project_id=proj.id,
+        name=payload.get("name", "Untitled"),
+        category=payload.get("category", "general"),
+        prompts=payload.get("prompts", []),
+        target_models=payload.get("target_models", ["chatgpt", "perplexity", "gemini", "claude"]),
+        schedule=payload.get("schedule", "manual"),
+    )
+    db.add(ps)
+    db.commit()
+    db.refresh(ps)
+    _record_audit(
+        db,
+        workspace_id=workspace.id,
+        project_id=proj.id,
+        actor_user_id=current_user.id,
+        event_type="prompt_set.created",
+        entity_type="PromptSet",
+        entity_id=str(ps.id),
+    )
+    return {"id": ps.id, "name": ps.name}
+
+
+@router.post("/prompt-sets/{psid}/run")
+def run_prompt_set(
+    psid: int,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import PromptSet, PromptRun, AIResponse, BrandMention, Citation
+    from app.services.product.visibility import ModelRunner, MentionDetector, CitationExtractor
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    ps = db.scalar(select(PromptSet).where(PromptSet.id == psid, PromptSet.project_id == proj.id))
+    if not ps:
+        raise HTTPException(404, "Prompt set not found.")
+
+    brand = db.scalar(select(BrandProfile).where(BrandProfile.project_id == proj.id))
+    brand_name = brand.brand_name if brand else proj.name
+    competitors = []
+
+    runner = ModelRunner()
+    detector = MentionDetector()
+    extractor = CitationExtractor()
+
+    results = []
+    for prompt_text in (ps.prompts or []):
+        for model in (ps.target_models or ["chatgpt"]):
+            pr = PromptRun(prompt_set_id=ps.id, model_name=model, prompt_text=prompt_text, status="running")
+            db.add(pr)
+            db.flush()
+
+            response_text = runner.run_prompt(prompt_text, model)
+            if response_text:
+                pr.status = "complete"
+                pr.completed_at = datetime.utcnow()
+
+                mentions = detector.detect_mentions(response_text, brand_name, competitors)
+                citations = extractor.extract_citations(response_text)
+
+                ai_resp = AIResponse(
+                    prompt_run_id=pr.id, model_name=model, raw_response=response_text,
+                    brand_mentioned=mentions["brand_mentioned"],
+                    competitor_mentions=mentions["competitor_mentions"],
+                    sentiment=mentions["sentiment"],
+                    response_length=len(response_text),
+                )
+                db.add(ai_resp)
+                db.flush()
+
+                if mentions["brand_mentioned"]:
+                    db.add(BrandMention(
+                        ai_response_id=ai_resp.id, entity_name=brand_name,
+                        mention_type="brand", context_snippet=response_text[:200],
+                    ))
+                for comp in mentions["competitor_mentions"]:
+                    db.add(BrandMention(
+                        ai_response_id=ai_resp.id, entity_name=comp["name"],
+                        mention_type="competitor",
+                    ))
+                for cit in citations:
+                    db.add(Citation(
+                        ai_response_id=ai_resp.id, url=cit["url"],
+                        domain=cit["domain"], content_type=cit["content_type"],
+                    ))
+
+                results.append({"prompt": prompt_text[:80], "model": model, "brand_mentioned": mentions["brand_mentioned"], "citations": len(citations)})
+            else:
+                pr.status = "failed"
+                pr.error_message = "No response from model"
+                results.append({"prompt": prompt_text[:80], "model": model, "brand_mentioned": False, "citations": 0, "error": True})
+
+    db.commit()
+    _record_audit(
+        db,
+        workspace_id=workspace.id,
+        project_id=proj.id,
+        actor_user_id=current_user.id,
+        event_type="visibility.run",
+        entity_type="PromptSet",
+        entity_id=str(ps.id),
+    )
+    return {"prompt_set_id": ps.id, "results": results, "total_runs": len(results)}
+
+
+@router.get("/visibility/summary")
+def visibility_summary(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import PromptRun, AIResponse, Citation, PromptSet
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    total_runs = db.query(PromptRun).join(PromptSet).filter(PromptSet.project_id == proj.id, PromptRun.status == "complete").count()
+    total_mentioned = db.query(AIResponse).join(PromptRun).join(PromptSet).filter(
+        PromptSet.project_id == proj.id, AIResponse.brand_mentioned == True
+    ).count()
+    total_citations = db.query(Citation).join(AIResponse).join(PromptRun).join(PromptSet).filter(
+        PromptSet.project_id == proj.id
+    ).count()
+    sov = round((total_mentioned / total_runs * 100), 1) if total_runs > 0 else 0.0
+
+    # Per-model breakdown
+    models = {}
+    for model in ["chatgpt", "perplexity", "gemini", "claude"]:
+        m_total = db.query(PromptRun).join(PromptSet).filter(
+            PromptSet.project_id == proj.id, PromptRun.model_name == model, PromptRun.status == "complete"
+        ).count()
+        m_mentioned = db.query(AIResponse).join(PromptRun).join(PromptSet).filter(
+            PromptSet.project_id == proj.id, PromptRun.model_name == model, AIResponse.brand_mentioned == True
+        ).count()
+        models[model] = {
+            "total_runs": m_total,
+            "brand_mentioned": m_mentioned,
+            "share_of_voice": round((m_mentioned / m_total * 100), 1) if m_total > 0 else 0.0,
+        }
+
+    return {
+        "total_runs": total_runs,
+        "brand_mentioned": total_mentioned,
+        "share_of_voice": sov,
+        "total_citations": total_citations,
+        "models": models,
+    }
+
+
+@router.get("/visibility/prompts")
+def visibility_prompt_results(
+    limit: int = 20, offset: int = 0, model: str = None,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import PromptRun, AIResponse, PromptSet
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    q = db.query(PromptRun).join(PromptSet).filter(PromptSet.project_id == proj.id)
+    if model:
+        q = q.filter(PromptRun.model_name == model)
+    total = q.count()
+    runs = q.order_by(PromptRun.scheduled_at.desc()).offset(offset).limit(limit).all()
+
+    items = []
+    for r in runs:
+        resp = db.query(AIResponse).filter(AIResponse.prompt_run_id == r.id).first()
+        items.append({
+            "id": r.id, "prompt_text": r.prompt_text, "model_name": r.model_name,
+            "status": r.status, "brand_mentioned": resp.brand_mentioned if resp else False,
+            "competitor_mentions": resp.competitor_mentions if resp else [],
+            "sentiment": resp.sentiment if resp else None,
+            "citations_count": len(resp.citations) if resp else 0,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+        })
+    return {"items": items, "total": total}
+
+
+@router.get("/citations")
+def list_citations(
+    limit: int = 20, offset: int = 0, domain: str = None,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import Citation, AIResponse, PromptRun, PromptSet
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    q = db.query(Citation).join(AIResponse).join(PromptRun).join(PromptSet).filter(PromptSet.project_id == proj.id)
+    if domain:
+        q = q.filter(Citation.domain.contains(domain))
+    total = q.count()
+    items = q.order_by(Citation.first_seen_at.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [
+            {"id": c.id, "url": c.url, "domain": c.domain, "title": c.title,
+             "content_type": c.content_type,
+             "first_seen_at": c.first_seen_at.isoformat() if c.first_seen_at else None}
+            for c in items
+        ],
+        "total": total,
+    }
+
+
+@router.get("/sources/domains")
+def source_domains(
+    limit: int = 20,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import Citation, AIResponse, PromptRun, PromptSet
+    from sqlalchemy import func as sqlfunc
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    results = db.query(
+        Citation.domain,
+        sqlfunc.count(Citation.id).label("total"),
+    ).join(AIResponse).join(PromptRun).join(PromptSet).filter(
+        PromptSet.project_id == proj.id
+    ).group_by(Citation.domain).order_by(sqlfunc.count(Citation.id).desc()).limit(limit).all()
+
+    return {
+        "items": [{"domain": r[0], "total_citations": r[1]} for r in results]
+    }
+
+
+@router.get("/sources/gaps")
+def source_gaps(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    from app.db.saas_models import SourceGap
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = db.scalar(select(Project).where(Project.workspace_id == workspace.id, Project.status == ProjectStatus.ACTIVE))
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    gaps = db.query(SourceGap).filter(SourceGap.project_id == proj.id).order_by(SourceGap.citation_count.desc()).all()
+    return {
+        "items": [
+            {"id": g.id, "competitor_name": g.competitor_name, "domain": g.domain,
+             "citation_count": g.citation_count, "gap_type": g.gap_type,
+             "discovered_at": g.discovered_at.isoformat() if g.discovered_at else None}
+            for g in gaps
+        ]
+    }

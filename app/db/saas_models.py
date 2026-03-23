@@ -6,14 +6,17 @@ from enum import Enum
 from sqlalchemy import (
     JSON,
     Boolean,
+    Column,
     DateTime,
     Enum as SAEnum,
+    Float,
     ForeignKey,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -430,3 +433,145 @@ class AuditEvent(Base):
 
 Index("ix_projects_workspace_status", Project.workspace_id, Project.status)
 Index("ix_opportunities_project_status_score", Opportunity.project_id, Opportunity.status, Opportunity.score)
+
+
+# ── AI Visibility Models ──────────────────────────────────────────
+
+class PromptSet(Base):
+    __tablename__ = "prompt_sets"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    category = Column(String, default="general")  # intent, persona, funnel, geo
+    prompts = Column(JSON, default=list)  # list of prompt strings
+    target_models = Column(JSON, default=lambda: ["chatgpt", "perplexity", "gemini", "claude"])
+    is_active = Column(Boolean, default=True)
+    schedule = Column(String, default="daily")  # daily, weekly, manual
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project = relationship("Project", backref="prompt_sets")
+
+class PromptRun(Base):
+    __tablename__ = "prompt_runs"
+    id = Column(Integer, primary_key=True)
+    prompt_set_id = Column(Integer, ForeignKey("prompt_sets.id", ondelete="CASCADE"), nullable=False)
+    model_name = Column(String, nullable=False)
+    prompt_text = Column(String, nullable=False)
+    status = Column(String, default="queued")  # queued, running, complete, failed
+    error_message = Column(String, nullable=True)
+    scheduled_at = Column(DateTime, server_default=func.now())
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    prompt_set = relationship("PromptSet", backref="runs")
+
+class AIResponse(Base):
+    __tablename__ = "ai_responses"
+    id = Column(Integer, primary_key=True)
+    prompt_run_id = Column(Integer, ForeignKey("prompt_runs.id", ondelete="CASCADE"), nullable=False)
+    model_name = Column(String, nullable=False)
+    raw_response = Column(Text, nullable=False)
+    brand_mentioned = Column(Boolean, default=False)
+    competitor_mentions = Column(JSON, default=list)
+    sentiment = Column(String, nullable=True)  # positive, neutral, negative
+    response_length = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+    prompt_run = relationship("PromptRun", backref="responses")
+
+class BrandMention(Base):
+    __tablename__ = "brand_mentions"
+    id = Column(Integer, primary_key=True)
+    ai_response_id = Column(Integer, ForeignKey("ai_responses.id", ondelete="CASCADE"), nullable=False)
+    entity_name = Column(String, nullable=False)
+    mention_type = Column(String, default="brand")  # brand, competitor
+    context_snippet = Column(String, nullable=True)
+    position_in_response = Column(Integer, default=0)
+    ai_response = relationship("AIResponse", backref="mentions")
+
+class Citation(Base):
+    __tablename__ = "citations"
+    id = Column(Integer, primary_key=True)
+    ai_response_id = Column(Integer, ForeignKey("ai_responses.id", ondelete="CASCADE"), nullable=False)
+    url = Column(String, nullable=False)
+    domain = Column(String, nullable=False)
+    title = Column(String, nullable=True)
+    content_type = Column(String, nullable=True)  # review, comparison, discussion, tutorial
+    first_seen_at = Column(DateTime, server_default=func.now())
+    ai_response = relationship("AIResponse", backref="citations")
+
+class SourceDomain(Base):
+    __tablename__ = "source_domains"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    domain = Column(String, nullable=False)
+    total_citations = Column(Integer, default=0)
+    avg_influence_score = Column(Float, default=0.0)
+    last_cited_at = Column(DateTime, nullable=True)
+    category = Column(String, nullable=True)
+    project = relationship("Project", backref="source_domains")
+
+class SourceGap(Base):
+    __tablename__ = "source_gaps"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    competitor_name = Column(String, nullable=False)
+    domain = Column(String, nullable=False)
+    citation_count = Column(Integer, default=0)
+    gap_type = Column(String, default="competitor_cited_brand_not")
+    discovered_at = Column(DateTime, server_default=func.now())
+    project = relationship("Project", backref="source_gaps")
+
+class VisibilitySnapshot(Base):
+    __tablename__ = "visibility_snapshots"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    model_name = Column(String, nullable=False)
+    date = Column(DateTime, nullable=False)
+    total_prompts = Column(Integer, default=0)
+    brand_mentioned_count = Column(Integer, default=0)
+    share_of_voice = Column(Float, default=0.0)
+    top_competitors = Column(JSON, default=list)
+    project = relationship("Project", backref="visibility_snapshots")
+
+# ── Notification & Activity Models ────────────────────────────────
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("account_users.id", ondelete="CASCADE"), nullable=True)
+    type = Column(String, nullable=False)  # opportunity, visibility_drop, scan_complete, team, system
+    title = Column(String, nullable=False)
+    body = Column(String, nullable=True)
+    action_url = Column(String, nullable=True)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("account_users.id", ondelete="CASCADE"), nullable=True)
+    action = Column(String, nullable=False)
+    entity_type = Column(String, nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    metadata_json = Column(JSON, default=dict)
+    created_at = Column(DateTime, server_default=func.now())
+
+class UsageMetric(Base):
+    __tablename__ = "usage_metrics"
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    metric_key = Column(String, nullable=False)
+    current_value = Column(Integer, default=0)
+    limit_value = Column(Integer, default=0)
+    period_start = Column(DateTime, nullable=True)
+    period_end = Column(DateTime, nullable=True)
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("account_users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String, nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())

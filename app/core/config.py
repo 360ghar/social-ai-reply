@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     use_mock_llm: bool = False
 
+    # Gemini (primary LLM)
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3-flash-preview"
+    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+
     reddit_base_url: str = "https://www.reddit.com"
     reddit_user_agent: str = "redditflow/1.0"
 

@@ -33,8 +33,9 @@ class GeneratedKeyword:
 class ProductCopilot:
     def __init__(self) -> None:
         settings = get_settings()
-        self.api_key = settings.openai_api_key
-        self.model = settings.openai_model
+        self.api_key = settings.gemini_api_key or settings.openai_api_key
+        self.model = settings.gemini_model or "gemini-2-flash-preview"
+        self.api_url = settings.gemini_api_url or "https://generativelanguage.googleapis.com/v1beta"
         self.user_agent = settings.reddit_user_agent
 
     def analyze_website(self, website_url: str) -> WebsiteAnalysis:
@@ -211,27 +212,36 @@ class ProductCopilot:
             return "Invite interested users to ask for the process or request a demo."
         return "Offer a useful next step only if the conversation naturally asks for it."
 
+    def _call_gemini(self, system_prompt: str, user_content: str, temperature: float = 0.2) -> dict | None:
+        if not self.api_key:
+            return None
+        try:
+            url = f"{self.api_url}/models/{self.model}:generateContent?key={self.api_key}"
+            payload = {
+                "contents": [
+                    {"role": "user", "parts": [{"text": f"{system_prompt}\n\n{user_content}"}]}
+                ],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "responseMimeType": "application/json"
+                }
+            }
+            resp = httpx.post(url, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+            return json.loads(text)
+        except Exception:
+            logger.exception("Gemini API call failed")
+            return None
+
     def _structured_brand_analysis(self, text: str, fallback_name: str) -> WebsiteAnalysis | None:
         try:
-            from openai import OpenAI
-
-            client = OpenAI(api_key=self.api_key)
-            response = client.chat.completions.create(
-                model=self.model,
-                temperature=0.2,
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You extract go-to-market context for a Reddit engagement platform. "
-                            "Return JSON with brand_name, summary, product_summary, target_audience, call_to_action, voice_notes."
-                        ),
-                    },
-                    {"role": "user", "content": text[:12000]},
-                ],
+            system_prompt = (
+                "You extract go-to-market context for a Reddit engagement platform. "
+                "Return JSON with brand_name, summary, product_summary, target_audience, call_to_action, voice_notes."
             )
-            payload = json.loads(response.choices[0].message.content or "{}")
+            payload = self._call_gemini(system_prompt, text[:12000], temperature=0.2)
             if not payload:
                 return None
             return WebsiteAnalysis(
@@ -253,45 +263,31 @@ class ProductCopilot:
         prompt_context: str,
     ) -> tuple[str, str, str] | None:
         try:
-            from openai import OpenAI
-
-            client = OpenAI(api_key=self.api_key)
+            system_prompt = (
+                "Write a useful Reddit reply. Avoid spam, avoid sounding salesy, do not mention the company unless asked. "
+                "Return JSON with content and rationale."
+            )
             brand_context = {
                 "brand_name": brand.brand_name if brand else "",
                 "summary": brand.summary if brand else "",
                 "voice_notes": brand.voice_notes if brand else "",
                 "cta": brand.call_to_action if brand else "",
             }
-            response = client.chat.completions.create(
-                model=self.model,
-                temperature=0.4,
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Write a useful Reddit reply. Avoid spam, avoid sounding salesy, do not mention the company unless asked. "
-                            "Return JSON with content and rationale."
-                        ),
+            user_content = json.dumps(
+                {
+                    "opportunity": {
+                        "title": opportunity.title,
+                        "body_excerpt": opportunity.body_excerpt,
+                        "subreddit": opportunity.subreddit_name,
+                        "score_reasons": opportunity.score_reasons,
                     },
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {
-                                "opportunity": {
-                                    "title": opportunity.title,
-                                    "body_excerpt": opportunity.body_excerpt,
-                                    "subreddit": opportunity.subreddit_name,
-                                    "score_reasons": opportunity.score_reasons,
-                                },
-                                "brand": brand_context,
-                                "prompt_context": prompt_context,
-                            }
-                        ),
-                    },
-                ],
+                    "brand": brand_context,
+                    "prompt_context": prompt_context,
+                }
             )
-            payload = json.loads(response.choices[0].message.content or "{}")
+            payload = self._call_gemini(system_prompt, user_content, temperature=0.4)
+            if not payload:
+                return None
             content = (payload.get("content") or "").strip()
             if not content:
                 return None
@@ -302,32 +298,18 @@ class ProductCopilot:
 
     def _ai_post(self, brand: BrandProfile | None, prompt_context: str) -> tuple[str, str, str] | None:
         try:
-            from openai import OpenAI
-
-            client = OpenAI(api_key=self.api_key)
-            response = client.chat.completions.create(
-                model=self.model,
-                temperature=0.5,
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Return JSON with title, body, and rationale for a non-promotional Reddit post.",
-                    },
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {
-                                "brand_name": brand.brand_name if brand else "",
-                                "summary": brand.summary if brand else "",
-                                "voice_notes": brand.voice_notes if brand else "",
-                                "prompt_context": prompt_context,
-                            }
-                        ),
-                    },
-                ],
+            system_prompt = "Return JSON with title, body, and rationale for a non-promotional Reddit post."
+            user_content = json.dumps(
+                {
+                    "brand_name": brand.brand_name if brand else "",
+                    "summary": brand.summary if brand else "",
+                    "voice_notes": brand.voice_notes if brand else "",
+                    "prompt_context": prompt_context,
+                }
             )
-            payload = json.loads(response.choices[0].message.content or "{}")
+            payload = self._call_gemini(system_prompt, user_content, temperature=0.5)
+            if not payload:
+                return None
             title = (payload.get("title") or "").strip()
             body = (payload.get("body") or "").strip()
             if not title or not body:

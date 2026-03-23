@@ -1,55 +1,99 @@
 "use client";
-
-import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { ToastProvider, useToast } from "@/components/toast";
+import { Button } from "@/components/ui";
 
-import { useAuth } from "../../components/auth-provider";
-
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const { login } = useAuth();
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await login(email, password);
-      router.push("/app/dashboard");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to sign in.");
-    } finally {
-      setSaving(false);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      toast.warning("Please enter your email and password.");
+      return;
     }
+    setLoading(true);
+    try {
+      await login(email.trim().toLowerCase(), password);
+      toast.success("Welcome back!");
+      router.push("/app/dashboard");
+    } catch (e: any) {
+      toast.error("Login failed", e.message || "Invalid email or password.");
+    }
+    setLoading(false);
   }
 
   return (
-    <main className="auth-shell">
-      <form className="auth-card" onSubmit={onSubmit}>
-        <div className="eyebrow">Sign In</div>
-        <h2>Welcome back to RedditFlow.</h2>
-        <p>Sign in to continue finding Reddit posts and writing better replies.</p>
-        <label className="field">
-          <span>Email</span>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
-        </label>
-        <label className="field">
-          <span>Password</span>
-          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required />
-        </label>
-        {error ? <div className="notice">{error}</div> : null}
-        <button className="primary-button" disabled={saving} type="submit">
-          {saving ? "Signing in..." : "Sign In"}
-        </button>
-        <p>
-          Need an account? <Link href="/register">Create one here</Link>.
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <h2 style={{ color: "var(--accent)", fontWeight: 800, fontSize: 24, marginBottom: 4 }}>
+            RedditFlow
+          </h2>
+          <p className="text-muted">Sign in to your account</p>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="field">
+            <label className="field-label" htmlFor="email">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              required
+            />
+          </div>
+          <div className="field">
+            <div className="flex justify-between items-center">
+              <label className="field-label" htmlFor="password">
+                Password
+              </label>
+              <a href="/reset-password" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}>
+                Forgot password?
+              </a>
+            </div>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password"
+              autoComplete="current-password"
+              required
+            />
+          </div>
+          <Button type="submit" loading={loading} style={{ width: "100%", marginTop: 8 }}>
+            Sign In
+          </Button>
+        </form>
+
+        <p style={{ textAlign: "center", marginTop: 24, fontSize: 13 }}>
+          Need an account?{" "}
+          <a href="/register" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+            Sign up free
+          </a>
         </p>
-      </form>
-    </main>
+      </div>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <ToastProvider>
+      <LoginForm />
+    </ToastProvider>
   );
 }

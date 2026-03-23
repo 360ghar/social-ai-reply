@@ -354,7 +354,13 @@ class RedemptionResponse(BaseModel):
     message: str
 
 
+class SetupStatus(BaseModel):
+    brand_configured: bool = False
+    personas_count: int = 0
+    subreddits_count: int = 0
+
 class DashboardResponse(BaseModel):
     projects: list[ProjectResponse]
     top_opportunities: list[OpportunityResponse]
     subscription: SubscriptionResponse
+    setup_status: SetupStatus = SetupStatus()
