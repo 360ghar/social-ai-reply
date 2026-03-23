@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { forgotPassword, resetPassword } from "@/lib/api";
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const params = useSearchParams();
   const token = params.get("token");
   const toast = useToast();
@@ -101,5 +101,13 @@ export default function ResetPasswordPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="auth-shell"><div className="auth-card">Loading...</div></div>}>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

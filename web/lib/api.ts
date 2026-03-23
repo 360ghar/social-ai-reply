@@ -144,6 +144,14 @@ export type PromptTemplate = {
   updated_at: string;
 };
 
+export type Subscription = {
+  plan_code: string;
+  status: string;
+  current_period_end: string | null;
+  features: string[];
+  limits: Record<string, number>;
+};
+
 export type WebhookEndpoint = {
   id: number;
   workspace_id: number;
@@ -175,7 +183,7 @@ export function isAuthError(error: unknown): boolean {
   ].includes(error.message);
 }
 
-export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
   if (token) {

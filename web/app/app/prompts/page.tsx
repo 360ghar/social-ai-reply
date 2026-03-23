@@ -15,7 +15,7 @@ interface EditingTemplate extends Partial<PromptTemplate> {
 
 export default function PromptsPage() {
   const { token } = useAuth();
-  const { toast } = useToast();
+  const toast = useToast();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,7 @@ export default function PromptsPage() {
     fetchDashboard(token)
       .then(setDashboard)
       .catch((err) => {
-        toast({ type: "error", message: err.message });
+        toast.error("Failed to load", err.message);
         setLoading(false);
       });
   }, [token, toast]);
@@ -53,14 +53,14 @@ export default function PromptsPage() {
     apiRequest<PromptTemplate[]>(`/v1/prompts?project_id=${project.id}`, {}, token)
       .then(setTemplates)
       .catch((err) => {
-        toast({ type: "error", message: err.message });
+        toast.error("Failed to load prompts", err.message);
       })
       .finally(() => setLoading(false));
   }, [project, token, toast]);
 
   async function saveTemplate(template: EditingTemplate) {
     if (!token || !template.name || !template.system_prompt) {
-      toast({ type: "error", message: "Name and system prompt are required" });
+      toast.error("Validation failed", "Name and system prompt are required.");
       return;
     }
 
@@ -71,19 +71,21 @@ export default function PromptsPage() {
         {
           method: "PUT",
           body: JSON.stringify({
+            prompt_type: template.prompt_type || "reply",
             name: template.name,
             system_prompt: template.system_prompt,
             instructions: template.instructions || "",
+            is_default: template.is_default || false,
           }),
         },
         token
       );
       setTemplates((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
-      toast({ type: "success", message: "Template saved successfully" });
+      toast.success("Template saved");
       setShowDrawer(false);
       setEditingTemplate(null);
     } catch (err) {
-      toast({ type: "error", message: (err as Error).message });
+      toast.error("Save failed", (err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -91,32 +93,32 @@ export default function PromptsPage() {
 
   async function createTemplate() {
     if (!token || !project || !newTemplate.name || !newTemplate.system_prompt) {
-      toast({ type: "error", message: "Name and system prompt are required" });
+      toast.error("Validation failed", "Name and system prompt are required.");
       return;
     }
 
     setSaving(true);
     try {
       const created = await apiRequest<PromptTemplate>(
-        `/v1/prompts`,
+        `/v1/prompts?project_id=${project.id}`,
         {
           method: "POST",
           body: JSON.stringify({
-            project_id: project.id,
-            prompt_type: "custom",
+            prompt_type: "reply",
             name: newTemplate.name,
             system_prompt: newTemplate.system_prompt,
             instructions: newTemplate.instructions || "",
+            is_default: false,
           }),
         },
         token
       );
       setTemplates((rows) => [...rows, created]);
-      toast({ type: "success", message: "Template created successfully" });
+      toast.success("Template created");
       setShowCreateModal(false);
       setNewTemplate({ name: "", system_prompt: "", instructions: "" });
     } catch (err) {
-      toast({ type: "error", message: (err as Error).message });
+      toast.error("Create failed", (err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -130,23 +132,23 @@ export default function PromptsPage() {
     setSaving(true);
     try {
       const duplicated = await apiRequest<PromptTemplate>(
-        `/v1/prompts`,
+        `/v1/prompts?project_id=${project.id}`,
         {
           method: "POST",
           body: JSON.stringify({
-            project_id: project.id,
             prompt_type: template.prompt_type,
             name: `${template.name} (Copy)`,
             system_prompt: template.system_prompt,
             instructions: template.instructions,
+            is_default: false,
           }),
         },
         token
       );
       setTemplates((rows) => [...rows, duplicated]);
-      toast({ type: "success", message: "Template duplicated successfully" });
+      toast.success("Template duplicated");
     } catch (err) {
-      toast({ type: "error", message: (err as Error).message });
+      toast.error("Duplicate failed", (err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -161,10 +163,10 @@ export default function PromptsPage() {
     try {
       await apiRequest(`/v1/prompts/${id}`, { method: "DELETE" }, token);
       setTemplates((rows) => rows.filter((row) => row.id !== id));
-      toast({ type: "success", message: "Template deleted successfully" });
+      toast.success("Template deleted");
       setShowDeleteModal(null);
     } catch (err) {
-      toast({ type: "error", message: (err as Error).message });
+      toast.error("Delete failed", (err as Error).message);
     } finally {
       setDeleting(null);
     }
@@ -254,6 +256,7 @@ export default function PromptsPage() {
       {/* Create Modal */}
       {showCreateModal && (
         <Modal
+          open={showCreateModal}
           title="Create Reply Template"
           onClose={() => {
             setShowCreateModal(false);
@@ -422,13 +425,14 @@ export default function PromptsPage() {
       {/* Delete Confirmation Modal */}
       {showDeleteModal !== null && (
         <ConfirmModal
+          open={showDeleteModal !== null}
           title="Delete Template"
           message="Are you sure you want to delete this template? This action cannot be undone."
           onConfirm={() => deleteTemplate(showDeleteModal)}
-          onCancel={() => setShowDeleteModal(null)}
-          isLoading={deleting === showDeleteModal}
+          onClose={() => setShowDeleteModal(null)}
+          loading={deleting === showDeleteModal}
           confirmText="Delete"
-          cancelText="Cancel"
+          danger
         />
       )}
     </div>

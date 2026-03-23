@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -34,6 +35,7 @@ class ProductCopilot:
     def __init__(self) -> None:
         settings = get_settings()
         self.api_key = settings.gemini_api_key or settings.openai_api_key
+        self.use_ai = bool(self.api_key) and "PYTEST_CURRENT_TEST" not in os.environ
         self.model = settings.gemini_model or "gemini-2-flash-preview"
         self.api_url = settings.gemini_api_url or "https://generativelanguage.googleapis.com/v1beta"
         self.user_agent = settings.reddit_user_agent
@@ -53,7 +55,7 @@ class ProductCopilot:
         cleaned = re.sub(r"\s+", " ", text)
         fallback_name = urlparse(website_url).netloc.replace("www.", "").split(".")[0].replace("-", " ").title()
         summary = cleaned[:500] or f"{fallback_name} helps customers solve a focused problem."
-        if self.api_key:
+        if self.use_ai:
             ai_result = self._structured_brand_analysis(cleaned or fallback_name, fallback_name)
             if ai_result:
                 return ai_result
@@ -123,7 +125,7 @@ class ProductCopilot:
         prompt_context = "\n".join(
             f"{prompt.name}: {prompt.instructions}" for prompt in prompts if prompt.prompt_type == "reply"
         )
-        if self.api_key:
+        if self.use_ai:
             ai_reply = self._ai_reply(opportunity, brand, prompt_context)
             if ai_reply:
                 return ai_reply
@@ -146,7 +148,7 @@ class ProductCopilot:
         prompt_context = "\n".join(
             f"{prompt.name}: {prompt.instructions}" for prompt in prompts if prompt.prompt_type == "post"
         )
-        if self.api_key:
+        if self.use_ai:
             ai_post = self._ai_post(brand, prompt_context)
             if ai_post:
                 return ai_post
@@ -213,7 +215,7 @@ class ProductCopilot:
         return "Offer a useful next step only if the conversation naturally asks for it."
 
     def _call_gemini(self, system_prompt: str, user_content: str, temperature: float = 0.2) -> dict | None:
-        if not self.api_key:
+        if not self.use_ai or not self.api_key:
             return None
         try:
             url = f"{self.api_url}/models/{self.model}:generateContent?key={self.api_key}"

@@ -253,7 +253,7 @@ class PromptTemplateRequest(BaseModel):
     prompt_type: str = Field(pattern="^(reply|post|analysis)$")
     name: str = Field(min_length=2, max_length=255)
     system_prompt: str = Field(min_length=10, max_length=8000)
-    instructions: str = Field(min_length=10, max_length=8000)
+    instructions: str = Field(default="", max_length=8000)
     is_default: bool = False
 
 
@@ -275,6 +275,10 @@ class WebhookRequest(BaseModel):
     target_url: HttpUrl
     event_types: list[str] = Field(default_factory=lambda: ["opportunity.found"])
     is_active: bool = True
+
+
+class WebhookUpdateRequest(BaseModel):
+    is_active: bool
 
 
 class WebhookResponse(BaseModel):
@@ -342,6 +346,10 @@ class PlanResponse(BaseModel):
     price_monthly: int
     features: list[str]
     limits: dict[str, int]
+
+
+class BillingUpgradeRequest(BaseModel):
+    plan_code: str = Field(min_length=2, max_length=50)
 
 
 class RedemptionRequest(BaseModel):

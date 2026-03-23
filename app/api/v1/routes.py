@@ -31,6 +31,7 @@ from app.db.saas_models import (
     ScanRun,
     ScanStatus,
     SubredditAnalysis,
+    SubscriptionStatus,
     WebhookEndpoint,
     Workspace,
     Subscription,
@@ -38,6 +39,7 @@ from app.db.saas_models import (
 from app.db.session import get_db
 from app.schemas.v1.auth import AuthLoginRequest, AuthRegisterRequest, AuthResponse, UserResponse, WorkspaceSummary
 from app.schemas.v1.product import (
+    BillingUpgradeRequest,
     BrandAnalysisRequest,
     BrandProfileRequest,
     BrandProfileResponse,
@@ -75,6 +77,7 @@ from app.schemas.v1.product import (
     WebhookRequest,
     WebhookResponse,
     WebhookTestRequest,
+    WebhookUpdateRequest,
 )
 from app.services.product.copilot import ProductCopilot
 from app.services.product.encryption import encrypt_text
@@ -1236,6 +1239,24 @@ def create_webhook(
     return WebhookResponse.model_validate(row)
 
 
+@router.patch("/webhooks/{webhook_id}", response_model=WebhookResponse)
+def update_webhook(
+    webhook_id: int,
+    payload: WebhookUpdateRequest,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+) -> WebhookResponse:
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    row = db.scalar(select(WebhookEndpoint).where(WebhookEndpoint.id == webhook_id, WebhookEndpoint.workspace_id == workspace.id))
+    if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    row.is_active = payload.is_active
+    db.commit()
+    db.refresh(row)
+    return WebhookResponse.model_validate(row)
+
+
 @router.delete("/webhooks/{webhook_id}")
 def delete_webhook(
     webhook_id: int,
@@ -1474,6 +1495,26 @@ def current_billing(
     return _subscription_response(db, workspace)
 
 
+@router.post("/billing/upgrade", response_model=SubscriptionResponse)
+def upgrade_billing(
+    payload: BillingUpgradeRequest,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+) -> SubscriptionResponse:
+    membership = _ensure_workspace_membership(db, workspace.id, current_user.id)
+    if membership.role == MembershipRole.MEMBER:
+        raise HTTPException(status_code=403, detail="Only admins can change billing.")
+    if payload.plan_code not in {plan["code"] for plan in PLAN_CATALOG}:
+        raise HTTPException(status_code=404, detail="Plan not found.")
+    subscription = get_or_create_subscription(db, workspace)
+    subscription.plan_code = payload.plan_code
+    subscription.status = SubscriptionStatus.ACTIVE
+    subscription.current_period_end = datetime.now(timezone.utc) + timedelta(days=30)
+    db.commit()
+    return _subscription_response(db, workspace)
+
+
 @router.post("/redemptions", response_model=RedemptionResponse)
 def redeem_code(
     payload: RedemptionRequest,
@@ -1494,6 +1535,20 @@ def redeem_code(
     redemption.redeemed_at = datetime.now(timezone.utc)
     db.commit()
     return RedemptionResponse(success=True, plan_code=redemption.plan_code, message="Plan upgraded successfully.")
+
+
+@router.delete("/workspace")
+def delete_workspace(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    membership = _ensure_workspace_membership(db, workspace.id, current_user.id)
+    if membership.role != MembershipRole.OWNER:
+        raise HTTPException(status_code=403, detail="Only the workspace owner can delete this workspace.")
+    db.delete(workspace)
+    db.commit()
+    return {"ok": True}
 
 
 # ── Password Reset ──────────────────────────────────────────────

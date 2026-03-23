@@ -29,9 +29,9 @@ export default function PersonaPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isEditingId, setIsEditingId] = useState<string | null>(null);
+  const [isEditingId, setIsEditingId] = useState<number | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const project = dashboard ? getCurrentProject(dashboard) : null;
@@ -90,7 +90,11 @@ export default function PersonaPage() {
 
   async function updatePersona(event: FormEvent) {
     event.preventDefault();
-    if (!token || !isEditingId) {
+    await submitPersonaUpdate();
+  }
+
+  async function submitPersonaUpdate() {
+    if (!token || isEditingId === null) {
       return;
     }
     setIsUpdating(true);
@@ -110,7 +114,7 @@ export default function PersonaPage() {
     }
   }
 
-  async function togglePersona(personaId: string, currentActive: boolean) {
+  async function togglePersona(personaId: number, currentActive: boolean) {
     if (!token) return;
     try {
       const persona = personas.find((p) => p.id === personaId);
@@ -130,7 +134,7 @@ export default function PersonaPage() {
   }
 
   async function deletePersona() {
-    if (!token || !deleteId) return;
+    if (!token || deleteId === null) return;
     setIsDeleting(true);
     try {
       const persona = personas.find((p) => p.id === deleteId);
@@ -298,7 +302,17 @@ export default function PersonaPage() {
                     <Button
                       variant="secondary"
                       onClick={() => {
-                        setDraft(persona);
+                        setDraft({
+                          name: persona.name,
+                          role: persona.role ?? "",
+                          summary: persona.summary,
+                          pain_points: persona.pain_points,
+                          goals: persona.goals,
+                          triggers: persona.triggers,
+                          preferred_subreddits: persona.preferred_subreddits,
+                          source: persona.source,
+                          is_active: persona.is_active,
+                        });
                         setIsEditingId(persona.id);
                       }}
                       style={{ flex: 1 }}
@@ -343,13 +357,13 @@ export default function PersonaPage() {
             <Button variant="secondary" onClick={() => setIsEditingId(null)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={updatePersona} loading={isUpdating}>
+            <Button variant="primary" onClick={() => void submitPersonaUpdate()} loading={isUpdating}>
               Save Changes
             </Button>
           </div>
         }
       >
-        <form onSubmit={(e) => { e.preventDefault(); updatePersona(e); }}>
+        <form onSubmit={(e) => { void updatePersona(e); }}>
           <label className="field">
             <span>Customer type</span>
             <input

@@ -1,5 +1,6 @@
 "use client";
 import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, forwardRef } from "react";
+export { Modal, ConfirmModal } from "./modal";
 
 // ── Loading Spinner ──────────────────────────────────────────────
 export function Spinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
