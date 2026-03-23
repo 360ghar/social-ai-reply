@@ -75,11 +75,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     void loadShell();
-  }, [authLoading, router, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, token]);
 
   async function loadShell() {
     try {
-      const headers = { Authorization: `Bearer ${token}` };
       const [dashRes, notifRes, usageRes] = await Promise.allSettled([
         apiRequest<DashData>("/v1/dashboard", {}, token),
         apiRequest<NotificationData>("/v1/notifications", {}, token),
@@ -95,25 +95,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
       if (usageRes.status === "fulfilled") {
         setUsage(usageRes.value);
       }
-      const authFailure = [dashRes, notifRes, usageRes].some(
-        (result) => result.status === "rejected" && isAuthError(result.reason)
-      );
-      if (authFailure) {
+
+      // Only treat "Authentication required" or "Invalid token" as real auth failures
+      // Do NOT treat workspace/permission errors as auth failures
+      const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);
+      if (dashFailed) {
         logout();
         router.replace("/login");
         return;
       }
     } catch (e: any) {
-      if (
-        e?.message?.includes("401") ||
-        e?.message?.includes("Not authenticated") ||
-        e?.message?.includes("Authentication required")
-      ) {
+      // Only redirect to login for genuine auth errors, not network/server errors
+      const msg = e?.message || "";
+      if (msg === "Authentication required." || msg === "Invalid token.") {
         logout();
         router.replace("/login");
         return;
       }
-      setError(e?.message || "Failed to load workspace");
+      setError(msg || "Failed to load workspace");
     }
     setLoading(false);
   }

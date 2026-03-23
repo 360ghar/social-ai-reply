@@ -175,11 +175,11 @@ export function isAuthError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
+  // Only treat genuine authentication failures as auth errors.
+  // Do NOT include workspace/permission errors — those are 403s, not 401s.
   return [
     "Authentication required.",
     "Invalid token.",
-    "User not found.",
-    "No workspace membership found."
   ].includes(error.message);
 }
 
