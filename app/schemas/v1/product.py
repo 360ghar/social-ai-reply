@@ -232,6 +232,11 @@ class ReplyDraftResponse(BaseModel):
     created_at: datetime
 
 
+class ReplyDraftUpdateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)
+    rationale: str | None = Field(default=None, max_length=8000)
+
+
 class PostDraftRequest(BaseModel):
     project_id: int
 
@@ -247,6 +252,12 @@ class PostDraftResponse(BaseModel):
     source_prompt: str | None
     version: int
     created_at: datetime
+
+
+class PostDraftUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1, max_length=40000)
+    rationale: str | None = Field(default=None, max_length=8000)
 
 
 class PromptTemplateRequest(BaseModel):

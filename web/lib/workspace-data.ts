@@ -1,8 +1,8 @@
 import { apiRequest, type Dashboard, type Project } from "./api";
-import { resolveProjectId } from "./project";
+import { resolveProjectId, withProjectId } from "./project";
 
-export async function fetchDashboard(token: string) {
-  return apiRequest<Dashboard>("/v1/dashboard", {}, token);
+export async function fetchDashboard(token: string, projectId?: number | null) {
+  return apiRequest<Dashboard>(withProjectId("/v1/dashboard", projectId), {}, token);
 }
 
 export function getCurrentProject(dashboard: Dashboard): Project | null {

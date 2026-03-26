@@ -7,6 +7,7 @@ import { useToast } from "../../../components/toast";
 import { Button, EmptyState, KpiCard, ConfirmModal, Drawer, SkeletonCard } from "../../../components/ui";
 import { apiRequest, type Dashboard, type Persona } from "../../../lib/api";
 import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
+import { useSelectedProjectId } from "../../../lib/use-selected-project";
 
 const emptyPersona = {
   name: "",
@@ -23,6 +24,7 @@ const emptyPersona = {
 export default function PersonaPage() {
   const { token } = useAuth();
   const toast = useToast();
+  const selectedProjectId = useSelectedProjectId();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [draft, setDraft] = useState(emptyPersona);
@@ -40,12 +42,12 @@ export default function PersonaPage() {
     if (!token) {
       return;
     }
-    fetchDashboard(token)
+    fetchDashboard(token, selectedProjectId)
       .then(setDashboard)
       .catch((err) => {
         toast.error("Failed to load", err.message);
       });
-  }, [token, toast]);
+  }, [token, toast, selectedProjectId]);
 
   useEffect(() => {
     if (!token || !project) {

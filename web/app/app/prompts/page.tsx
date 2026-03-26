@@ -2,21 +2,39 @@
 
 import { useEffect, useState } from "react";
 
-import { Button, EmptyState, Spinner } from "../../../components/ui";
-import { Modal, ConfirmModal } from "../../../components/modal";
-import { useToast } from "../../../components/toast";
-import { useAuth } from "../../../components/auth-provider";
-import { apiRequest, type Dashboard, type PromptTemplate } from "../../../lib/api";
-import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
+import { Modal, ConfirmModal } from "@/components/modal";
+import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/toast";
+import { Button, EmptyState, Spinner, Tabs } from "@/components/ui";
+import { type PromptTemplate, apiRequest } from "@/lib/api";
+import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
+import { useSelectedProjectId } from "@/lib/use-selected-project";
+
+type PromptType = "reply" | "post" | "analysis";
 
 interface EditingTemplate extends Partial<PromptTemplate> {
   id: number;
 }
 
+const PROMPT_TYPE_COPY: Record<PromptType, { label: string; description: string }> = {
+  reply: {
+    label: "Reply Systems",
+    description: "Templates for discussion replies, comment responses, and community-native conversation handling.",
+  },
+  post: {
+    label: "Original Posts",
+    description: "Templates for educational posts, perspective-led content, and original thread creation.",
+  },
+  analysis: {
+    label: "Analysis",
+    description: "Templates that explain why a conversation matters, what risk exists, and how to respond.",
+  },
+};
+
 export default function PromptsPage() {
   const { token } = useAuth();
   const toast = useToast();
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const selectedProjectId = useSelectedProjectId();
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -25,38 +43,42 @@ export default function PromptsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState<number | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<EditingTemplate | null>(null);
   const [showDrawer, setShowDrawer] = useState(false);
+  const [activeTab, setActiveTab] = useState<PromptType>("reply");
+  const [projectId, setProjectId] = useState<number | null>(null);
   const [newTemplate, setNewTemplate] = useState({
+    prompt_type: "reply" as PromptType,
     name: "",
     system_prompt: "",
     instructions: "",
   });
 
-  const project = dashboard ? getCurrentProject(dashboard) : null;
-
   useEffect(() => {
     if (!token) {
       return;
     }
-    fetchDashboard(token)
-      .then(setDashboard)
-      .catch((err) => {
-        toast.error("Failed to load", err.message);
-        setLoading(false);
-      });
-  }, [token, toast]);
+    void loadTemplates();
+  }, [token, selectedProjectId]);
 
-  useEffect(() => {
-    if (!token || !project) {
-      return;
-    }
+  async function loadTemplates() {
     setLoading(true);
-    apiRequest<PromptTemplate[]>(`/v1/prompts?project_id=${project.id}`, {}, token)
-      .then(setTemplates)
-      .catch((err) => {
-        toast.error("Failed to load prompts", err.message);
-      })
-      .finally(() => setLoading(false));
-  }, [project, token, toast]);
+    try {
+      const dashboard = await fetchDashboard(token!, selectedProjectId);
+      const currentProject = getCurrentProject(dashboard);
+      if (!currentProject) {
+        setProjectId(null);
+        setTemplates([]);
+        setLoading(false);
+        return;
+      }
+      setProjectId(currentProject.id);
+      const rows = await apiRequest<PromptTemplate[]>(`/v1/prompts?project_id=${currentProject.id}`, {}, token);
+      setTemplates(rows);
+    } catch (error: any) {
+      toast.error("Failed to load prompts", error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function saveTemplate(template: EditingTemplate) {
     if (!token || !template.name || !template.system_prompt) {
@@ -84,15 +106,15 @@ export default function PromptsPage() {
       toast.success("Template saved");
       setShowDrawer(false);
       setEditingTemplate(null);
-    } catch (err) {
-      toast.error("Save failed", (err as Error).message);
+    } catch (error: any) {
+      toast.error("Save failed", error.message);
     } finally {
       setSaving(false);
     }
   }
 
   async function createTemplate() {
-    if (!token || !project || !newTemplate.name || !newTemplate.system_prompt) {
+    if (!token || !projectId || !newTemplate.name || !newTemplate.system_prompt) {
       toast.error("Validation failed", "Name and system prompt are required.");
       return;
     }
@@ -100,11 +122,11 @@ export default function PromptsPage() {
     setSaving(true);
     try {
       const created = await apiRequest<PromptTemplate>(
-        `/v1/prompts?project_id=${project.id}`,
+        `/v1/prompts?project_id=${projectId}`,
         {
           method: "POST",
           body: JSON.stringify({
-            prompt_type: "reply",
+            prompt_type: newTemplate.prompt_type,
             name: newTemplate.name,
             system_prompt: newTemplate.system_prompt,
             instructions: newTemplate.instructions || "",
@@ -116,23 +138,23 @@ export default function PromptsPage() {
       setTemplates((rows) => [...rows, created]);
       toast.success("Template created");
       setShowCreateModal(false);
-      setNewTemplate({ name: "", system_prompt: "", instructions: "" });
-    } catch (err) {
-      toast.error("Create failed", (err as Error).message);
+      setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
+    } catch (error: any) {
+      toast.error("Create failed", error.message);
     } finally {
       setSaving(false);
     }
   }
 
   async function duplicateTemplate(template: PromptTemplate) {
-    if (!token || !project) {
+    if (!token || !projectId) {
       return;
     }
 
     setSaving(true);
     try {
       const duplicated = await apiRequest<PromptTemplate>(
-        `/v1/prompts?project_id=${project.id}`,
+        `/v1/prompts?project_id=${projectId}`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -147,8 +169,8 @@ export default function PromptsPage() {
       );
       setTemplates((rows) => [...rows, duplicated]);
       toast.success("Template duplicated");
-    } catch (err) {
-      toast.error("Duplicate failed", (err as Error).message);
+    } catch (error: any) {
+      toast.error("Duplicate failed", error.message);
     } finally {
       setSaving(false);
     }
@@ -165,156 +187,153 @@ export default function PromptsPage() {
       setTemplates((rows) => rows.filter((row) => row.id !== id));
       toast.success("Template deleted");
       setShowDeleteModal(null);
-    } catch (err) {
-      toast.error("Delete failed", (err as Error).message);
+    } catch (error: any) {
+      toast.error("Delete failed", error.message);
     } finally {
       setDeleting(null);
     }
   }
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-      {/* Header Section */}
-      <section className="card">
-        <div className="eyebrow">Reply Templates</div>
-        <h2>Customize how AI drafts are written</h2>
-        <p>Create and manage reply templates to define the writing style and tone for AI-generated responses.</p>
+  const filteredTemplates = templates.filter((template) => template.prompt_type === activeTab);
+  const activeCopy = PROMPT_TYPE_COPY[activeTab];
 
-        <div className="action-row" style={{ marginTop: "1.5rem" }}>
-          <Button onClick={() => setShowCreateModal(true)} variant="primary">
+  return (
+    <div style={{ display: "grid", gap: 24 }}>
+      <section className="card">
+        <div className="eyebrow">Template Systems</div>
+        <h2 style={{ marginBottom: 8 }}>{activeCopy.label}</h2>
+        <p>{activeCopy.description}</p>
+        <div className="action-row" style={{ marginTop: 20 }}>
+          <Button
+            onClick={() => {
+              setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
+              setShowCreateModal(true);
+            }}
+            variant="primary"
+          >
             Create Template
           </Button>
         </div>
       </section>
 
-      {/* Loading State */}
+      <Tabs
+        tabs={[
+          { key: "reply", label: "Reply", count: templates.filter((item) => item.prompt_type === "reply").length },
+          { key: "post", label: "Post", count: templates.filter((item) => item.prompt_type === "post").length },
+          { key: "analysis", label: "Analysis", count: templates.filter((item) => item.prompt_type === "analysis").length },
+        ]}
+        active={activeTab}
+        onChange={(key) => setActiveTab(key as PromptType)}
+      />
+
       {loading && (
         <div style={{ display: "flex", justifyContent: "center", padding: "2rem" }}>
           <Spinner />
         </div>
       )}
 
-      {/* Templates Grid */}
-      {!loading && templates.length > 0 && (
+      {!loading && filteredTemplates.length > 0 && (
         <div className="section-grid">
-          {templates.map((template) => (
+          {filteredTemplates.map((template) => (
             <div
               key={template.id}
               className="card"
-              style={{
-                cursor: "pointer",
-                transition: "box-shadow 0.2s",
-              }}
+              style={{ cursor: "pointer" }}
               onClick={() => {
                 setEditingTemplate(template);
                 setShowDrawer(true);
               }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.boxShadow = "";
-              }}
             >
               <div style={{ marginBottom: "1rem" }}>
                 <h3 style={{ margin: "0 0 0.5rem 0", fontSize: "1.1rem" }}>{template.name}</h3>
-                {template.is_default && <span className="badge">Default</span>}
+                <div className="badge-row">
+                  {template.is_default && <span className="badge">Default</span>}
+                  <span className="badge">{template.prompt_type}</span>
+                </div>
               </div>
 
               <p
                 style={{
-                  margin: "0 0 1rem 0",
+                  margin: 0,
                   fontSize: "0.9rem",
-                  color: "var(--text-secondary)",
-                  lineHeight: "1.4",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  lineHeight: "1.5",
                   display: "-webkit-box",
-                  WebkitLineClamp: 3,
+                  WebkitLineClamp: 4,
                   WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
                 }}
               >
                 {template.system_prompt}
               </p>
-
-              <div className="badge-row">
-                <span className="badge">{template.prompt_type}</span>
-              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && templates.length === 0 && (
+      {!loading && filteredTemplates.length === 0 && (
         <EmptyState
-          title="No reply templates yet"
-          description="Create your first template to customize how AI drafts are written."
+          title={`No ${activeTab} templates yet`}
+          description={`Create your first ${activeTab} template so the workflow can support more than a single reply mode.`}
         />
       )}
 
-      {/* Create Modal */}
       {showCreateModal && (
         <Modal
           open={showCreateModal}
-          title="Create Reply Template"
+          title="Create Template"
           onClose={() => {
             setShowCreateModal(false);
-            setNewTemplate({ name: "", system_prompt: "", instructions: "" });
+            setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
             <div className="field">
-              <label>
-                <span>Template Name</span>
-                <input
-                  type="text"
-                  value={newTemplate.name}
-                  onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
-                  placeholder="e.g., Professional Tone"
-                />
-              </label>
+              <label className="field-label">Template Type</label>
+              <select
+                value={newTemplate.prompt_type}
+                onChange={(event) => setNewTemplate({ ...newTemplate, prompt_type: event.target.value as PromptType })}
+              >
+                <option value="reply">Reply</option>
+                <option value="post">Post</option>
+                <option value="analysis">Analysis</option>
+              </select>
             </div>
 
             <div className="field">
-              <label>
-                <span>System Prompt</span>
-                <textarea
-                  value={newTemplate.system_prompt}
-                  onChange={(e) => setNewTemplate({ ...newTemplate, system_prompt: e.target.value })}
-                  placeholder="Define the core writing rules and style..."
-                  rows={6}
-                />
-              </label>
+              <label className="field-label">Template Name</label>
+              <input
+                type="text"
+                value={newTemplate.name}
+                onChange={(event) => setNewTemplate({ ...newTemplate, name: event.target.value })}
+                placeholder="Example: High-signal expert reply"
+              />
             </div>
 
             <div className="field">
-              <label>
-                <span>Extra Instructions (optional)</span>
-                <textarea
-                  value={newTemplate.instructions}
-                  onChange={(e) => setNewTemplate({ ...newTemplate, instructions: e.target.value })}
-                  placeholder="Additional guidelines and constraints..."
-                  rows={4}
-                />
-              </label>
+              <label className="field-label">System Prompt</label>
+              <textarea
+                value={newTemplate.system_prompt}
+                onChange={(event) => setNewTemplate({ ...newTemplate, system_prompt: event.target.value })}
+                placeholder="Define the core writing rules, structure, and quality bar..."
+                rows={7}
+              />
+            </div>
+
+            <div className="field">
+              <label className="field-label">Extra Instructions</label>
+              <textarea
+                value={newTemplate.instructions}
+                onChange={(event) => setNewTemplate({ ...newTemplate, instructions: event.target.value })}
+                placeholder="Add project-specific constraints, phrasing guidance, or review rules..."
+                rows={4}
+              />
             </div>
 
             <div className="action-row">
-              <Button
-                onClick={() => createTemplate()}
-                disabled={saving}
-                variant="primary"
-              >
+              <Button onClick={() => void createTemplate()} disabled={saving} variant="primary">
                 {saving ? "Creating..." : "Create Template"}
               </Button>
-              <Button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setNewTemplate({ name: "", system_prompt: "", instructions: "" });
-                }}
-                variant="secondary"
-              >
+              <Button onClick={() => setShowCreateModal(false)} variant="secondary">
                 Cancel
               </Button>
             </div>
@@ -322,98 +341,71 @@ export default function PromptsPage() {
         </Modal>
       )}
 
-      {/* Edit Drawer */}
       {showDrawer && editingTemplate && (
         <div className="drawer-overlay" onClick={() => setShowDrawer(false)}>
-          <div
-            className="drawer"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="drawer" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
-              <h2 style={{ margin: 0 }}>Edit Reply Template</h2>
-              <button
-                className="modal-close"
-                onClick={() => setShowDrawer(false)}
-              >
-                ×
+              <h2 style={{ margin: 0 }}>Edit Template</h2>
+              <button className="modal-close" onClick={() => setShowDrawer(false)}>
+                x
               </button>
             </div>
 
             <div className="drawer-body">
               <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                 <div className="field">
-                  <label>
-                    <span>Template Name</span>
-                    <input
-                      type="text"
-                      value={editingTemplate.name || ""}
-                      onChange={(e) =>
-                        setEditingTemplate({ ...editingTemplate, name: e.target.value })
-                      }
-                    />
-                  </label>
+                  <label className="field-label">Template Type</label>
+                  <select
+                    value={editingTemplate.prompt_type || "reply"}
+                    onChange={(event) => setEditingTemplate({ ...editingTemplate, prompt_type: event.target.value as PromptType })}
+                  >
+                    <option value="reply">Reply</option>
+                    <option value="post">Post</option>
+                    <option value="analysis">Analysis</option>
+                  </select>
                 </div>
 
                 <div className="field">
-                  <label>
-                    <span>System Prompt</span>
-                    <textarea
-                      value={editingTemplate.system_prompt || ""}
-                      onChange={(e) =>
-                        setEditingTemplate({
-                          ...editingTemplate,
-                          system_prompt: e.target.value,
-                        })
-                      }
-                      rows={8}
-                    />
-                  </label>
+                  <label className="field-label">Template Name</label>
+                  <input
+                    type="text"
+                    value={editingTemplate.name || ""}
+                    onChange={(event) => setEditingTemplate({ ...editingTemplate, name: event.target.value })}
+                  />
                 </div>
 
                 <div className="field">
-                  <label>
-                    <span>Extra Instructions (optional)</span>
-                    <textarea
-                      value={editingTemplate.instructions || ""}
-                      onChange={(e) =>
-                        setEditingTemplate({
-                          ...editingTemplate,
-                          instructions: e.target.value,
-                        })
-                      }
-                      rows={6}
-                    />
-                  </label>
+                  <label className="field-label">System Prompt</label>
+                  <textarea
+                    value={editingTemplate.system_prompt || ""}
+                    onChange={(event) => setEditingTemplate({ ...editingTemplate, system_prompt: event.target.value })}
+                    rows={8}
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field-label">Extra Instructions</label>
+                  <textarea
+                    value={editingTemplate.instructions || ""}
+                    onChange={(event) => setEditingTemplate({ ...editingTemplate, instructions: event.target.value })}
+                    rows={6}
+                  />
                 </div>
               </div>
             </div>
 
             <div className="drawer-footer">
               <div className="action-row">
-                <Button
-                  onClick={() => saveTemplate(editingTemplate)}
-                  disabled={saving}
-                  variant="primary"
-                >
+                <Button onClick={() => void saveTemplate(editingTemplate)} disabled={saving} variant="primary">
                   {saving ? "Saving..." : "Save Template"}
                 </Button>
-                <Button
-                  onClick={() => duplicateTemplate(editingTemplate as PromptTemplate)}
-                  disabled={saving}
-                  variant="secondary"
-                >
+                <Button onClick={() => void duplicateTemplate(editingTemplate as PromptTemplate)} disabled={saving} variant="secondary">
                   Duplicate
                 </Button>
-                <Button
-                  onClick={() => setShowDeleteModal(editingTemplate.id)}
-                  variant="danger"
-                >
+                <Button onClick={() => setShowDeleteModal(editingTemplate.id)} variant="danger">
                   Delete
                 </Button>
-                <Button
-                  onClick={() => setShowDrawer(false)}
-                  variant="ghost"
-                >
+                <Button onClick={() => setShowDrawer(false)} variant="ghost">
                   Close
                 </Button>
               </div>
@@ -422,7 +414,6 @@ export default function PromptsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {showDeleteModal !== null && (
         <ConfirmModal
           open={showDeleteModal !== null}
