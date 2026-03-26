@@ -59,6 +59,17 @@ export type ReplyDraft = {
   created_at: string;
 };
 
+export type PostDraft = {
+  id: number;
+  project_id: number;
+  title: string;
+  body: string;
+  rationale: string | null;
+  source_prompt: string | null;
+  version: number;
+  created_at: string;
+};
+
 export type Dashboard = {
   projects: Project[];
   top_opportunities: Opportunity[];
@@ -293,55 +304,67 @@ export async function getActivity(token: string) {
   );
 }
 
-export async function getPromptSets(token: string) {
+export async function getPromptSets(token: string, projectId?: number | null) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<{ items: PromptSetItem[] }>(
-    `/v1/prompt-sets`, { headers: { Authorization: `Bearer ${token}` } }
+    `/v1/prompt-sets${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function createPromptSet(token: string, data: { name: string; category: string; prompts: string[]; target_models: string[]; schedule: string }) {
+export async function createPromptSet(
+  token: string,
+  data: { name: string; category: string; prompts: string[]; target_models: string[]; schedule: string },
+  projectId?: number | null
+) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<{ id: number; name: string }>(
-    `/v1/prompt-sets`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(data) }
+    `/v1/prompt-sets${suffix}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(data) }
   );
 }
 
-export async function runPromptSet(token: string, id: number) {
+export async function runPromptSet(token: string, id: number, projectId?: number | null) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<{ prompt_set_id: number; results: any[]; total_runs: number }>(
-    `/v1/prompt-sets/${id}/run`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+    `/v1/prompt-sets/${id}/run${suffix}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function getVisibilitySummary(token: string) {
+export async function getVisibilitySummary(token: string, projectId?: number | null) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<VisibilitySummary>(
-    `/v1/visibility/summary`, { headers: { Authorization: `Bearer ${token}` } }
+    `/v1/visibility/summary${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function getVisibilityPrompts(token: string, model?: string, limit = 20, offset = 0) {
+export async function getVisibilityPrompts(token: string, model?: string, limit = 20, offset = 0, projectId?: number | null) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (model) params.set("model", model);
+  if (projectId) params.set("project_id", String(projectId));
   return apiRequest<{ items: PromptRunResult[]; total: number }>(
     `/v1/visibility/prompts?${params}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function getCitations(token: string, domain?: string, limit = 20) {
+export async function getCitations(token: string, domain?: string, limit = 20, projectId?: number | null) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (domain) params.set("domain", domain);
+  if (projectId) params.set("project_id", String(projectId));
   return apiRequest<{ items: CitationItem[]; total: number }>(
     `/v1/citations?${params}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function getSourceDomains(token: string) {
+export async function getSourceDomains(token: string, projectId?: number | null) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<{ items: { domain: string; total_citations: number }[] }>(
-    `/v1/sources/domains`, { headers: { Authorization: `Bearer ${token}` } }
+    `/v1/sources/domains${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function getSourceGaps(token: string) {
+export async function getSourceGaps(token: string, projectId?: number | null) {
+  const suffix = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<{ items: any[] }>(
-    `/v1/sources/gaps`, { headers: { Authorization: `Bearer ${token}` } }
+    `/v1/sources/gaps${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 

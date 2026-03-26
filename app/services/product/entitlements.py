@@ -17,40 +17,16 @@ from app.db.saas_models import (
 
 PLAN_CATALOG = [
     {
-        "code": "free",
-        "name": "Free",
+        "code": "internal",
+        "name": "Internal",
         "price_monthly": 0,
         "features": [
-            "1 project",
-            "10 active keywords",
-            "5 active subreddits",
-            "Manual Reddit opportunity workflow",
+            "Unlimited projects",
+            "Unlimited keywords",
+            "Unlimited communities",
+            "All product capabilities unlocked",
         ],
-        "limits": {"projects": 1, "keywords": 10, "subreddits": 5},
-    },
-    {
-        "code": "starter",
-        "name": "Starter",
-        "price_monthly": 79,
-        "features": [
-            "3 projects",
-            "50 active keywords",
-            "25 active subreddits",
-            "Priority scan throughput",
-        ],
-        "limits": {"projects": 3, "keywords": 50, "subreddits": 25},
-    },
-    {
-        "code": "growth",
-        "name": "Growth",
-        "price_monthly": 199,
-        "features": [
-            "10 projects",
-            "150 active keywords",
-            "75 active subreddits",
-            "Team collaboration and webhooks",
-        ],
-        "limits": {"projects": 10, "keywords": 150, "subreddits": 75},
+        "limits": {"projects": 999999, "keywords": 999999, "subreddits": 999999},
     },
 ]
 
@@ -86,8 +62,21 @@ def seed_plan_entitlements(db: Session) -> None:
 def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscription:
     subscription = db.scalar(select(Subscription).where(Subscription.workspace_id == workspace.id))
     if subscription:
+        changed = False
+        if subscription.plan_code != "internal":
+            subscription.plan_code = "internal"
+            changed = True
+        if subscription.status != SubscriptionStatus.ACTIVE:
+            subscription.status = SubscriptionStatus.ACTIVE
+            changed = True
+        if subscription.current_period_end is not None:
+            subscription.current_period_end = None
+            changed = True
+        if changed:
+            db.commit()
+            db.refresh(subscription)
         return subscription
-    subscription = Subscription(workspace_id=workspace.id, plan_code="free", status=SubscriptionStatus.TRIALING)
+    subscription = Subscription(workspace_id=workspace.id, plan_code="internal", status=SubscriptionStatus.ACTIVE)
     db.add(subscription)
     db.commit()
     db.refresh(subscription)
@@ -95,12 +84,12 @@ def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscriptio
 
 
 def get_limit(db: Session, workspace: Workspace, feature_key: str) -> int:
-    # Billing restrictions removed - always return unlimited
+    # The private workspace always runs in unlocked mode.
     return 999999
 
 
 def enforce_limit(db: Session, workspace: Workspace, feature_key: str, current_count: int) -> None:
-    # Billing restrictions removed - limits are always enforced
+    # Limits are intentionally disabled for the internal workspace.
     pass
 
 

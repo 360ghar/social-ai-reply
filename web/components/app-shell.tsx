@@ -1,21 +1,22 @@
 "use client";
-import { useEffect, useState, ReactNode } from "react";
+
+import { type ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import { type Project, apiRequest, isAuthError } from "@/lib/api";
+import { getStoredProjectId, setStoredProjectId, withProjectId } from "@/lib/project";
+
 import { useAuth } from "./auth-provider";
 import { ToastProvider } from "./toast";
 import { NotificationBell, UsageMeter } from "./ui";
-import { apiRequest, isAuthError } from "@/lib/api";
 
 interface DashData {
   workspace_name?: string;
-  plan_code?: string;
-  plan_status?: string;
-  projects?: any[];
+  projects?: Project[];
 }
 
 interface UsageData {
-  plan?: string;
   metrics?: {
     keywords?: { used: number; limit: number };
     subreddits?: { used: number; limit: number };
@@ -28,32 +29,49 @@ interface NotificationData {
 
 const NAV_SECTIONS = [
   {
-    title: "Core",
+    title: "Intelligence",
     items: [
-      { href: "/app/dashboard", label: "Dashboard", icon: "📊", help: "Overview and quick actions" },
-      { href: "/app/visibility", label: "AI Visibility", icon: "👁️", help: "Track brand in AI models" },
-      { href: "/app/sources", label: "Source Intel", icon: "🔗", help: "Citation and domain analysis" },
-      { href: "/app/discovery", label: "Opportunities", icon: "🔍", help: "Find and score threads" },
-      { href: "/app/content", label: "Content Studio", icon: "✍️", help: "Drafts and approvals" },
+      { href: "/app/dashboard", label: "Command Center", icon: "CMD", help: "Workspace overview and next actions" },
+      { href: "/app/visibility", label: "AI Visibility", icon: "AI", help: "Track recommendation share across models" },
+      { href: "/app/sources", label: "Source Intel", icon: "SRC", help: "See citation winners and content gaps" },
     ],
   },
   {
-    title: "Setup",
+    title: "Engagement",
     items: [
-      { href: "/app/brand", label: "Brand", icon: "🏢", help: "Brand profile and voice" },
-      { href: "/app/persona", label: "Audience", icon: "👥", help: "Personas and keywords" },
-      { href: "/app/subreddits", label: "Communities", icon: "💬", help: "Monitored subreddits" },
+      { href: "/app/discovery", label: "Engagement Radar", icon: "ENG", help: "Find high-fit conversations and reply opportunities" },
+      { href: "/app/content", label: "Content Studio", icon: "WRT", help: "Manage replies, post drafts, and approvals" },
+      { href: "/app/subreddits", label: "Communities", icon: "COM", help: "Review monitored communities and quality signals" },
+    ],
+  },
+  {
+    title: "Configure",
+    items: [
+      { href: "/app/brand", label: "Brand", icon: "BRD", help: "Brand profile, voice, and positioning" },
+      { href: "/app/persona", label: "Audience", icon: "AUD", help: "Customer profiles and intent signals" },
+      { href: "/app/prompts", label: "Templates", icon: "TPL", help: "Reply, post, and analysis prompt systems" },
     ],
   },
   {
     title: "System",
     items: [
-      { href: "/app/prompts", label: "Templates", icon: "📋", help: "AI prompt templates" },
-      { href: "/app/settings", label: "Settings", icon: "⚙️", help: "Workspace and team" },
-      { href: "/app/subscription", label: "Billing", icon: "💳", help: "Plan and usage" },
+      { href: "/app/settings", label: "Settings", icon: "SYS", help: "Workspace controls and integrations" },
     ],
   },
 ];
+
+const PATH_TITLES: Record<string, string> = {
+  "/app/dashboard": "Command Center",
+  "/app/visibility": "AI Visibility",
+  "/app/sources": "Source Intelligence",
+  "/app/discovery": "Engagement Radar",
+  "/app/content": "Content Studio",
+  "/app/subreddits": "Community Coverage",
+  "/app/brand": "Brand Profile",
+  "/app/persona": "Audience Signals",
+  "/app/prompts": "Prompt Templates",
+  "/app/settings": "Settings",
+};
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -65,6 +83,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [notifCount, setNotifCount] = useState(0);
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedProjectId, setSelectedProjectIdState] = useState<number | null>(() => getStoredProjectId());
 
   useEffect(() => {
     if (authLoading) {
@@ -74,16 +93,30 @@ export default function AppShell({ children }: { children: ReactNode }) {
       router.replace("/login");
       return;
     }
-    void loadShell();
+    void loadShell(selectedProjectId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, token]);
+  }, [authLoading, token, selectedProjectId]);
 
-  async function loadShell() {
+  useEffect(() => {
+    const projects = dash?.projects || [];
+    if (!projects.length) {
+      return;
+    }
+    if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) {
+      return;
+    }
+    const nextProjectId = projects[0].id;
+    setStoredProjectId(nextProjectId);
+    setSelectedProjectIdState(nextProjectId);
+  }, [dash?.projects, selectedProjectId]);
+
+  async function loadShell(projectId: number | null) {
+    setLoading(true);
     try {
       const [dashRes, notifRes, usageRes] = await Promise.allSettled([
-        apiRequest<DashData>("/v1/dashboard", {}, token),
+        apiRequest<DashData>(withProjectId("/v1/dashboard", projectId), {}, token),
         apiRequest<NotificationData>("/v1/notifications", {}, token),
-        apiRequest<UsageData>("/v1/usage", {}, token),
+        apiRequest<UsageData>(withProjectId("/v1/usage", projectId), {}, token),
       ]);
 
       if (dashRes.status === "fulfilled") {
@@ -96,8 +129,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         setUsage(usageRes.value);
       }
 
-      // Only treat "Authentication required" or "Invalid token" as real auth failures
-      // Do NOT treat workspace/permission errors as auth failures
       const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);
       if (dashFailed) {
         logout();
@@ -105,7 +136,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         return;
       }
     } catch (e: any) {
-      // Only redirect to login for genuine auth errors, not network/server errors
       const msg = e?.message || "";
       if (msg === "Authentication required." || msg === "Invalid token.") {
         logout();
@@ -121,6 +151,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
     logout();
     router.replace("/login");
   }
+
+  function handleProjectChange(nextValue: string) {
+    const nextProjectId = Number(nextValue);
+    if (!Number.isFinite(nextProjectId)) {
+      return;
+    }
+    setStoredProjectId(nextProjectId);
+    setSelectedProjectIdState(nextProjectId);
+    setSidebarOpen(false);
+    router.refresh();
+  }
+
+  const selectedProject =
+    dash?.projects?.find((project) => project.id === selectedProjectId) ??
+    dash?.projects?.[0] ??
+    null;
+
+  const currentTitle = PATH_TITLES[pathname] || "Workspace";
 
   if (authLoading || loading) {
     return (
@@ -143,7 +191,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             className="primary-button"
             onClick={() => {
               setError("");
-              loadShell();
+              void loadShell(selectedProjectId);
             }}
             style={{ marginTop: 16 }}
           >
@@ -157,7 +205,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <ToastProvider>
       <div className="app-frame">
-        {/* Mobile menu toggle */}
         <button
           className="mobile-menu-toggle hidden-desktop"
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -172,18 +219,45 @@ export default function AppShell({ children }: { children: ReactNode }) {
             fontSize: 24,
             padding: 0,
           }}
+          aria-label="Toggle navigation"
         >
-          {sidebarOpen ? "✕" : "☰"}
+          {sidebarOpen ? "x" : "="}
         </button>
 
         <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
           <div className="sidebar-header">
             <Link href="/app/dashboard" className="sidebar-brand" style={{ textDecoration: "none" }}>
-              <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent)" }}>RedditFlow</span>
+              <div className="sidebar-badge">Community OS</div>
+              <span className="sidebar-brand-title">RedditFlow</span>
             </Link>
             {dash?.workspace_name && (
-              <p className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>{dash.workspace_name}</p>
+              <p className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
+                {dash.workspace_name}
+              </p>
             )}
+          </div>
+
+          <div className="sidebar-context-card">
+            <div className="sidebar-context-head">
+              <div>
+                <div className="sidebar-context-label">Focused Project</div>
+                <div className="sidebar-context-value">{selectedProject?.name || "Create a project"}</div>
+              </div>
+              <span className="badge badge-info">Unlocked</span>
+            </div>
+            <label className="field" style={{ marginBottom: 0 }}>
+              <span className="field-label" style={{ color: "rgba(255, 255, 255, 0.7)" }}>Project Scope</span>
+              <select value={selectedProject?.id || ""} onChange={(event) => handleProjectChange(event.target.value)}>
+                {(dash?.projects || []).map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="sidebar-context-copy">
+              AI visibility is workspace-wide. Engagement workflows are project-scoped and ready to expand beyond Reddit.
+            </p>
           </div>
 
           <nav className="sidebar-nav">
@@ -199,21 +273,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     style={{ textDecoration: "none" }}
                   >
                     <span className="nav-icon">{item.icon}</span>
-                    <span className="nav-label">{item.label}</span>
-                    {item.href === "/app/visibility" && (
-                      <span className="badge badge-info" style={{ marginLeft: "auto", fontSize: 10 }}>
-                        NEW
-                      </span>
-                    )}
+                    <span className="nav-copy">
+                      <span className="nav-label">{item.label}</span>
+                      <span className="nav-help">{item.help}</span>
+                    </span>
+                    {item.href === "/app/visibility" && <span className="badge badge-info">Live</span>}
                   </Link>
                 ))}
               </div>
             ))}
           </nav>
 
-          {/* Usage footer */}
           {usage && (
             <div className="sidebar-footer">
+              <div className="sidebar-footer-title">Workspace Use</div>
               <UsageMeter
                 label="Keywords"
                 used={usage.metrics?.keywords?.used || 0}
@@ -224,11 +297,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 used={usage.metrics?.subreddits?.used || 0}
                 limit={usage.metrics?.subreddits?.limit || 5}
               />
-              <div style={{ marginTop: 8 }}>
-                <span className="badge" style={{ textTransform: "capitalize" }}>
-                  {usage.plan || "free"} plan
-                </span>
-              </div>
             </div>
           )}
 
@@ -236,7 +304,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <button
               className="ghost-button"
               onClick={handleLogout}
-              style={{ width: "100%", textAlign: "left", color: "var(--muted)" }}
+              style={{ width: "100%", textAlign: "left", color: "rgba(255, 255, 255, 0.72)" }}
             >
               Sign out
             </button>
@@ -244,16 +312,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </aside>
 
         <main className="app-main">
-          <div className="topbar">
-            <div className="flex items-center gap-md">
-              <span className="badge">{dash?.plan_code || "free"}</span>
-              {dash?.plan_status && (
-                <span className="text-muted" style={{ fontSize: 12 }}>
-                  {dash.plan_status}
-                </span>
-              )}
+          <div className="topbar topbar-elevated">
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Workspace Flow</div>
+              <div className="topbar-title-row">
+                <h1 className="topbar-title">{currentTitle}</h1>
+              </div>
+              <p className="topbar-copy">
+                Designed for AI visibility, community discovery, and content workflows that can scale across forum, Q&A, and social patterns.
+              </p>
             </div>
-            <div className="flex items-center gap-md">
+            <div className="topbar-actions">
+              {selectedProject && (
+                <div className="topbar-project-pill">
+                  <span className="topbar-project-label">Project</span>
+                  <strong>{selectedProject.name}</strong>
+                </div>
+              )}
               <NotificationBell count={notifCount} onClick={() => router.push("/app/settings")} />
             </div>
           </div>

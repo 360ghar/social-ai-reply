@@ -4,10 +4,12 @@ import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast";
 import { EmptyState, KpiCard, Tabs, Spinner } from "@/components/ui";
 import { getCitations, getSourceDomains, getSourceGaps, CitationItem } from "@/lib/api";
+import { useSelectedProjectId } from "@/lib/use-selected-project";
 
 export default function SourcesPage() {
   const { token } = useAuth();
   const toast = useToast();
+  const selectedProjectId = useSelectedProjectId();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("domains");
   const [domains, setDomains] = useState<{ domain: string; total_citations: number }[]>([]);
@@ -18,15 +20,15 @@ export default function SourcesPage() {
   useEffect(() => {
     if (!token) return;
     loadData();
-  }, [token]);
+  }, [token, selectedProjectId]);
 
   async function loadData() {
     setLoading(true);
     try {
       const [domRes, citRes, gapRes] = await Promise.all([
-        getSourceDomains(token!),
-        getCitations(token!, undefined, 50),
-        getSourceGaps(token!),
+        getSourceDomains(token!, selectedProjectId),
+        getCitations(token!, undefined, 50, selectedProjectId),
+        getSourceGaps(token!, selectedProjectId),
       ]);
       setDomains(domRes.items);
       setCitations(citRes.items);

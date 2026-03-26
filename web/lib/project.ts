@@ -2,6 +2,7 @@ import type { Project } from "./api";
 
 const STORAGE_KEY = "redditflow-project-id";
 const LEGACY_STORAGE_KEY = "reply-radar-project-id";
+export const PROJECT_CHANGE_EVENT = "redditflow-project-change";
 
 export function getStoredProjectId(): number | null {
   if (typeof window === "undefined") {
@@ -25,6 +26,15 @@ export function setStoredProjectId(projectId: number): void {
   }
   window.localStorage.setItem(STORAGE_KEY, String(projectId));
   window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent(PROJECT_CHANGE_EVENT, { detail: { projectId } }));
+}
+
+export function withProjectId(path: string, projectId: number | null | undefined): string {
+  if (!projectId) {
+    return path;
+  }
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}project_id=${projectId}`;
 }
 
 export function resolveProjectId(projects: Project[]): number | null {

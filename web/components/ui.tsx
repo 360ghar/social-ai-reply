@@ -93,15 +93,16 @@ interface UsageMeterProps {
 }
 
 export function UsageMeter({ label, used, limit }: UsageMeterProps) {
-  const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-  const isWarning = pct >= 80;
-  const isOver = pct >= 100;
+  const isUnlimited = limit >= 999999;
+  const pct = isUnlimited ? 100 : limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+  const isWarning = !isUnlimited && pct >= 80;
+  const isOver = !isUnlimited && pct >= 100;
   return (
     <div className="usage-meter">
       <div className="flex justify-between" style={{ marginBottom: 4 }}>
         <span className="field-label">{label}</span>
         <span className={`text-sm ${isOver ? "text-error" : isWarning ? "text-warning" : "text-muted"}`}>
-          {used} / {limit}
+          {isUnlimited ? `${used} active | Unlocked` : `${used} / ${limit}`}
         </span>
       </div>
       <div className="progress-bar">
@@ -109,7 +110,13 @@ export function UsageMeter({ label, used, limit }: UsageMeterProps) {
           className="progress-bar-fill"
           style={{
             width: `${pct}%`,
-            backgroundColor: isOver ? "var(--error)" : isWarning ? "var(--warning)" : "var(--accent)",
+            backgroundColor: isUnlimited
+              ? "var(--accent)"
+              : isOver
+                ? "var(--error)"
+                : isWarning
+                  ? "var(--warning)"
+                  : "var(--accent)",
           }}
         />
       </div>

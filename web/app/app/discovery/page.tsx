@@ -1,18 +1,22 @@
 "use client";
+
 import { useEffect, useState } from "react";
+
+import { ConfirmModal } from "@/components/modal";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast";
 import {
   Button,
-  EmptyState,
-  StepIndicator,
-  ScoreBadge,
-  PlatformIcon,
-  Spinner,
   Drawer,
+  EmptyState,
+  PlatformIcon,
+  ScoreBadge,
+  Spinner,
+  StepIndicator,
 } from "@/components/ui";
-import { ConfirmModal } from "@/components/modal";
 import { apiRequest } from "@/lib/api";
+import { withProjectId } from "@/lib/project";
+import { useSelectedProjectId } from "@/lib/use-selected-project";
 
 interface Keyword {
   id: number;
@@ -53,6 +57,7 @@ interface ProjectContext {
 export default function DiscoveryPage() {
   const { token } = useAuth();
   const toast = useToast();
+  const selectedProjectId = useSelectedProjectId();
 
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [subreddits, setSubreddits] = useState<Subreddit[]>([]);
@@ -72,23 +77,22 @@ export default function DiscoveryPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number; name: string } | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("");
-  const [scoreSort, setScoreSort] = useState(true);
   const [project, setProject] = useState<ProjectContext | null>(null);
 
   useEffect(() => {
-    if (!token) return;
-    loadAll();
-  }, [token]);
+    if (!token) {
+      return;
+    }
+    void loadAll();
+  }, [token, selectedProjectId]);
 
   async function loadAll() {
     setLoading(true);
     try {
-      // First try to get current project from dashboard
-      const dashRes = await apiRequest<any>("/v1/dashboard", {}, token);
+      const dashRes = await apiRequest<any>(withProjectId("/v1/dashboard", selectedProjectId), {}, token);
       const currentProject =
-        dashRes.projects && dashRes.projects.length > 0
-          ? dashRes.projects[0]
-          : null;
+        dashRes.projects?.find((item: ProjectContext) => item.id === selectedProjectId) ??
+        (dashRes.projects && dashRes.projects.length > 0 ? dashRes.projects[0] : null);
 
       if (!currentProject) {
         setProject(null);
@@ -105,17 +109,25 @@ export default function DiscoveryPage() {
         apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${projectId}`, {}, token),
       ]);
 
-      if (kwRes.status === "fulfilled") setKeywords(kwRes.value || []);
-      if (subRes.status === "fulfilled") setSubreddits(subRes.value || []);
-      if (oppRes.status === "fulfilled") setOpportunities(oppRes.value || []);
-    } catch (e) {
-      console.error(e);
+      if (kwRes.status === "fulfilled") {
+        setKeywords(kwRes.value || []);
+      }
+      if (subRes.status === "fulfilled") {
+        setSubreddits(subRes.value || []);
+      }
+      if (oppRes.status === "fulfilled") {
+        setOpportunities(oppRes.value || []);
+      }
+    } catch (error) {
+      console.error(error);
     }
     setLoading(false);
   }
 
   async function addKeyword() {
-    if (!newKeyword.trim() || !project) return;
+    if (!newKeyword.trim() || !project) {
+      return;
+    }
     setAddingKeyword(true);
     try {
       await apiRequest(
@@ -132,16 +144,18 @@ export default function DiscoveryPage() {
         token
       );
       setNewKeyword("");
-      toast.success("Keyword added!");
-      loadAll();
-    } catch (e: any) {
-      toast.error("Failed to add keyword", e.message);
+      toast.success("Signal added");
+      await loadAll();
+    } catch (error: any) {
+      toast.error("Failed to add keyword", error.message);
     }
     setAddingKeyword(false);
   }
 
   async function generateKeywords() {
-    if (!project) return;
+    if (!project) {
+      return;
+    }
     setGeneratingKeywords(true);
     try {
       await apiRequest(
@@ -152,16 +166,18 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Keywords generated!");
-      loadAll();
-    } catch (e: any) {
-      toast.error("Failed to generate", e.message);
+      toast.success("Audience signals generated");
+      await loadAll();
+    } catch (error: any) {
+      toast.error("Failed to generate", error.message);
     }
     setGeneratingKeywords(false);
   }
 
   async function discoverCommunities() {
-    if (!project) return;
+    if (!project) {
+      return;
+    }
     setDiscoveringCommunities(true);
     try {
       await apiRequest(
@@ -172,16 +188,18 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Communities discovered!");
-      loadAll();
-    } catch (e: any) {
-      toast.error("Failed to discover", e.message);
+      toast.success("Communities discovered");
+      await loadAll();
+    } catch (error: any) {
+      toast.error("Failed to discover", error.message);
     }
     setDiscoveringCommunities(false);
   }
 
   async function runScan() {
-    if (!project) return;
+    if (!project) {
+      return;
+    }
     setScanning(true);
     try {
       await apiRequest(
@@ -196,10 +214,10 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Scan complete!", "Check your opportunities below.");
-      loadAll();
-    } catch (e: any) {
-      toast.error("Scan failed", e.message);
+      toast.success("Scan complete", "Check the conversation queue below.");
+      await loadAll();
+    } catch (error: any) {
+      toast.error("Scan failed", error.message);
     }
     setScanning(false);
   }
@@ -217,70 +235,76 @@ export default function DiscoveryPage() {
       );
       setDraftContent(res.content || "");
       setDraftRationale(res.rationale || "");
-      setSelectedOpp(opportunities.find((o) => o.id === oppId) || null);
-      toast.success("Reply drafted!");
-    } catch (e: any) {
-      toast.error("Could not generate reply", e.message);
+      setSelectedOpp(opportunities.find((opp) => opp.id === oppId) || null);
+      toast.success("Response drafted");
+    } catch (error: any) {
+      toast.error("Could not generate response", error.message);
     }
     setGeneratingReply(null);
   }
 
   async function deleteItem() {
-    if (!deleteTarget) return;
+    if (!deleteTarget) {
+      return;
+    }
     try {
-      await apiRequest(
-        `/v1/discovery/${deleteTarget.type}/${deleteTarget.id}`,
-        { method: "DELETE" },
-        token
-      );
+      await apiRequest(`/v1/discovery/${deleteTarget.type}/${deleteTarget.id}`, { method: "DELETE" }, token);
       toast.success(`${deleteTarget.name} deleted`);
       setDeleteTarget(null);
-      loadAll();
-    } catch (e: any) {
-      toast.error("Delete failed", e.message);
+      await loadAll();
+    } catch (error: any) {
+      toast.error("Delete failed", error.message);
     }
   }
 
   function copyToClipboard(text: string) {
     navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!");
+    toast.success("Copied to clipboard");
   }
 
   function redditUrl(permalink: string) {
-    if (permalink.startsWith("http")) return permalink;
+    if (permalink.startsWith("http")) {
+      return permalink;
+    }
     return `https://www.reddit.com${permalink}`;
   }
 
   function copyAndOpenReddit(text: string, permalink: string) {
     navigator.clipboard.writeText(text);
     window.open(redditUrl(permalink), "_blank");
-    toast.success("Reply copied! Reddit is opening — paste your reply there.");
+    toast.success("Draft copied. Reddit is opening so you can review and paste.");
   }
 
   async function markAsPosted(oppId: number) {
     try {
-      await apiRequest(`/v1/opportunities/${oppId}/status`, {
-        method: "PUT",
-        body: JSON.stringify({ status: "POSTED" }),
-      }, token);
-      toast.success("Marked as posted!");
+      await apiRequest(
+        `/v1/opportunities/${oppId}/status`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ status: "posted" }),
+        },
+        token
+      );
+      toast.success("Marked as posted");
       setSelectedOpp(null);
-      loadAll();
-    } catch (e: any) {
-      toast.error("Could not update status", e.message);
+      await loadAll();
+    } catch (error: any) {
+      toast.error("Could not update status", error.message);
     }
   }
 
   const steps = [
-    { label: "Add Keywords", done: keywords.length > 0 },
-    { label: "Find Communities", done: subreddits.length > 0 },
-    { label: "Scan for Posts", done: opportunities.length > 0 },
+    { label: "Audience Signals", done: keywords.length > 0 },
+    { label: "Community Coverage", done: subreddits.length > 0 },
+    { label: "Conversation Queue", done: opportunities.length > 0 },
   ];
-  const currentStep = steps.findIndex((s) => !s.done);
+  const currentStep = steps.findIndex((step) => !step.done);
 
   let filteredOpps = [...opportunities];
-  if (statusFilter) filteredOpps = filteredOpps.filter((o) => o.status === statusFilter);
-  if (scoreSort) filteredOpps.sort((a, b) => (b.score || 0) - (a.score || 0));
+  if (statusFilter) {
+    filteredOpps = filteredOpps.filter((opp) => opp.status === statusFilter);
+  }
+  filteredOpps.sort((a, b) => (b.score || 0) - (a.score || 0));
 
   if (loading) {
     return (
@@ -292,71 +316,92 @@ export default function DiscoveryPage() {
 
   if (!project) {
     return (
-      <div>
-        <EmptyState
-          icon="📋"
-          title="No project selected"
-          description="Go to Dashboard first and create a business before trying to find posts."
-        />
-      </div>
+      <EmptyState
+        icon="PRJ"
+        title="No project selected"
+        description="Go to Command Center first and create a project before building an engagement workflow."
+      />
     );
   }
 
   return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h2 className="page-title">Find Opportunities</h2>
+    <div style={{ display: "grid", gap: 24 }}>
+      <div>
+        <div className="eyebrow">Engagement Workflow</div>
+        <h2 className="page-title">Engagement Radar</h2>
         <p className="text-muted">
-          Discover Reddit threads where your expertise fits, then draft helpful replies.
+          Discover live Reddit conversations now using a workflow shaped for broader forum, Q and A, and social comment patterns over time.
         </p>
       </div>
 
-      <div className="card" style={{ marginBottom: 32, padding: 20 }}>
+      <div className="section-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="card">
+          <div className="eyebrow">Signals</div>
+          <h3 style={{ marginBottom: 8 }}>{keywords.length}</h3>
+          <p>Intent phrases and topic cues that seed community discovery.</p>
+        </div>
+        <div className="card">
+          <div className="eyebrow">Coverage</div>
+          <h3 style={{ marginBottom: 8 }}>{subreddits.length}</h3>
+          <p>Monitored communities with fit, activity, and rule context.</p>
+        </div>
+        <div className="card">
+          <div className="eyebrow">Queue</div>
+          <h3 style={{ marginBottom: 8 }}>{filteredOpps.length}</h3>
+          <p>Reply-ready conversations ranked by quality and contribution fit.</p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <h3 className="card-title">Pattern Direction</h3>
+            <p className="card-description">
+              The current implementation is Reddit-native, but the workflow should support three reusable patterns: answer a question, join a discussion, and publish an original perspective.
+            </p>
+          </div>
+          <span className="badge badge-info">Reddit live now</span>
+        </div>
+        <div className="badge-row">
+          <span className="badge">Q and A answers</span>
+          <span className="badge">Discussion replies</span>
+          <span className="badge">Original posts</span>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 20 }}>
         <StepIndicator steps={steps} currentStep={currentStep >= 0 ? currentStep : 2} />
       </div>
 
-      {/* Step 1: Keywords */}
-      <div className="card" style={{ marginBottom: 24, padding: 24 }}>
+      <div className="card" style={{ padding: 24 }}>
         <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
-          <h3 className="card-title">
-            Step 1: Keywords ({keywords.length})
-          </h3>
+          <h3 className="card-title">Step 1: Audience Signals ({keywords.length})</h3>
           <Button variant="secondary" loading={generatingKeywords} onClick={generateKeywords}>
-            AI Suggest
+            Generate Signals
           </Button>
         </div>
-        <div className="inline-form" style={{ marginBottom: 16, display: "flex", gap: 8 }}>
+        <div className="inline-form" style={{ marginBottom: 16 }}>
           <input
             type="text"
             value={newKeyword}
-            onChange={(e) => setNewKeyword(e.target.value)}
-            placeholder="Add a keyword..."
-            onKeyDown={(e) => e.key === "Enter" && addKeyword()}
-            style={{ flex: 1 }}
+            onChange={(event) => setNewKeyword(event.target.value)}
+            placeholder="Add a market phrase or audience signal"
+            onKeyDown={(event) => event.key === "Enter" && void addKeyword()}
           />
           <Button loading={addingKeyword} onClick={addKeyword}>
-            Add
+            Add Signal
           </Button>
         </div>
         {keywords.length > 0 && (
-          <div className="flex gap-sm" style={{ flexWrap: "wrap" }}>
-            {keywords.map((k) => (
-              <span key={k.id} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                {k.keyword}
+          <div className="badge-row">
+            {keywords.map((keyword) => (
+              <span key={keyword.id} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {keyword.keyword}
                 <button
-                  onClick={() =>
-                    setDeleteTarget({ type: "keywords", id: k.id, name: k.keyword })
-                  }
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: 0,
-                    marginLeft: 4,
-                    fontSize: 12,
-                  }}
+                  onClick={() => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
                 >
-                  ✕
+                  x
                 </button>
               </span>
             ))}
@@ -364,12 +409,9 @@ export default function DiscoveryPage() {
         )}
       </div>
 
-      {/* Step 2: Communities */}
-      <div className="card" style={{ marginBottom: 24, padding: 24 }}>
+      <div className="card" style={{ padding: 24 }}>
         <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
-          <h3 className="card-title">
-            Step 2: Communities ({subreddits.length})
-          </h3>
+          <h3 className="card-title">Step 2: Community Coverage ({subreddits.length})</h3>
           <Button
             variant="secondary"
             loading={discoveringCommunities}
@@ -380,97 +422,72 @@ export default function DiscoveryPage() {
           </Button>
         </div>
         {subreddits.length === 0 ? (
-          <p className="text-muted">
-            Add keywords first, then discover matching communities.
-          </p>
+          <p className="text-muted">Add audience signals first, then discover communities that match those intents.</p>
         ) : (
-          <div className="flex gap-sm" style={{ flexWrap: "wrap" }}>
-            {subreddits.map((s) => (
-              <span key={s.id} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                r/{s.name}
-                {s.fit_score !== undefined && (
-                  <span className="text-muted" style={{ fontSize: 10 }}>
-                    ({s.fit_score})
-                  </span>
-                )}
+          <div className="badge-row">
+            {subreddits.map((community) => (
+              <span key={community.id} className="badge">
+                r/{community.name}
+                {community.fit_score !== undefined ? ` (${community.fit_score})` : ""}
               </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Step 3: Scan + Results */}
-      <div className="card" style={{ marginBottom: 24, padding: 24 }}>
+      <div className="card" style={{ padding: 24 }}>
         <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
-          <h3 className="card-title">
-            Step 3: Opportunities ({filteredOpps.length})
-          </h3>
+          <h3 className="card-title">Step 3: Conversation Queue ({filteredOpps.length})</h3>
           <div className="flex gap-sm">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{ minWidth: 120 }}
-            >
-              <option value="">All Status</option>
-              <option value="NEW">New</option>
-              <option value="SAVED">Saved</option>
-              <option value="DRAFTING">Drafting</option>
-              <option value="POSTED">Posted</option>
-              <option value="IGNORED">Ignored</option>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={{ minWidth: 140 }}>
+              <option value="">All Statuses</option>
+              <option value="new">New</option>
+              <option value="saved">Saved</option>
+              <option value="drafting">Drafting</option>
+              <option value="posted">Posted</option>
+              <option value="ignored">Ignored</option>
             </select>
-            <Button
-              loading={scanning}
-              onClick={runScan}
-              disabled={subreddits.length === 0}
-            >
-              {scanning ? "Scanning..." : "Run Scan"}
+            <Button loading={scanning} onClick={runScan} disabled={subreddits.length === 0}>
+              {scanning ? "Scanning" : "Run Scan"}
             </Button>
           </div>
         </div>
 
         {filteredOpps.length === 0 ? (
           <EmptyState
-            icon="🔍"
-            title={
-              opportunities.length === 0
-                ? "No opportunities found yet"
-                : "No matches for this filter"
-            }
+            icon="Q"
+            title={opportunities.length === 0 ? "No conversations found yet" : "No matches for this filter"}
             description={
               opportunities.length === 0
-                ? "Add keywords, discover communities, then run a scan."
+                ? "Add signals, discover communities, then scan for reply-ready discussions."
                 : "Try changing the status filter."
             }
           />
         ) : (
           <div className="item-list">
             {filteredOpps.map((opp) => (
-              <div key={opp.id} className="list-row" style={{ padding: 12 }}>
+              <div key={opp.id} className="list-row">
                 <div className="flex justify-between items-center">
                   <div style={{ flex: 1 }}>
                     <div className="flex items-center gap-sm">
                       <PlatformIcon platform="reddit" />
+                      <span className="badge">Live Source</span>
                       <a
                         href={redditUrl(opp.permalink)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{
-                          fontWeight: 600,
-                          color: "var(--ink)",
-                          textDecoration: "none",
-                        }}
+                        style={{ fontWeight: 600, color: "var(--ink)" }}
                       >
-                        {(opp.title || "").substring(0, 80)}
-                        {(opp.title || "").length > 80 ? "..." : ""}
+                        {opp.title}
                       </a>
                     </div>
-                    <div className="flex gap-sm items-center" style={{ marginTop: 4 }}>
+                    <div className="badge-row" style={{ marginTop: 8 }}>
                       <span className="badge">r/{opp.subreddit_name}</span>
-                      {opp.score_reasons && opp.score_reasons.length > 0 && (
-                        <span className="text-muted" style={{ fontSize: 11 }}>
-                          {opp.score_reasons.join(", ")}
+                      {(opp.score_reasons || []).slice(0, 2).map((reason) => (
+                        <span key={reason} className="badge">
+                          {reason}
                         </span>
-                      )}
+                      ))}
                     </div>
                   </div>
                   <div className="flex gap-sm items-center">
@@ -480,20 +497,13 @@ export default function DiscoveryPage() {
                       loading={generatingReply === opp.id}
                       onClick={() => generateReply(opp.id)}
                     >
-                      Draft Reply
+                      Draft Response
                     </Button>
                   </div>
                 </div>
                 {opp.body_excerpt && (
-                  <p
-                    className="text-muted"
-                    style={{
-                      marginTop: 8,
-                      fontSize: 13,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {opp.body_excerpt.substring(0, 200)}...
+                  <p className="text-muted" style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5 }}>
+                    {opp.body_excerpt.substring(0, 220)}...
                   </p>
                 )}
               </div>
@@ -502,82 +512,65 @@ export default function DiscoveryPage() {
         )}
       </div>
 
-      {/* Reply Draft Drawer */}
       <Drawer
         open={!!selectedOpp}
         onClose={() => setSelectedOpp(null)}
-        title={`Reply to: ${selectedOpp?.title?.substring(0, 50) || ""}...`}
+        title={`Draft Response: ${selectedOpp?.title?.substring(0, 52) || ""}`}
         footer={
           <div className="flex gap-md" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-            <button
-              className="secondary-button"
-              onClick={() => copyToClipboard(draftContent)}
-            >
-              📋 Copy
+            <a href="/app/content" className="ghost-button" style={{ textDecoration: "none" }}>
+              Review in Studio
+            </a>
+            <button className="secondary-button" onClick={() => copyToClipboard(draftContent)}>
+              Copy
             </button>
             {selectedOpp?.permalink && (
-              <Button
-                variant="primary"
-                onClick={() => copyAndOpenReddit(draftContent, selectedOpp.permalink)}
-              >
-                📋 Copy &amp; Open on Reddit
+              <Button variant="primary" onClick={() => copyAndOpenReddit(draftContent, selectedOpp.permalink)}>
+                Copy and Open on Reddit
               </Button>
             )}
-            <Button
-              variant="secondary"
-              onClick={() => {
-                if (selectedOpp) markAsPosted(selectedOpp.id);
-              }}
-            >
-              ✅ Mark as Posted
+            <Button variant="secondary" onClick={() => selectedOpp && markAsPosted(selectedOpp.id)}>
+              Mark as Posted
             </Button>
           </div>
         }
       >
-        {/* Link to original Reddit post */}
         {selectedOpp?.permalink && (
           <div style={{ marginBottom: 16, padding: 12, background: "var(--surface)", borderRadius: 8 }}>
             <a
               href={redditUrl(selectedOpp.permalink)}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: "var(--accent)", fontWeight: 500, fontSize: 13, textDecoration: "none" }}
+              style={{ color: "var(--accent)", fontWeight: 500, fontSize: 13 }}
             >
-              🔗 View original post on Reddit →
+              View original Reddit thread {"->"}
             </a>
             {selectedOpp.body_excerpt && (
               <p className="text-muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.4 }}>
-                {selectedOpp.body_excerpt.substring(0, 200)}...
+                {selectedOpp.body_excerpt.substring(0, 220)}...
               </p>
             )}
           </div>
         )}
 
         <div className="field">
-          <label className="field-label">Generated Reply</label>
+          <label className="field-label">Generated Response</label>
           <textarea
             rows={10}
             value={draftContent}
-            onChange={(e) => setDraftContent(e.target.value)}
-            style={{
-              fontFamily: "inherit",
-              fontSize: 13,
-              lineHeight: 1.5,
-            }}
+            onChange={(event) => setDraftContent(event.target.value)}
+            style={{ fontSize: 13, lineHeight: 1.5 }}
           />
           <p className="field-help">{draftContent.length} characters</p>
         </div>
         {draftRationale && (
           <div className="card" style={{ backgroundColor: "var(--surface)", marginTop: 12, padding: 16 }}>
-            <h4 className="field-label">Why this reply works:</h4>
-            <p className="text-muted" style={{ fontSize: 13 }}>
-              {draftRationale}
-            </p>
+            <h4 className="field-label">Why this response works</h4>
+            <p className="text-muted" style={{ fontSize: 13 }}>{draftRationale}</p>
           </div>
         )}
       </Drawer>
 
-      {/* Delete Confirmation */}
       <ConfirmModal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

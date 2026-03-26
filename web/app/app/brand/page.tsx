@@ -7,10 +7,12 @@ import { useToast } from "../../../components/toast";
 import { Button, EmptyState, Spinner, Tabs, SkeletonCard } from "../../../components/ui";
 import { apiRequest, type BrandProfile, type Dashboard } from "../../../lib/api";
 import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
+import { useSelectedProjectId } from "../../../lib/use-selected-project";
 
 export default function BrandPage() {
   const { token } = useAuth();
   const toast = useToast();
+  const selectedProjectId = useSelectedProjectId();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [brand, setBrand] = useState<BrandProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -25,12 +27,12 @@ export default function BrandPage() {
     if (!token) {
       return;
     }
-    fetchDashboard(token)
+    fetchDashboard(token, selectedProjectId)
       .then(setDashboard)
       .catch((err) => {
         toast.error("Failed to load", err.message);
       });
-  }, [token, toast]);
+  }, [token, toast, selectedProjectId]);
 
   useEffect(() => {
     if (!token || !project) {

@@ -8,10 +8,12 @@ import {
   getVisibilitySummary, getPromptSets, createPromptSet, runPromptSet,
   getVisibilityPrompts, VisibilitySummary, PromptSetItem, PromptRunResult
 } from "@/lib/api";
+import { useSelectedProjectId } from "@/lib/use-selected-project";
 
 export default function VisibilityPage() {
   const { token } = useAuth();
   const toast = useToast();
+  const selectedProjectId = useSelectedProjectId();
   const [loading, setLoading] = useState(true);
   const [noProject, setNoProject] = useState(false);
   const [summary, setSummary] = useState<VisibilitySummary | null>(null);
@@ -30,15 +32,15 @@ export default function VisibilityPage() {
   useEffect(() => {
     if (!token) return;
     loadData();
-  }, [token]);
+  }, [token, selectedProjectId]);
 
   async function loadData() {
     setLoading(true);
     try {
       const [sumRes, setsRes, promptsRes] = await Promise.all([
-        getVisibilitySummary(token!),
-        getPromptSets(token!),
-        getVisibilityPrompts(token!),
+        getVisibilitySummary(token!, selectedProjectId),
+        getPromptSets(token!, selectedProjectId),
+        getVisibilityPrompts(token!, undefined, 20, 0, selectedProjectId),
       ]);
       setSummary(sumRes);
       setPromptSets(setsRes.items);
@@ -68,7 +70,7 @@ export default function VisibilityPage() {
         prompts,
         target_models: newSetModels,
         schedule: "manual",
-      });
+      }, selectedProjectId);
       toast.success("Prompt set created!", "Run it to start tracking visibility.");
       setShowCreate(false);
       setNewSetName("");
@@ -83,7 +85,7 @@ export default function VisibilityPage() {
   async function handleRun(id: number) {
     setRunningId(id);
     try {
-      const res = await runPromptSet(token!, id);
+      const res = await runPromptSet(token!, id, selectedProjectId);
       toast.success(`Run complete: ${res.total_runs} prompts executed`);
       loadData();
     } catch (e: any) {

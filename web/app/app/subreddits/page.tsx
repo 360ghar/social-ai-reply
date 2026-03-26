@@ -6,11 +6,13 @@ import { Button, EmptyState, KpiCard, ScoreBadge, Tabs, Spinner } from "../../..
 import { useAuth } from "../../../components/auth-provider";
 import { apiRequest, type Dashboard, type MonitoredSubreddit } from "../../../lib/api";
 import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
+import { useSelectedProjectId } from "../../../lib/use-selected-project";
 
 type SortOption = "fit-score" | "activity-score" | "name";
 
 export default function SubredditsPage() {
   const { token } = useAuth();
+  const selectedProjectId = useSelectedProjectId();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [subreddits, setSubreddits] = useState<MonitoredSubreddit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,13 +28,13 @@ export default function SubredditsPage() {
     if (!token) {
       return;
     }
-    fetchDashboard(token)
+    fetchDashboard(token, selectedProjectId)
       .then(setDashboard)
       .catch((err) => {
         setMessage(err.message);
         setLoading(false);
       });
-  }, [token]);
+  }, [token, selectedProjectId]);
 
   useEffect(() => {
     if (!token || !project) {
@@ -95,9 +97,16 @@ export default function SubredditsPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
       {/* Header Section */}
       <section className="card">
-        <div className="eyebrow">Communities</div>
-        <h2>Check which subreddits are worth your time</h2>
-        <p>This page is only for review. If you are just getting started, you can stay on "Find posts" and come back here later.</p>
+        <div className="eyebrow">Community Coverage</div>
+        <h2>Review which communities deserve active engagement</h2>
+        <p>
+          Today this page is Reddit-specific, but the scoring model is the right shape for a broader product: fit, activity, moderation risk, and audience signals should work across forums, Q and A spaces, and social comment surfaces.
+        </p>
+        <div className="badge-row" style={{ marginTop: 16 }}>
+          <span className="badge badge-info">Reddit live now</span>
+          <span className="badge">Q and A pattern ready</span>
+          <span className="badge">Forum pattern ready</span>
+        </div>
         {message && <div className="notice">{message}</div>}
       </section>
 
