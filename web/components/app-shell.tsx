@@ -5,7 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { type Project, apiRequest, isAuthError } from "@/lib/api";
-import { getStoredProjectId, setStoredProjectId, withProjectId } from "@/lib/project";
+import { setStoredProjectId, withProjectId } from "@/lib/project";
+import { useSelectedProjectId } from "@/lib/use-selected-project";
 
 import { useAuth } from "./auth-provider";
 import { ToastProvider } from "./toast";
@@ -83,7 +84,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [notifCount, setNotifCount] = useState(0);
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedProjectId, setSelectedProjectIdState] = useState<number | null>(() => getStoredProjectId());
+  const selectedProjectId = useSelectedProjectId();
 
   useEffect(() => {
     if (authLoading) {
@@ -107,7 +108,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
     const nextProjectId = projects[0].id;
     setStoredProjectId(nextProjectId);
-    setSelectedProjectIdState(nextProjectId);
   }, [dash?.projects, selectedProjectId]);
 
   async function loadShell(projectId: number | null) {
@@ -158,7 +158,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     setStoredProjectId(nextProjectId);
-    setSelectedProjectIdState(nextProjectId);
     setSidebarOpen(false);
     router.refresh();
   }
