@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast";
@@ -14,8 +15,8 @@ import {
   ScoreBadge,
   PlatformIcon,
 } from "@/components/ui";
-import { apiRequest } from "@/lib/api";
-import { withProjectId } from "@/lib/project";
+import { apiRequest, type Project } from "@/lib/api";
+import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/lib/use-selected-project";
 
 interface SetupStatus {
@@ -56,6 +57,16 @@ interface ActivityItem {
   created_at?: string;
 }
 
+interface WorkflowStep {
+  label: string;
+  title: string;
+  description: string;
+  actionLabel: string;
+  done: boolean;
+  href?: string;
+  actionKind: "route" | "modal";
+}
+
 const LANE_COPY = [
   {
     title: "Visibility Lane",
@@ -78,6 +89,7 @@ const LANE_COPY = [
 ];
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { token } = useAuth();
   const toast = useToast();
   const selectedProjectId = useSelectedProjectId();
@@ -133,7 +145,7 @@ export default function DashboardPage() {
     }
     setCreating(true);
     try {
-      await apiRequest(
+      const createdProject = await apiRequest<Project>(
         "/v1/projects",
         {
           method: "POST",
@@ -144,11 +156,12 @@ export default function DashboardPage() {
         },
         token
       );
-      toast.success("Project created", "Set up your brand profile next.");
+      setStoredProjectId(createdProject.id);
+      toast.success("Project created", "Next: add your first audience.");
       setBizName("");
       setBizDesc("");
       setShowCreate(false);
-      await loadAll();
+      router.push("/app/persona");
     } catch (error: any) {
       toast.error("Could not create project", error.message);
     }
@@ -162,15 +175,55 @@ export default function DashboardPage() {
     null;
   const topOpps = dash?.top_opportunities || [];
   const setupStatus = dash?.setup_status;
-  const steps = [
-    { label: "Create Project", done: hasProject },
-    { label: "Define Brand", done: setupStatus?.brand_configured || false },
-    { label: "Add Audience", done: (setupStatus?.personas_count || 0) > 0 },
-    { label: "Map Communities", done: (setupStatus?.subreddits_count || 0) > 0 },
-    { label: "Track Visibility", done: (visibility?.total_runs || 0) > 0 },
+  const steps: WorkflowStep[] = [
+    {
+      label: "Create Project",
+      title: "Create your first project",
+      description: "Start a project to connect brand setup, audience signals, community mapping, and visibility tracking.",
+      actionLabel: "Create Project",
+      done: hasProject,
+      actionKind: "modal",
+    },
+    {
+      label: "Define Brand",
+      title: "Review your brand profile",
+      description: "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
+      actionLabel: "Open Brand",
+      done: setupStatus?.brand_configured || false,
+      href: "/app/brand",
+      actionKind: "route",
+    },
+    {
+      label: "Add Audience",
+      title: "Add your first audience",
+      description: "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
+      actionLabel: "Open Audience",
+      done: (setupStatus?.personas_count || 0) > 0,
+      href: "/app/persona",
+      actionKind: "route",
+    },
+    {
+      label: "Map Communities",
+      title: "Discover matching communities",
+      description: "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
+      actionLabel: "Open Radar",
+      done: (setupStatus?.subreddits_count || 0) > 0,
+      href: "/app/discovery",
+      actionKind: "route",
+    },
+    {
+      label: "Track Visibility",
+      title: "Run your first visibility check",
+      description: "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
+      actionLabel: "Open AI Visibility",
+      done: (visibility?.total_runs || 0) > 0,
+      href: "/app/visibility",
+      actionKind: "route",
+    },
   ];
   const currentStep = steps.findIndex((step) => !step.done);
   const completedCount = steps.filter((step) => step.done).length;
+  const nextStep = steps.find((step) => !step.done) ?? null;
 
   if (loading) {
     return (
@@ -224,6 +277,47 @@ export default function DashboardPage() {
               <p style={{ marginTop: 14 }}>
                 {completedCount} of {steps.length} foundations are in place.
               </p>
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: 16,
+                  borderRadius: 16,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface)",
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <div className="eyebrow" style={{ marginBottom: 0 }}>
+                  {nextStep ? "Next Step" : "Workflow Ready"}
+                </div>
+                <h3 style={{ marginBottom: 0 }}>
+                  {nextStep ? nextStep.title : "All setup steps are complete"}
+                </h3>
+                <p>
+                  {nextStep
+                    ? nextStep.description
+                    : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
+                </p>
+                <div className="action-row" style={{ marginTop: 4 }}>
+                  {nextStep ? (
+                    nextStep.actionKind === "modal" ? (
+                      <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
+                    ) : (
+                      <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
+                        {nextStep.actionLabel}
+                      </Button>
+                    )
+                  ) : (
+                    <>
+                      <Button onClick={() => router.push("/app/visibility")}>Open AI Visibility</Button>
+                      <Button variant="secondary" onClick={() => router.push("/app/discovery")}>
+                        Open Radar
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
