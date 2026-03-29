@@ -4,21 +4,25 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.v1.deps import get_current_user, get_current_workspace
 from app.db.saas_models import (
     AccountUser,
+    AnalyticsSnapshot,
     AuditEvent,
+    AutoPipeline,
     BrandProfile,
+    Campaign,
     DiscoveryKeyword,
     IntegrationSecret,
     Invitation,
     Membership,
     MembershipRole,
     MonitoredSubreddit,
+    Notification as NotificationModel,
     Opportunity,
     OpportunityStatus,
     Persona,
@@ -26,7 +30,9 @@ from app.db.saas_models import (
     Project,
     ProjectStatus,
     PromptTemplate,
+    PublishedPost,
     Redemption,
+    RedditAccount,
     ReplyDraft,
     ScanRun,
     ScanStatus,
@@ -1672,66 +1678,7 @@ def reset_password(payload: dict, db: Session = Depends(get_db)):
     return {"ok": True, "message": "Password updated. You can now log in."}
 
 
-# ── Notifications ───────────────────────────────────────────────
-
-@router.get("/notifications")
-def list_notifications(
-    limit: int = 20, offset: int = 0, unread_only: bool = False,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
-):
-    from app.db.saas_models import Notification
-    _ensure_workspace_membership(db, workspace.id, current_user.id)
-    q = db.query(Notification).filter(Notification.workspace_id == workspace.id)
-    if unread_only:
-        q = q.filter(Notification.is_read == False)
-    total = q.count()
-    items = q.order_by(Notification.created_at.desc()).offset(offset).limit(limit).all()
-    return {
-        "items": [
-            {"id": n.id, "type": n.type, "title": n.title, "body": n.body,
-             "action_url": n.action_url, "is_read": n.is_read,
-             "created_at": n.created_at.isoformat() if n.created_at else None}
-            for n in items
-        ],
-        "total": total,
-        "unread_count": db.query(Notification).filter(
-            Notification.workspace_id == workspace.id, Notification.is_read == False
-        ).count(),
-    }
-
-
-@router.put("/notifications/{nid}/read")
-def mark_notification_read(
-    nid: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
-):
-    from app.db.saas_models import Notification
-    _ensure_workspace_membership(db, workspace.id, current_user.id)
-    n = db.scalar(select(Notification).where(Notification.id == nid, Notification.workspace_id == workspace.id))
-    if not n:
-        raise HTTPException(404, "Notification not found.")
-    n.is_read = True
-    db.commit()
-    return {"ok": True}
-
-
-@router.post("/notifications/read-all")
-def mark_all_read(
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
-):
-    from app.db.saas_models import Notification
-    _ensure_workspace_membership(db, workspace.id, current_user.id)
-    db.query(Notification).filter(
-        Notification.workspace_id == workspace.id, Notification.is_read == False
-    ).update({"is_read": True})
-    db.commit()
-    return {"ok": True}
+# ── Notifications (see later section for full implementation) ───
 
 
 # ── Activity Log ────────────────────────────────────────────────
@@ -2098,3 +2045,1391 @@ def source_gaps(
             for g in gaps
         ]
     }
+
+
+# ── Campaign Routes ──────────────────────────────────────────
+
+@router.get("/campaigns")
+def list_campaigns(
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """List campaigns for a project"""
+    from app.db.saas_models import Campaign
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    campaigns = db.query(Campaign).filter(Campaign.project_id == proj.id).order_by(Campaign.created_at.desc()).all()
+    return {
+        "items": [
+            {
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "status": c.status,
+                "goal": c.goal,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in campaigns
+        ]
+    }
+
+
+@router.post("/campaigns")
+def create_campaign(
+    payload: dict,
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Create a new campaign"""
+    from app.db.saas_models import Campaign
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    campaign = Campaign(
+        project_id=proj.id,
+        name=payload.get("name", "New Campaign"),
+        description=payload.get("description"),
+        status=payload.get("status", "active"),
+        goal=payload.get("goal"),
+    )
+    db.add(campaign)
+    db.commit()
+    db.refresh(campaign)
+
+    return {
+        "id": campaign.id,
+        "name": campaign.name,
+        "description": campaign.description,
+        "status": campaign.status,
+        "goal": campaign.goal,
+        "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
+    }
+
+
+@router.put("/campaigns/{campaign_id}")
+def update_campaign(
+    campaign_id: str,
+    payload: dict,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Update a campaign"""
+    from app.db.saas_models import Campaign
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.project_id.in_(select(Project.id).where(Project.workspace_id == workspace.id))
+    ).first()
+    if not campaign:
+        raise HTTPException(404, "Campaign not found.")
+
+    if "name" in payload:
+        campaign.name = payload["name"]
+    if "description" in payload:
+        campaign.description = payload["description"]
+    if "status" in payload:
+        campaign.status = payload["status"]
+    if "goal" in payload:
+        campaign.goal = payload["goal"]
+
+    db.commit()
+    db.refresh(campaign)
+
+    return {
+        "id": campaign.id,
+        "name": campaign.name,
+        "description": campaign.description,
+        "status": campaign.status,
+        "goal": campaign.goal,
+        "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
+    }
+
+
+@router.delete("/campaigns/{campaign_id}")
+def delete_campaign(
+    campaign_id: str,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Delete a campaign"""
+    from app.db.saas_models import Campaign
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    campaign = db.query(Campaign).filter(
+        Campaign.id == campaign_id,
+        Campaign.project_id.in_(select(Project.id).where(Project.workspace_id == workspace.id))
+    ).first()
+    if not campaign:
+        raise HTTPException(404, "Campaign not found.")
+
+    db.delete(campaign)
+    db.commit()
+
+    return {"success": True, "message": "Campaign deleted."}
+
+
+# ── Notification Routes ──────────────────────────────────────────
+
+@router.get("/notifications")
+def list_notifications(
+    limit: int = 20,
+    offset: int = 0,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """List notifications for current user"""
+    # NotificationModel imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+
+    notifications = db.query(NotificationModel).filter(
+        NotificationModel.workspace_id == workspace.id,
+        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None))
+    ).order_by(NotificationModel.created_at.desc()).offset(offset).limit(limit).all()
+
+    unread_count = db.query(NotificationModel).filter(
+        NotificationModel.workspace_id == workspace.id,
+        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
+        NotificationModel.is_read.is_(False)
+    ).count()
+
+    return {
+        "items": [
+            {
+                "id": n.id,
+                "title": n.title,
+                "body": n.body,
+                "message": n.body,
+                "type": n.type,
+                "link": n.action_url,
+                "action_url": n.action_url,
+                "is_read": n.is_read,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notifications
+        ],
+        "unread_count": unread_count,
+    }
+
+
+@router.put("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: str,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Mark a notification as read"""
+    # NotificationModel imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    notification = db.query(NotificationModel).filter(
+        NotificationModel.id == notification_id,
+        NotificationModel.workspace_id == workspace.id,
+    ).first()
+    if not notification:
+        raise HTTPException(404, "Notification not found.")
+
+    notification.is_read = True
+    db.commit()
+    db.refresh(notification)
+
+    return {"id": notification.id, "is_read": notification.is_read}
+
+
+@router.put("/notifications/read-all")
+def mark_all_read(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Mark all notifications as read"""
+    # NotificationModel imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    db.query(NotificationModel).filter(
+        NotificationModel.workspace_id == workspace.id,
+        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
+        NotificationModel.is_read.is_(False)
+    ).update({NotificationModel.is_read: True})
+    db.commit()
+
+    return {"success": True, "message": "All notifications marked as read."}
+
+
+@router.delete("/notifications/{notification_id}")
+def delete_notification(
+    notification_id: str,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Delete a notification"""
+    # NotificationModel imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    notification = db.query(NotificationModel).filter(
+        NotificationModel.id == notification_id,
+        NotificationModel.workspace_id == workspace.id,
+    ).first()
+    if not notification:
+        raise HTTPException(404, "Notification not found.")
+
+    db.delete(notification)
+    db.commit()
+
+    return {"success": True, "message": "Notification deleted."}
+
+
+# ── Analytics Routes ──────────────────────────────────────────
+
+@router.get("/analytics/overview")
+def analytics_overview(
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Get dashboard KPIs"""
+    from app.db.saas_models import AnalyticsSnapshot, VisibilitySnapshot
+    from sqlalchemy import func as sqlfunc
+    from datetime import date
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    # Get today's snapshot
+    today_snapshot = db.query(AnalyticsSnapshot).filter(
+        AnalyticsSnapshot.project_id == proj.id,
+        AnalyticsSnapshot.date == date.today()
+    ).first()
+
+    # Get visibility score from latest visibility snapshot
+    visibility_score = 0
+    visibility_snapshot = db.query(VisibilitySnapshot).filter(
+        VisibilitySnapshot.project_id == proj.id
+    ).order_by(VisibilitySnapshot.date.desc()).first()
+    if visibility_snapshot:
+        visibility_score = visibility_snapshot.share_of_voice or 0
+
+    # Count opportunities
+    opportunities_count = db.query(func.count(Opportunity.id)).filter(
+        Opportunity.project_id == proj.id
+    ).scalar() or 0
+
+    # Count drafts
+    reply_drafts_count = db.query(func.count(ReplyDraft.id)).filter(
+        ReplyDraft.project_id == proj.id
+    ).scalar() or 0
+    post_drafts_count = db.query(func.count(PostDraft.id)).filter(
+        PostDraft.project_id == proj.id
+    ).scalar() or 0
+    total_drafts = reply_drafts_count + post_drafts_count
+
+    # Count published posts
+    from app.db.saas_models import PublishedPost
+    published_count = db.query(func.count(PublishedPost.id)).filter(
+        PublishedPost.project_id == proj.id,
+        PublishedPost.status == "published"
+    ).scalar() or 0
+
+    return {
+        "visibility_score": visibility_score,
+        "total_opportunities": opportunities_count,
+        "total_drafts": total_drafts,
+        "total_published": published_count,
+        "keywords_count": count_active_keywords(db, proj.id),
+        "subreddits_count": count_active_subreddits(db, proj.id),
+        "today_opportunities": today_snapshot.opportunities_found if today_snapshot else 0,
+        "today_posts_published": today_snapshot.posts_published if today_snapshot else 0,
+    }
+
+
+@router.get("/analytics/visibility-trend")
+def visibility_trend(
+    days: int = 30,
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Get visibility trend over time"""
+    from app.db.saas_models import AnalyticsSnapshot
+    from datetime import date, timedelta
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    start_date = date.today() - timedelta(days=days)
+    snapshots = db.query(AnalyticsSnapshot).filter(
+        AnalyticsSnapshot.project_id == proj.id,
+        AnalyticsSnapshot.date >= start_date
+    ).order_by(AnalyticsSnapshot.date).all()
+
+    return {
+        "items": [
+            {
+                "date": s.date.isoformat() if s.date else None,
+                "visibility_score": s.visibility_score,
+                "total_mentions": s.total_mentions,
+                "positive_mentions": s.positive_mentions,
+                "negative_mentions": s.negative_mentions,
+                "neutral_mentions": s.neutral_mentions,
+            }
+            for s in snapshots
+        ]
+    }
+
+
+@router.get("/analytics/engagement")
+def engagement_metrics(
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Get engagement metrics"""
+    from sqlalchemy import func as sqlfunc
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    # Count by opportunity status
+    status_counts = db.query(
+        Opportunity.status,
+        func.count(Opportunity.id).label("count")
+    ).filter(Opportunity.project_id == proj.id).group_by(Opportunity.status).all()
+
+    return {
+        "by_status": {status.value: count for status, count in status_counts},
+        "total_scans": db.query(func.count(ScanRun.id)).filter(ScanRun.project_id == proj.id).scalar() or 0,
+    }
+
+
+@router.get("/analytics/keywords")
+def keyword_performance(
+    limit: int = 20,
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Get keyword performance data"""
+    from sqlalchemy import func as sqlfunc
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    keywords = db.query(DiscoveryKeyword).filter(
+        DiscoveryKeyword.project_id == proj.id,
+        DiscoveryKeyword.is_active.is_(True)
+    ).order_by(DiscoveryKeyword.priority_score.desc()).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": k.id,
+                "keyword": k.keyword,
+                "priority_score": k.priority_score,
+                "rationale": k.rationale,
+            }
+            for k in keywords
+        ]
+    }
+
+
+@router.get("/analytics/subreddits")
+def subreddit_performance(
+    limit: int = 20,
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Get subreddit performance data"""
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    subreddits = db.query(MonitoredSubreddit).filter(
+        MonitoredSubreddit.project_id == proj.id,
+        MonitoredSubreddit.is_active.is_(True)
+    ).order_by(MonitoredSubreddit.fit_score.desc()).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "subscribers": s.subscribers,
+                "activity_score": s.activity_score,
+                "fit_score": s.fit_score,
+            }
+            for s in subreddits
+        ]
+    }
+
+
+@router.post("/analytics/snapshot")
+def take_analytics_snapshot(
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Take a daily analytics snapshot"""
+    from app.db.saas_models import AnalyticsSnapshot, VisibilitySnapshot
+    from sqlalchemy import func as sqlfunc
+    from datetime import date
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    today = date.today()
+
+    # Check if snapshot already exists for today
+    existing = db.query(AnalyticsSnapshot).filter(
+        AnalyticsSnapshot.project_id == proj.id,
+        AnalyticsSnapshot.date == today
+    ).first()
+
+    if existing:
+        return {"message": "Snapshot already taken today.", "id": existing.id}
+
+    # Gather data
+    opportunities_count = db.query(func.count(Opportunity.id)).filter(
+        Opportunity.project_id == proj.id
+    ).scalar() or 0
+
+    reply_drafts = db.query(func.count(ReplyDraft.id)).filter(
+        ReplyDraft.project_id == proj.id
+    ).scalar() or 0
+    post_drafts = db.query(func.count(PostDraft.id)).filter(
+        PostDraft.project_id == proj.id
+    ).scalar() or 0
+
+    from app.db.saas_models import PublishedPost
+    published = db.query(func.count(PublishedPost.id)).filter(
+        PublishedPost.project_id == proj.id,
+        PublishedPost.status == "published"
+    ).scalar() or 0
+
+    # Get top keywords
+    top_keywords = [
+        k.keyword for k in db.query(DiscoveryKeyword).filter(
+            DiscoveryKeyword.project_id == proj.id,
+            DiscoveryKeyword.is_active.is_(True)
+        ).order_by(DiscoveryKeyword.priority_score.desc()).limit(5).all()
+    ]
+
+    # Get top subreddits
+    top_subreddits = [
+        s.name for s in db.query(MonitoredSubreddit).filter(
+            MonitoredSubreddit.project_id == proj.id,
+            MonitoredSubreddit.is_active.is_(True)
+        ).order_by(MonitoredSubreddit.fit_score.desc()).limit(5).all()
+    ]
+
+    # Get visibility score
+    visibility_score = 0.0
+    visibility_snapshot = db.query(VisibilitySnapshot).filter(
+        VisibilitySnapshot.project_id == proj.id
+    ).order_by(VisibilitySnapshot.date.desc()).first()
+    if visibility_snapshot:
+        visibility_score = visibility_snapshot.share_of_voice or 0.0
+
+    snapshot = AnalyticsSnapshot(
+        project_id=proj.id,
+        date=today,
+        visibility_score=visibility_score,
+        total_mentions=0,
+        positive_mentions=0,
+        negative_mentions=0,
+        neutral_mentions=0,
+        citation_count=0,
+        opportunities_found=opportunities_count,
+        drafts_created=reply_drafts + post_drafts,
+        posts_published=published,
+        top_keywords=top_keywords,
+        top_subreddits=top_subreddits,
+    )
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+
+    return {
+        "id": snapshot.id,
+        "date": snapshot.date.isoformat() if snapshot.date else None,
+        "opportunities_found": snapshot.opportunities_found,
+        "drafts_created": snapshot.drafts_created,
+        "posts_published": snapshot.posts_published,
+    }
+
+
+@router.get("/analytics/export")
+def export_analytics(
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Export analytics data as JSON"""
+    from app.db.saas_models import AnalyticsSnapshot
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    snapshots = db.query(AnalyticsSnapshot).filter(
+        AnalyticsSnapshot.project_id == proj.id
+    ).order_by(AnalyticsSnapshot.date.desc()).all()
+
+    return {
+        "project_id": proj.id,
+        "project_name": proj.name,
+        "snapshots": [
+            {
+                "date": s.date.isoformat() if s.date else None,
+                "visibility_score": s.visibility_score,
+                "total_mentions": s.total_mentions,
+                "opportunities_found": s.opportunities_found,
+                "drafts_created": s.drafts_created,
+                "posts_published": s.posts_published,
+                "top_keywords": s.top_keywords,
+                "top_subreddits": s.top_subreddits,
+            }
+            for s in snapshots
+        ]
+    }
+
+
+# ── Auto-Pipeline Routes ──────────────────────────────────────────
+
+def _run_auto_pipeline_background(
+    pipeline_id: str,
+    website_url: str,
+    project_id: int,
+    workspace_id: int,
+    user_id: int,
+):
+    """Background task to run the auto-pipeline with full logging."""
+    import logging
+    import traceback
+    from app.db.session import SessionLocal
+
+    log = logging.getLogger("redditflow.pipeline")
+    log.info("=== AUTO-PIPELINE START === id=%s url=%s project=%s", pipeline_id, website_url, project_id)
+
+    db = SessionLocal()
+    try:
+        pipeline = db.query(AutoPipeline).filter(AutoPipeline.id == pipeline_id).first()
+        if not pipeline:
+            log.error("Pipeline %s not found in DB — aborting.", pipeline_id)
+            return
+
+        proj = db.query(Project).filter(Project.id == project_id).first()
+        if not proj:
+            log.error("Project %s not found in DB — aborting.", project_id)
+            return
+
+        copilot = ProductCopilot()
+        log.info("Step 1/7: Analyzing website %s", website_url)
+
+        # ── Step 1: Analyze Website (0→15%) ───────────────────────
+        pipeline.status = "analyzing"
+        pipeline.progress = 5
+        pipeline.current_step = "Analyzing website content..."
+        db.commit()
+
+        try:
+            website_analysis = copilot.analyze_website(website_url)
+            log.info("Website analysis OK — brand=%s summary_len=%d",
+                     website_analysis.brand_name, len(website_analysis.summary or ""))
+        except Exception as e:
+            log.error("Website analysis FAILED: %s\n%s", e, traceback.format_exc())
+            raise
+
+        pipeline.brand_summary = website_analysis.summary
+        pipeline.progress = 15
+
+        # Explicitly load or create brand profile
+        brand = db.query(BrandProfile).filter(BrandProfile.project_id == proj.id).first()
+        if brand:
+            brand.brand_name = website_analysis.brand_name
+            brand.summary = website_analysis.summary
+            brand.product_summary = website_analysis.product_summary
+            brand.target_audience = website_analysis.target_audience
+            brand.call_to_action = website_analysis.call_to_action
+            brand.voice_notes = website_analysis.voice_notes
+            log.info("Updated existing BrandProfile id=%s", brand.id)
+        else:
+            brand = BrandProfile(
+                project_id=proj.id,
+                brand_name=website_analysis.brand_name,
+                website_url=website_url,
+                summary=website_analysis.summary,
+                product_summary=website_analysis.product_summary,
+                target_audience=website_analysis.target_audience,
+                call_to_action=website_analysis.call_to_action,
+                voice_notes=website_analysis.voice_notes,
+            )
+            db.add(brand)
+            log.info("Created new BrandProfile for project %s", proj.id)
+
+        db.commit()
+
+        # ── Step 2: Generate Personas (15→30%) ────────────────────
+        log.info("Step 2/7: Generating personas")
+        pipeline.status = "generating_personas"
+        pipeline.progress = 20
+        pipeline.current_step = "Generating target personas..."
+        db.commit()
+
+        try:
+            personas_data = copilot.suggest_personas(brand, count=4)
+            log.info("Generated %d personas", len(personas_data))
+        except Exception as e:
+            log.error("Persona generation FAILED: %s\n%s", e, traceback.format_exc())
+            raise
+
+        for p_data in personas_data:
+            persona = Persona(
+                project_id=proj.id,
+                name=p_data["name"],
+                role=p_data.get("role"),
+                summary=p_data["summary"],
+                pain_points=p_data.get("pain_points", []),
+                goals=p_data.get("goals", []),
+                triggers=p_data.get("triggers", []),
+                preferred_subreddits=p_data.get("preferred_subreddits", []),
+                source="generated",
+            )
+            db.add(persona)
+        pipeline.personas_generated = len(personas_data)
+        pipeline.progress = 30
+        db.commit()
+
+        # ── Step 3: Discover Keywords (30→45%) ────────────────────
+        log.info("Step 3/7: Discovering keywords")
+        pipeline.status = "discovering_keywords"
+        pipeline.progress = 35
+        pipeline.current_step = "Discovering relevant keywords..."
+        db.commit()
+
+        personas_list = db.query(Persona).filter(Persona.project_id == proj.id).all()
+        try:
+            keywords_data = copilot.generate_keywords(brand, personas_list, count=15)
+            log.info("Generated %d keywords", len(keywords_data))
+        except Exception as e:
+            log.error("Keyword generation FAILED: %s\n%s", e, traceback.format_exc())
+            raise
+
+        # Get existing keywords to avoid UNIQUE constraint violations on re-runs
+        existing_kw = {
+            row.keyword
+            for row in db.query(DiscoveryKeyword.keyword).filter(
+                DiscoveryKeyword.project_id == proj.id
+            ).all()
+        }
+        new_kw_count = 0
+        for k_data in keywords_data:
+            if k_data.keyword in existing_kw:
+                log.info("Keyword '%s' already exists — skipping", k_data.keyword)
+                continue
+            keyword = DiscoveryKeyword(
+                project_id=proj.id,
+                keyword=k_data.keyword,
+                rationale=k_data.rationale,
+                priority_score=k_data.priority_score,
+                source="generated",
+            )
+            db.add(keyword)
+            existing_kw.add(k_data.keyword)
+            new_kw_count += 1
+        pipeline.keywords_generated = len(keywords_data)
+        pipeline.progress = 45
+        db.commit()
+        log.info("Inserted %d new keywords (%d already existed)", new_kw_count, len(keywords_data) - new_kw_count)
+
+        # ── Step 4: Discover Subreddits (45→60%) ─────────────────
+        log.info("Step 4/7: Discovering subreddits")
+        pipeline.status = "finding_subreddits"
+        pipeline.progress = 50
+        pipeline.current_step = "Discovering relevant subreddits..."
+        db.commit()
+
+        reddit = RedditClient()
+        discovered_subreddits: list[str] = []
+        # Get existing subreddits to avoid UNIQUE constraint violations on re-runs
+        existing_subs = {
+            row.name
+            for row in db.query(MonitoredSubreddit.name).filter(
+                MonitoredSubreddit.project_id == proj.id
+            ).all()
+        }
+        keywords_list = db.query(DiscoveryKeyword).filter(
+            DiscoveryKeyword.project_id == proj.id,
+            DiscoveryKeyword.is_active.is_(True),
+        ).limit(5).all()
+
+        for kw in keywords_list:
+            try:
+                subreddits = reddit.search_subreddits(kw.keyword, limit=2)
+            except Exception as e:
+                log.warning("Reddit search failed for keyword '%s': %s", kw.keyword, e)
+                continue
+            for sub_match in subreddits[:2]:
+                if sub_match.name not in discovered_subreddits and sub_match.name not in existing_subs:
+                    discovered_subreddits.append(sub_match.name)
+                    try:
+                        sub_info = reddit.subreddit_about(sub_match.name)
+                    except Exception:
+                        sub_info = {}
+                    subreddit = MonitoredSubreddit(
+                        project_id=proj.id,
+                        name=sub_match.name,
+                        title=sub_info.get("title", "") or sub_match.title,
+                        description=sub_info.get("public_description", "") or sub_match.description,
+                        subscribers=sub_info.get("subscribers", 0) or sub_match.subscribers,
+                        fit_score=75,
+                    )
+                    db.add(subreddit)
+
+        pipeline.subreddits_found = len(discovered_subreddits) + len(existing_subs)
+        pipeline.progress = 60
+        db.commit()
+        log.info("Discovered %d new subreddits (%d already existed)", len(discovered_subreddits), len(existing_subs))
+
+        # ── Step 5: Scan for Opportunities (60→75%) ──────────────
+        log.info("Step 5/7: Scanning Reddit for opportunities")
+        pipeline.status = "scanning_opportunities"
+        pipeline.progress = 65
+        pipeline.current_step = "Scanning Reddit for opportunities..."
+        db.commit()
+
+        opp_found = 0
+        try:
+            scan_req = ScanRequest(project_id=proj.id, search_window_hours=72, max_posts_per_subreddit=10, min_score=25)
+            scan_run = _run_scan(db, proj, scan_req)
+            opp_found = scan_run.opportunities_found
+            log.info("Scan complete — %d opportunities found", opp_found)
+        except Exception as e:
+            log.warning("Scan step skipped or failed: %s", e)
+            opp_found = 0
+        pipeline.opportunities_found = opp_found
+        pipeline.progress = 75
+        db.commit()
+
+        # ── Step 6: Generate Drafts (75→95%) ─────────────────────
+        log.info("Step 6/7: Generating reply drafts")
+        pipeline.status = "generating_drafts"
+        pipeline.progress = 80
+        pipeline.current_step = "Generating reply drafts..."
+        db.commit()
+
+        _ensure_default_prompts(db, proj.id)
+        prompts = db.query(PromptTemplate).filter(PromptTemplate.project_id == proj.id).all()
+
+        opportunities = db.query(Opportunity).filter(
+            Opportunity.project_id == proj.id,
+            Opportunity.status == OpportunityStatus.NEW,
+        ).order_by(Opportunity.score.desc()).limit(10).all()
+
+        drafts_count = 0
+        for opp in opportunities:
+            try:
+                content, rationale, source_prompt = copilot.generate_reply(opp, brand, prompts)
+                reply_draft = ReplyDraft(
+                    project_id=proj.id,
+                    opportunity_id=opp.id,
+                    content=content,
+                    rationale=rationale,
+                    source_prompt=source_prompt,
+                )
+                db.add(reply_draft)
+                # Mark opportunity as DRAFTING so it shows in Content Studio
+                opp.status = OpportunityStatus.DRAFTING
+                drafts_count += 1
+            except Exception as e:
+                log.warning("Draft generation failed for opp %s: %s", opp.id, e)
+
+        db.commit()
+        pipeline.drafts_generated = drafts_count
+        pipeline.progress = 95
+        db.commit()
+        log.info("Generated %d drafts for %d opportunities", drafts_count, len(opportunities))
+
+        # ── Step 7: Finalize (95→100%) ───────────────────────────
+        log.info("Step 7/7: Finalizing sales package")
+        pipeline.current_step = "Finalizing sales package..."
+        db.commit()
+
+        pipeline.status = "ready"
+        pipeline.progress = 100
+        pipeline.current_step = "Complete!"
+        pipeline.completed_at = datetime.now(timezone.utc)
+        db.commit()
+
+        # Create notification
+        try:
+            notification = NotificationModel(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                title="Sales Package Ready!",
+                body=f"Your auto-pipeline for {proj.name} is complete. Review and launch your sales package.",
+                type="opportunity",
+            )
+            db.add(notification)
+            db.commit()
+        except Exception as e:
+            log.warning("Notification creation failed (non-fatal): %s", e)
+
+        log.info("=== AUTO-PIPELINE COMPLETE === id=%s status=ready", pipeline_id)
+
+    except Exception as e:
+        log.error("=== AUTO-PIPELINE FAILED === id=%s error=%s\n%s", pipeline_id, e, traceback.format_exc())
+        try:
+            db.rollback()
+            pipeline = db.query(AutoPipeline).filter(AutoPipeline.id == pipeline_id).first()
+            if pipeline:
+                pipeline.status = "error"
+                pipeline.error_message = str(e)[:500]
+                pipeline.completed_at = datetime.now(timezone.utc)
+                db.commit()
+        except Exception as inner:
+            log.error("Failed to save error status: %s", inner)
+    finally:
+        db.close()
+
+
+@router.post("/auto-pipeline/run")
+def start_auto_pipeline(
+    background_tasks: BackgroundTasks,
+    payload: dict = Body(...),
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Start the full auto-pipeline from website URL"""
+    # AutoPipeline imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+
+    website_url = payload.get("website_url")
+    project_id = payload.get("project_id")
+
+    if not website_url:
+        raise HTTPException(400, "website_url is required.")
+
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    # Create pipeline record
+    pipeline = AutoPipeline(
+        project_id=proj.id,
+        website_url=website_url,
+        status="analyzing",
+        progress=0,
+        current_step="Analyzing website...",
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(pipeline)
+    db.commit()
+    db.refresh(pipeline)
+
+    # Queue the pipeline to run in the background
+    background_tasks.add_task(
+        _run_auto_pipeline_background,
+        pipeline.id,
+        website_url,
+        proj.id,
+        workspace.id,
+        current_user.id,
+    )
+
+    # Return immediately with initial pipeline status
+    return {
+        "id": pipeline.id,
+        "project_id": pipeline.project_id,
+        "website_url": pipeline.website_url,
+        "status": pipeline.status,
+        "progress": pipeline.progress,
+        "current_step": pipeline.current_step,
+        "personas_count": pipeline.personas_generated,
+        "keywords_count": pipeline.keywords_generated,
+        "subreddits_count": pipeline.subreddits_found,
+        "opportunities_count": pipeline.opportunities_found,
+        "drafts_count": pipeline.drafts_generated,
+        "brand_summary": pipeline.brand_summary,
+        "created_at": pipeline.created_at.isoformat() if pipeline.created_at else None,
+    }
+
+
+@router.get("/auto-pipeline/{pipeline_id}")
+def get_auto_pipeline(
+    pipeline_id: str,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Get pipeline status and results"""
+    # AutoPipeline imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    pipeline = db.query(AutoPipeline).filter(
+        AutoPipeline.id == pipeline_id,
+        AutoPipeline.project_id.in_(select(Project.id).where(Project.workspace_id == workspace.id))
+    ).first()
+    if not pipeline:
+        raise HTTPException(404, "Pipeline not found.")
+
+    response = {
+        "id": pipeline.id,
+        "project_id": pipeline.project_id,
+        "website_url": pipeline.website_url,
+        "status": pipeline.status,
+        "progress": pipeline.progress,
+        "current_step": pipeline.current_step,
+        "brand_summary": pipeline.brand_summary,
+        "personas_count": pipeline.personas_generated,
+        "keywords_count": pipeline.keywords_generated,
+        "subreddits_count": pipeline.subreddits_found,
+        "opportunities_count": pipeline.opportunities_found,
+        "drafts_count": pipeline.drafts_generated,
+        "started_at": pipeline.started_at.isoformat() if pipeline.started_at else None,
+        "completed_at": pipeline.completed_at.isoformat() if pipeline.completed_at else None,
+        "error_message": pipeline.error_message,
+    }
+
+    # Include detailed results when pipeline is ready
+    if pipeline.status == "ready":
+        proj = db.query(Project).filter(Project.id == pipeline.project_id).first()
+        if proj:
+            personas = db.query(Persona).filter(Persona.project_id == proj.id, Persona.source == "generated").all()
+            keywords = db.query(DiscoveryKeyword).filter(DiscoveryKeyword.project_id == proj.id, DiscoveryKeyword.source == "generated").all()
+            subreddits = db.query(MonitoredSubreddit).filter(MonitoredSubreddit.project_id == proj.id).all()
+            opportunities = db.query(Opportunity).filter(Opportunity.project_id == proj.id, Opportunity.status == OpportunityStatus.NEW).order_by(Opportunity.score.desc()).limit(20).all()
+            drafts = db.query(ReplyDraft).filter(ReplyDraft.project_id == proj.id).options(selectinload(ReplyDraft.opportunity)).all()
+
+            response["results"] = {
+                "brand_summary": pipeline.brand_summary or "",
+                "personas": [
+                    {
+                        "name": p.name,
+                        "role": p.role or "",
+                        "summary": p.summary,
+                        "pain_points": p.pain_points or [],
+                    }
+                    for p in personas
+                ],
+                "keywords": [
+                    {
+                        "keyword": k.keyword,
+                        "score": k.priority_score,
+                        "source": k.source,
+                    }
+                    for k in keywords
+                ],
+                "subreddits": [
+                    {
+                        "name": s.name,
+                        "fit_score": s.fit_score,
+                        "subscribers": s.subscribers,
+                        "description": s.description or "",
+                    }
+                    for s in subreddits
+                ],
+                "opportunities": [
+                    {
+                        "title": o.title,
+                        "subreddit": o.subreddit_name,
+                        "score": o.score,
+                        "author": o.author,
+                    }
+                    for o in opportunities
+                ],
+                "drafts": [
+                    {
+                        "title": (d.opportunity.title if d.opportunity else "") or "Reply Draft",
+                        "content": d.content,
+                        "opportunity_title": d.opportunity.title if d.opportunity else "",
+                    }
+                    for d in drafts[:10]
+                ],
+            }
+
+    return response
+
+
+@router.get("/auto-pipeline")
+def list_auto_pipelines(
+    project_id: int | None = Query(default=None, ge=1),
+    limit: int = 20,
+    offset: int = 0,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """List all pipeline runs"""
+    # AutoPipeline imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    pipelines = db.query(AutoPipeline).filter(
+        AutoPipeline.project_id == proj.id
+    ).order_by(AutoPipeline.created_at.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "project_id": p.project_id,
+                "website_url": p.website_url,
+                "status": p.status,
+                "progress": p.progress,
+                "personas_count": p.personas_generated,
+                "keywords_count": p.keywords_generated,
+                "subreddits_count": p.subreddits_found,
+                "opportunities_count": p.opportunities_found,
+                "drafts_count": p.drafts_generated,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in pipelines
+        ]
+    }
+
+
+@router.post("/auto-pipeline/{pipeline_id}/execute")
+def execute_auto_pipeline(
+    pipeline_id: str,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Execute the sales package (publish all drafts)"""
+    # AutoPipeline imported at module top
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    pipeline = db.query(AutoPipeline).filter(
+        AutoPipeline.id == pipeline_id,
+        AutoPipeline.project_id.in_(select(Project.id).where(Project.workspace_id == workspace.id))
+    ).first()
+    if not pipeline:
+        raise HTTPException(404, "Pipeline not found.")
+
+    if pipeline.status != "ready":
+        raise HTTPException(400, "Pipeline is not ready for execution. Please complete the setup first.")
+
+    # Publish all drafts (this would typically queue them for posting)
+    reply_drafts = db.query(ReplyDraft).filter(
+        ReplyDraft.project_id == pipeline.project_id
+    ).all()
+
+    pipeline.status = "executed"
+    pipeline.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {
+        "id": pipeline.id,
+        "status": pipeline.status,
+        "drafted_replies": len(reply_drafts),
+        "message": "Sales package has been executed. Drafts are ready for review and posting."
+    }
+
+
+# ── Reddit Posting Routes ──────────────────────────────────────────
+
+@router.post("/reddit/connect")
+def initiate_reddit_oauth(
+    payload: dict,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Initiate Reddit OAuth connection"""
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+
+    # Return OAuth URL for frontend to redirect to
+    # In production, this would initiate actual Reddit OAuth flow
+    reddit_auth_url = "https://www.reddit.com/api/v1/authorize?client_id=YOUR_CLIENT_ID&response_type=code&state=random_state&redirect_uri=YOUR_CALLBACK_URL&duration=permanent&scope=submit,edit,delete,read"
+
+    return {
+        "auth_url": reddit_auth_url,
+        "message": "Redirect user to this URL to authorize Reddit access."
+    }
+
+
+@router.post("/reddit/callback")
+def handle_reddit_callback(
+    payload: dict,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Handle Reddit OAuth callback"""
+    from app.db.saas_models import RedditAccount
+    from app.services.product.encryption import encrypt_text
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+
+    code = payload.get("code")
+    if not code:
+        raise HTTPException(400, "Authorization code is required.")
+
+    # In production, exchange code for access token
+    # For now, we'll store a placeholder
+    try:
+        reddit = RedditAccount(
+            workspace_id=workspace.id,
+            username=payload.get("username", "connected_account"),
+            access_token=encrypt_text(code),
+            is_active=True,
+        )
+        db.add(reddit)
+        db.commit()
+        db.refresh(reddit)
+
+        return {
+            "id": reddit.id,
+            "username": reddit.username,
+            "is_active": reddit.is_active,
+            "connected_at": reddit.connected_at.isoformat() if reddit.connected_at else None,
+            "message": "Reddit account connected successfully."
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to connect Reddit account: {str(e)}")
+
+
+@router.get("/reddit/accounts")
+def list_reddit_accounts(
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """List connected Reddit accounts"""
+    from app.db.saas_models import RedditAccount
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+
+    accounts = db.query(RedditAccount).filter(
+        RedditAccount.workspace_id == workspace.id
+    ).order_by(RedditAccount.connected_at.desc()).all()
+
+    return {
+        "items": [
+            {
+                "id": acc.id,
+                "username": acc.username,
+                "karma": acc.karma,
+                "is_active": acc.is_active,
+                "connected_at": acc.connected_at.isoformat() if acc.connected_at else None,
+            }
+            for acc in accounts
+        ]
+    }
+
+
+@router.post("/reddit/post")
+def post_to_reddit(
+    payload: dict,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Post a comment or thread to Reddit"""
+    from app.db.saas_models import PublishedPost, RedditAccount
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+
+    reddit_account_id = payload.get("reddit_account_id")
+    project_id = payload.get("project_id")
+    post_type = payload.get("type", "comment")  # comment or post
+    subreddit = payload.get("subreddit")
+    content = payload.get("content")
+    title = payload.get("title")  # for posts
+    parent_post_id = payload.get("parent_post_id")  # for comments
+    campaign_id = payload.get("campaign_id")
+
+    if not all([reddit_account_id, project_id, subreddit, content]):
+        raise HTTPException(400, "Missing required fields: reddit_account_id, project_id, subreddit, content")
+
+    if post_type == "post" and not title:
+        raise HTTPException(400, "Title is required for posts.")
+
+    # Verify account and project ownership
+    account = db.query(RedditAccount).filter(
+        RedditAccount.id == reddit_account_id,
+        RedditAccount.workspace_id == workspace.id
+    ).first()
+    if not account:
+        raise HTTPException(404, "Reddit account not found.")
+
+    proj = db.query(Project).filter(
+        Project.id == project_id,
+        Project.workspace_id == workspace.id
+    ).first()
+    if not proj:
+        raise HTTPException(404, "Project not found.")
+
+    try:
+        reddit = RedditClient()
+
+        # Post to Reddit (in production, use actual Reddit API)
+        if post_type == "comment":
+            reddit_id = reddit.post_comment(subreddit, parent_post_id, content)
+            permalink = f"https://reddit.com/{subreddit}/comments/{parent_post_id}/"
+        else:  # post
+            reddit_id = reddit.post_thread(subreddit, title, content)
+            permalink = f"https://reddit.com/r/{subreddit}/comments/{reddit_id}/"
+
+        # Record the published post
+        published = PublishedPost(
+            project_id=proj.id,
+            campaign_id=campaign_id,
+            reddit_account_id=account.id,
+            type=post_type,
+            reddit_id=reddit_id,
+            subreddit=subreddit,
+            title=title,
+            content=content,
+            permalink=permalink,
+            parent_post_id=parent_post_id if post_type == "comment" else None,
+            status="published",
+        )
+        db.add(published)
+        db.commit()
+        db.refresh(published)
+
+        # Create notification
+        # NotificationModel imported at module top
+        notification = NotificationModel(
+            workspace_id=workspace.id,
+            user_id=current_user.id,
+            title=f"Posted to r/{subreddit}",
+            body=f"Your {post_type} has been successfully published.",
+            type="opportunity",
+            action_url=permalink,
+        )
+        db.add(notification)
+        db.commit()
+
+        return {
+            "id": published.id,
+            "type": published.type,
+            "subreddit": published.subreddit,
+            "permalink": published.permalink,
+            "status": published.status,
+            "published_at": published.published_at.isoformat() if published.published_at else None,
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to post to Reddit: {str(e)}")
+
+
+@router.get("/reddit/published")
+def list_published_posts(
+    project_id: int | None = Query(default=None, ge=1),
+    limit: int = 20,
+    offset: int = 0,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """List published posts with status"""
+    from app.db.saas_models import PublishedPost
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    proj = _get_active_project(db, workspace.id, project_id)
+    if not proj:
+        raise HTTPException(404, "No active project found.")
+
+    published_posts = db.query(PublishedPost).filter(
+        PublishedPost.project_id == proj.id
+    ).order_by(PublishedPost.published_at.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "type": p.type,
+                "subreddit": p.subreddit,
+                "title": p.title,
+                "content": p.content[:100] + "..." if len(p.content) > 100 else p.content,
+                "status": p.status,
+                "upvotes": p.upvotes,
+                "permalink": p.permalink,
+                "published_at": p.published_at.isoformat() if p.published_at else None,
+            }
+            for p in published_posts
+        ]
+    }
+
+
+@router.post("/reddit/published/{post_id}/check")
+def check_published_status(
+    post_id: str,
+    current_user: AccountUser = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Check current status of a published post"""
+    from app.db.saas_models import PublishedPost
+
+    _ensure_workspace_membership(db, workspace.id, current_user.id)
+    published = db.query(PublishedPost).filter(
+        PublishedPost.id == post_id,
+        PublishedPost.project_id.in_(select(Project.id).where(Project.workspace_id == workspace.id))
+    ).first()
+    if not published:
+        raise HTTPException(404, "Published post not found.")
+
+    try:
+        reddit = RedditClient()
+        # In production, fetch actual status from Reddit API
+        post_stats = reddit.get_post_stats(published.reddit_id)
+        if post_stats:
+            published.upvotes = post_stats.get("upvotes", 0)
+            published.last_checked_at = datetime.now(timezone.utc)
+            if post_stats.get("removed"):
+                published.status = "removed"
+                published.removal_reason = post_stats.get("removal_reason")
+            db.commit()
+
+        return {
+            "id": published.id,
+            "status": published.status,
+            "upvotes": published.upvotes,
+            "last_checked_at": published.last_checked_at.isoformat() if published.last_checked_at else None,
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to check post status: {str(e)}")

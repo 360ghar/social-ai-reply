@@ -7,6 +7,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     Column,
+    Date,
     DateTime,
     Enum as SAEnum,
     Float,
@@ -575,3 +576,117 @@ class PasswordResetToken(Base):
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+# ── Campaign Models ──────────────────────────────────────────
+
+class Campaign(Base):
+    """Group related engagement tasks into campaigns"""
+    __tablename__ = "campaigns"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String, default="active")  # active, paused, completed
+    goal = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project = relationship("Project", backref="campaigns")
+
+
+# ── Analytics Models ──────────────────────────────────────────
+
+class AnalyticsSnapshot(Base):
+    """Daily analytics snapshot for trend tracking"""
+    __tablename__ = "analytics_snapshots"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    visibility_score = Column(Float, default=0.0)
+    total_mentions = Column(Integer, default=0)
+    positive_mentions = Column(Integer, default=0)
+    negative_mentions = Column(Integer, default=0)
+    neutral_mentions = Column(Integer, default=0)
+    citation_count = Column(Integer, default=0)
+    opportunities_found = Column(Integer, default=0)
+    drafts_created = Column(Integer, default=0)
+    posts_published = Column(Integer, default=0)
+    top_keywords = Column(JSON, default=list)
+    top_subreddits = Column(JSON, default=list)
+    __table_args__ = (UniqueConstraint("project_id", "date", name="uq_analytics_project_date"),)
+    project = relationship("Project", backref="analytics_snapshots")
+
+
+# ── Auto-Pipeline Models ──────────────────────────────────────────
+
+class AutoPipeline(Base):
+    """Represents a full auto-pipeline run from website URL to sales package"""
+    __tablename__ = "auto_pipelines"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    website_url = Column(String, nullable=False)
+    status = Column(String, default="pending")  # pending, analyzing, discovering, scanning, drafting, ready, executed, failed
+    progress = Column(Integer, default=0)  # 0-100
+    current_step = Column(String, nullable=True)  # human-readable step description
+
+    # Results
+    brand_summary = Column(Text, nullable=True)
+    personas_generated = Column(Integer, default=0)
+    keywords_generated = Column(Integer, default=0)
+    subreddits_found = Column(Integer, default=0)
+    opportunities_found = Column(Integer, default=0)
+    drafts_generated = Column(Integer, default=0)
+
+    # Timing
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project = relationship("Project", backref="auto_pipelines")
+
+
+# ── Reddit Posting Models ──────────────────────────────────────────
+
+class RedditAccount(Base):
+    """Connected Reddit account for posting"""
+    __tablename__ = "reddit_accounts"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    username = Column(String, nullable=False)
+    access_token = Column(Text, nullable=True)  # encrypted
+    refresh_token = Column(Text, nullable=True)  # encrypted
+    token_expires_at = Column(DateTime, nullable=True)
+    karma = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    connected_at = Column(DateTime, server_default=func.now())
+    workspace = relationship("Workspace", backref="reddit_accounts")
+    __table_args__ = (UniqueConstraint("workspace_id", "username", name="uq_workspace_reddit_username"),)
+
+
+class PublishedPost(Base):
+    """Track posts/comments published to Reddit"""
+    __tablename__ = "published_posts"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    campaign_id = Column(String, ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True)
+    reddit_account_id = Column(String, ForeignKey("reddit_accounts.id", ondelete="SET NULL"), nullable=True)
+    type = Column(String, nullable=False)  # comment, post
+    reddit_id = Column(String, nullable=True)  # Reddit's post/comment ID
+    subreddit = Column(String, nullable=False)
+    title = Column(String, nullable=True)  # for posts
+    content = Column(Text, nullable=False)
+    permalink = Column(String, nullable=True)
+    parent_post_id = Column(String, nullable=True)  # Reddit parent post ID for comments
+    status = Column(String, default="published")  # published, live, removed, deleted
+    upvotes = Column(Integer, default=0)
+    comment_rank = Column(Integer, nullable=True)
+    removal_reason = Column(String, nullable=True)
+    published_at = Column(DateTime, server_default=func.now())
+    last_checked_at = Column(DateTime, nullable=True)
+    reply_draft_id = Column(Integer, ForeignKey("reply_drafts.id", ondelete="SET NULL"), nullable=True)
+    post_draft_id = Column(Integer, ForeignKey("post_drafts.id", ondelete="SET NULL"), nullable=True)
+    project = relationship("Project", backref="published_posts")
+    campaign = relationship("Campaign", backref="published_posts")
+    reddit_account = relationship("RedditAccount", backref="published_posts")

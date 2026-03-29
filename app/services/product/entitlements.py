@@ -17,6 +17,23 @@ from app.db.saas_models import (
 
 PLAN_CATALOG = [
     {
+        "code": "free",
+        "name": "Free",
+        "price_monthly": 0,
+        "features": [
+            "Unlimited projects",
+            "Unlimited keywords",
+            "Unlimited communities",
+            "AI visibility tracking",
+            "Analytics & reporting",
+            "Campaign management",
+            "Auto-pipeline setup",
+            "Reddit posting (unlimited)",
+            "All product capabilities unlocked",
+        ],
+        "limits": {"projects": 999999, "keywords": 999999, "subreddits": 999999},
+    },
+    {
         "code": "internal",
         "name": "Internal",
         "price_monthly": 0,
@@ -63,8 +80,8 @@ def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscriptio
     subscription = db.scalar(select(Subscription).where(Subscription.workspace_id == workspace.id))
     if subscription:
         changed = False
-        if subscription.plan_code != "internal":
-            subscription.plan_code = "internal"
+        if subscription.plan_code not in ("free", "internal"):
+            subscription.plan_code = "free"
             changed = True
         if subscription.status != SubscriptionStatus.ACTIVE:
             subscription.status = SubscriptionStatus.ACTIVE
@@ -76,7 +93,7 @@ def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscriptio
             db.commit()
             db.refresh(subscription)
         return subscription
-    subscription = Subscription(workspace_id=workspace.id, plan_code="internal", status=SubscriptionStatus.ACTIVE)
+    subscription = Subscription(workspace_id=workspace.id, plan_code="free", status=SubscriptionStatus.ACTIVE)
     db.add(subscription)
     db.commit()
     db.refresh(subscription)

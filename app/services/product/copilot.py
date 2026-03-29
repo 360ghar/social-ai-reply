@@ -290,6 +290,11 @@ class ProductCopilot:
             payload = self._call_gemini(system_prompt, user_content, temperature=0.4)
             if not payload:
                 return None
+            # Gemini may return a list instead of dict — normalise
+            if isinstance(payload, list):
+                payload = payload[0] if payload else {}
+            if not isinstance(payload, dict):
+                return None
             content = (payload.get("content") or "").strip()
             if not content:
                 return None

@@ -28,6 +28,22 @@ interface ProjectContext {
   name: string;
 }
 
+interface RedditAccount {
+  id: number;
+  username: string;
+}
+
+interface PublishedPost {
+  id: number;
+  content: string;
+  subreddit: string;
+  post_date: string;
+  status: string;
+  permalink?: string;
+  upvotes?: number;
+  comments?: number;
+}
+
 export default function ContentPage() {
   const { token } = useAuth();
   const toast = useToast();
@@ -50,6 +66,12 @@ export default function ContentPage() {
   const [postTitle, setPostTitle] = useState("");
   const [postBody, setPostBody] = useState("");
 
+  const [publishedPosts, setPublishedPosts] = useState<PublishedPost[]>([]);
+  const [redditAccounts, setRedditAccounts] = useState<RedditAccount[]>([]);
+  const [postingReddit, setPostingReddit] = useState(false);
+  const [showPostConfirm, setShowPostConfirm] = useState(false);
+  const [postingDraftId, setPostingDraftId] = useState<number | null>(null);
+
   useEffect(() => {
     if (!token) {
       return;
@@ -60,11 +82,13 @@ export default function ContentPage() {
   async function loadDrafts() {
     setLoading(true);
     try {
-      const [dashboardRes, draftingRes, postedRes, postsRes] = await Promise.allSettled([
+      const [dashboardRes, draftingRes, postedRes, postsRes, accountsRes, publishedRes] = await Promise.allSettled([
         apiRequest<any>(withProjectId("/v1/dashboard", selectedProjectId), {}, token),
         apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=drafting", selectedProjectId), {}, token),
         apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=posted", selectedProjectId), {}, token),
         apiRequest<PostDraft[]>(withProjectId("/v1/drafts/posts", selectedProjectId), {}, token),
+        apiRequest<RedditAccount[]>(`/v1/reddit/accounts?workspace_id=${selectedProjectId}`, {}, token),
+        apiRequest<PublishedPost[]>(withProjectId("/v1/reddit/published", selectedProjectId), {}, token),
       ]);
 
       if (dashboardRes.status === "fulfilled") {
@@ -77,12 +101,43 @@ export default function ContentPage() {
       setDrafts(draftingRes.status === "fulfilled" ? draftingRes.value : []);
       setPostedDrafts(postedRes.status === "fulfilled" ? postedRes.value : []);
       setPostDrafts(postsRes.status === "fulfilled" ? postsRes.value : []);
+      setRedditAccounts(accountsRes.status === "fulfilled" ? accountsRes.value : []);
+      setPublishedPosts(publishedRes.status === "fulfilled" ? publishedRes.value : []);
     } catch (error) {
       setDrafts([]);
       setPostedDrafts([]);
       setPostDrafts([]);
+      setRedditAccounts([]);
+      setPublishedPosts([]);
     }
     setLoading(false);
+  }
+
+  async function postToReddit(draftId: number) {
+    if (!project) return;
+    setPostingReddit(true);
+    try {
+      const draft = postDrafts.find((d) => d.id === draftId);
+      if (!draft) return;
+
+      await apiRequest("/v1/reddit/post", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "post",
+          project_id: project.id,
+          content: `${draft.title}\n\n${draft.body}`,
+          draft_id: draftId,
+        }),
+      }, token);
+
+      toast.success("Posted to Reddit", "Your post has been published");
+      setPostDrafts((rows) => rows.map((r) => (r.id === draftId ? { ...r, status: "posted" } : r)));
+      setShowPostConfirm(false);
+      await loadDrafts();
+    } catch (error: any) {
+      toast.error("Could not post to Reddit", error.message);
+    }
+    setPostingReddit(false);
   }
 
   async function generatePostDraft() {
@@ -230,7 +285,7 @@ export default function ContentPage() {
         tabs={[
           { key: "replies", label: "Reply Queue", count: drafts.length },
           { key: "posts", label: "Original Posts", count: postDrafts.length },
-          { key: "published", label: "Published", count: postedDrafts.length },
+          { key: "published", label: "Published", count: postedDrafts.length + publishedPosts.length },
           { key: "templates", label: "Templates" },
         ]}
         active={activeTab}
@@ -293,24 +348,37 @@ export default function ContentPage() {
         ) : (
           <div className="item-list">
             {postDrafts.map((draft) => (
-              <div key={draft.id} className="list-row" style={{ cursor: "pointer" }} onClick={() => openPostDraft(draft)}>
-                <div className="flex justify-between items-center">
-                  <div>
+              <div key={draft.id} className="list-row">
+                <div className="flex justify-between items-center" style={{ cursor: "pointer" }} onClick={() => openPostDraft(draft)}>
+                  <div style={{ flex: 1 }}>
                     <div className="badge-row">
                       <span className="badge">Original Post</span>
                       <span className="badge">v{draft.version}</span>
                     </div>
                     <strong style={{ display: "block", marginTop: 10 }}>{draft.title}</strong>
                   </div>
-                  <button
-                    className="ghost-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      copyToClipboard(`${draft.title}\n\n${draft.body}`);
-                    }}
-                  >
-                    Copy
-                  </button>
+                  <div className="flex gap-sm items-center">
+                    <button
+                      className="ghost-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        copyToClipboard(`${draft.title}\n\n${draft.body}`);
+                      }}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      className="primary-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPostingDraftId(draft.id);
+                        setShowPostConfirm(true);
+                      }}
+                      style={{ padding: "6px 12px", fontSize: 13 }}
+                    >
+                      Post to Reddit
+                    </button>
+                  </div>
                 </div>
                 <p className="text-muted" style={{ marginTop: 8 }}>
                   {draft.body.substring(0, 170)}...
@@ -322,12 +390,12 @@ export default function ContentPage() {
       )}
 
       {!loading && activeTab === "published" && (
-        postedDrafts.length === 0 ? (
-          <EmptyState icon="PUB" title="No published replies yet" description="Published content will appear here after you mark a draft as posted." />
+        postedDrafts.length === 0 && publishedPosts.length === 0 ? (
+          <EmptyState icon="PUB" title="No published content yet" description="Your published replies and posts will appear here." />
         ) : (
           <div className="item-list">
             {postedDrafts.map((draft) => (
-              <div key={draft.id} className="list-row">
+              <div key={`reply-${draft.id}`} className="list-row">
                 <div className="flex justify-between items-center">
                   <div>
                     <div className="flex items-center gap-sm">
@@ -345,6 +413,33 @@ export default function ContentPage() {
                 </div>
                 <p className="text-muted" style={{ marginTop: 8 }}>
                   {draft.content.substring(0, 170)}...
+                </p>
+              </div>
+            ))}
+            {publishedPosts.map((post) => (
+              <div key={`post-${post.id}`} className="list-row">
+                <div className="flex justify-between items-center">
+                  <div style={{ flex: 1 }}>
+                    <div className="flex items-center gap-sm">
+                      <PlatformIcon platform="reddit" />
+                      <span className="badge badge-success">{post.status}</span>
+                      <span className="badge">r/{post.subreddit}</span>
+                    </div>
+                    <strong style={{ display: "block", marginTop: 10 }}>Original Post</strong>
+                  </div>
+                  {post.permalink && (
+                    <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="ghost-button" style={{ textDecoration: "none" }}>
+                      View Post
+                    </a>
+                  )}
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 12, fontSize: 12 }}>
+                  <span className="text-muted">Posted: {new Date(post.post_date).toLocaleDateString()}</span>
+                  {post.upvotes !== undefined && <span className="text-muted">Upvotes: {post.upvotes}</span>}
+                  {post.comments !== undefined && <span className="text-muted">Comments: {post.comments}</span>}
+                </div>
+                <p className="text-muted" style={{ marginTop: 8 }}>
+                  {post.content.substring(0, 170)}...
                 </p>
               </div>
             ))}
@@ -425,6 +520,14 @@ export default function ContentPage() {
             <button className="secondary-button" onClick={() => copyToClipboard(`${postTitle}\n\n${postBody}`)}>
               Copy
             </button>
+            <Button
+              onClick={() => {
+                setPostingDraftId(selectedPost?.id || null);
+                setShowPostConfirm(true);
+              }}
+            >
+              Post to Reddit
+            </Button>
           </div>
         }
       >
@@ -446,6 +549,59 @@ export default function ContentPage() {
           </>
         )}
       </Drawer>
+
+      {showPostConfirm && postingDraftId && (
+        <div className="modal-overlay" onClick={() => setShowPostConfirm(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Post to Reddit</h3>
+              <button className="ghost-button modal-close" onClick={() => setShowPostConfirm(false)}>
+                x
+              </button>
+            </div>
+            <div className="modal-body">
+              {postDrafts.find((d) => d.id === postingDraftId) && (
+                <>
+                  <div style={{ marginBottom: 20, padding: 16, backgroundColor: "var(--surface)", borderRadius: 8 }}>
+                    <strong style={{ display: "block", marginBottom: 8 }}>
+                      {postDrafts.find((d) => d.id === postingDraftId)?.title}
+                    </strong>
+                    <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+                      {postDrafts.find((d) => d.id === postingDraftId)?.body.substring(0, 200)}...
+                    </p>
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <label className="field-label">Target Subreddit</label>
+                    <input type="text" placeholder="e.g., r/community" disabled style={{ opacity: 0.6 }} />
+                  </div>
+                  <div style={{ marginBottom: 20, padding: 12, backgroundColor: "var(--surface)", borderRadius: 8 }}>
+                    <span className="field-label">Connected Reddit Account</span>
+                    <p style={{ fontSize: 13, marginTop: 6 }}>
+                      {redditAccounts.length > 0
+                        ? `@${redditAccounts[0].username}`
+                        : <a href="/app/settings" style={{ color: "var(--accent)" }}>Connect Reddit Account</a>}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
+                <button className="secondary-button" onClick={() => setShowPostConfirm(false)}>
+                  Cancel
+                </button>
+                <Button
+                  loading={postingReddit}
+                  disabled={redditAccounts.length === 0}
+                  onClick={() => void postToReddit(postingDraftId)}
+                >
+                  Post Now
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

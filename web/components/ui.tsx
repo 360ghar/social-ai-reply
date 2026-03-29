@@ -4,7 +4,7 @@ export { Modal, ConfirmModal } from "./modal";
 
 // ── Loading Spinner ──────────────────────────────────────────────
 export function Spinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
-  return <span className={`spinner spinner-${size}`} />;
+  return <span className={`spinner spinner-${size}`} style={{ borderTopColor: "var(--accent)" }} />;
 }
 
 // ── Button with loading state ────────────────────────────────────
@@ -162,7 +162,7 @@ export function Tabs({ tabs, active, onChange }: TabsProps) {
           onClick={() => onChange(t.key)}
         >
           {t.label}
-          {t.count !== undefined && <span className="badge" style={{ marginLeft: 6 }}>{t.count}</span>}
+          {t.count !== undefined && !isNaN(t.count) && <span className="badge" style={{ marginLeft: 6 }}>{t.count}</span>}
         </button>
       ))}
     </div>
@@ -172,7 +172,38 @@ export function Tabs({ tabs, active, onChange }: TabsProps) {
 // ── Score Badge ──────────────────────────────────────────────────
 export function ScoreBadge({ score }: { score: number }) {
   const cls = score >= 70 ? "badge-success" : score >= 40 ? "badge-warning" : "badge-error";
-  return <span className={`score-pill ${cls}`}>{score}/100</span>;
+  return <span className={`score-pill ${cls}`}>{score}</span>;
+}
+
+// ── Badge ────────────────────────────────────────────────────────────
+interface BadgeProps {
+  variant?: "default" | "success" | "warning" | "error" | "info";
+  children: ReactNode;
+}
+
+export function Badge({ variant = "default", children }: BadgeProps) {
+  const cls = `badge badge-${variant}`;
+  return <span className={cls}>{children}</span>;
+}
+
+// ── Tooltip ──────────────────────────────────────────────────────────
+interface TooltipProps {
+  text: string;
+  children: ReactNode;
+}
+
+export function Tooltip({ text, children }: TooltipProps) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div
+      style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {children}
+      {visible && <div className="tooltip visible">{text}</div>}
+    </div>
+  );
 }
 
 // ── Platform Icon ────────────────────────────────────────────────
@@ -208,11 +239,34 @@ export function Drawer({ open, onClose, title, children, footer }: DrawerProps) 
 }
 
 // ── Notification Bell ────────────────────────────────────────────
-export function NotificationBell({ count, onClick }: { count: number; onClick: () => void }) {
+interface NotificationBellProps {
+  count: number;
+  onClick: () => void;
+}
+
+export function NotificationBell({ count, onClick }: NotificationBellProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   return (
-    <button className="ghost-button" onClick={onClick} style={{ position: "relative", fontSize: 18 }}>
-      🔔
-      {count > 0 && <span className="notification-badge">{count > 9 ? "9+" : count}</span>}
-    </button>
+    <div style={{ position: "relative" }}>
+      <button
+        className="ghost-button"
+        onClick={() => {
+          setDropdownOpen(!dropdownOpen);
+          onClick();
+        }}
+        style={{
+          position: "relative",
+          fontSize: 16,
+          padding: "8px 12px",
+          height: "36px",
+          display: "flex",
+          alignItems: "center",
+        }}
+        title="Notifications"
+      >
+        🔔
+        {count > 0 && <span className="notification-badge">{count > 9 ? "9+" : count}</span>}
+      </button>
+    </div>
   );
 }

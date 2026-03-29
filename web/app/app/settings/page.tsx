@@ -10,6 +10,13 @@ import { apiRequest, type SecretRecord, type WebhookEndpoint } from "../../../li
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];
 
+interface RedditAccount {
+  id: number;
+  username: string;
+  karma?: number;
+  connected_at?: string;
+}
+
 export default function SettingsPage() {
   const { token, user } = useAuth();
   const toast = useToast();
@@ -42,6 +49,11 @@ export default function SettingsPage() {
   // Danger zone state
   const [deleteWorkspaceConfirm, setDeleteWorkspaceConfirm] = useState("");
 
+  // Reddit state
+  const [redditAccounts, setRedditAccounts] = useState<RedditAccount[]>([]);
+  const [connectingReddit, setConnectingReddit] = useState(false);
+  const [disconnectingReddit, setDisconnectingReddit] = useState<number | null>(null);
+
   useEffect(() => {
     if (!token) return;
     loadData();
@@ -54,15 +66,45 @@ export default function SettingsPage() {
   async function loadData() {
     if (!token) return;
     try {
-      const [webhookRows, secretRows] = await Promise.all([
+      const [webhookRows, secretRows, redditRows] = await Promise.all([
         apiRequest<WebhookEndpoint[]>("/v1/webhooks", {}, token),
         apiRequest<SecretRecord[]>("/v1/secrets", {}, token),
+        apiRequest<RedditAccount[]>("/v1/reddit/accounts", {}, token).catch(() => []),
       ]);
       setWebhooks(webhookRows);
       setSecrets(secretRows);
+      setRedditAccounts(redditRows);
     } catch (err) {
       toast.error("Failed to load settings", err instanceof Error ? err.message : undefined);
     }
+  }
+
+  async function connectReddit() {
+    if (!token) return;
+    setConnectingReddit(true);
+    try {
+      const result = await apiRequest<{ auth_url: string }>("/v1/reddit/connect", { method: "POST" }, token);
+      if (result.auth_url) {
+        window.open(result.auth_url, "_blank", "width=600,height=700");
+        setTimeout(() => void loadData(), 3000);
+      }
+    } catch (err) {
+      toast.error("Failed to connect Reddit", err instanceof Error ? err.message : undefined);
+    }
+    setConnectingReddit(false);
+  }
+
+  async function disconnectReddit(accountId: number) {
+    if (!token) return;
+    setDisconnectingReddit(accountId);
+    try {
+      await apiRequest(`/v1/reddit/accounts/${accountId}`, { method: "DELETE" }, token);
+      setRedditAccounts((rows) => rows.filter((r) => r.id !== accountId));
+      toast.success("Reddit account disconnected");
+    } catch (err) {
+      toast.error("Failed to disconnect", err instanceof Error ? err.message : undefined);
+    }
+    setDisconnectingReddit(null);
   }
 
   async function saveGeneralSettings() {
@@ -229,6 +271,7 @@ export default function SettingsPage() {
       <Tabs
         tabs={[
           { key: "general", label: "General" },
+          { key: "reddit", label: "Reddit", count: redditAccounts.length },
           { key: "api-keys", label: "API Keys", count: secrets.length },
           { key: "integrations", label: "Integrations", count: webhooks.length },
           { key: "danger", label: "Danger Zone" },
@@ -313,6 +356,59 @@ export default function SettingsPage() {
               Save changes
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* REDDIT TAB */}
+      {activeTab === "reddit" && (
+        <div style={{ marginTop: 24 }}>
+          <section style={{ marginBottom: 32 }}>
+            <h3 style={{ marginBottom: 16 }}>Reddit Accounts</h3>
+            {redditAccounts.length === 0 ? (
+              <EmptyState
+                icon="🔗"
+                title="No Reddit accounts connected"
+                description="Connect a Reddit account to enable automated posting and engagement"
+                action={
+                  <Button loading={connectingReddit} onClick={() => void connectReddit()}>
+                    Connect Reddit Account
+                  </Button>
+                }
+              />
+            ) : (
+              <div style={{ display: "grid", gap: 12 }}>
+                {redditAccounts.map((account) => (
+                  <div key={account.id} className="card" style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>@{account.username}</div>
+                      {account.karma !== undefined && <p className="text-muted" style={{ fontSize: 12 }}>Karma: {account.karma}</p>}
+                      {account.connected_at && (
+                        <p className="text-muted" style={{ fontSize: 12 }}>
+                          Connected: {new Date(account.connected_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      variant="danger"
+                      onClick={() => void disconnectReddit(account.id)}
+                      loading={disconnectingReddit === account.id}
+                      style={{ padding: "6px 12px", fontSize: 13 }}
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  variant="secondary"
+                  onClick={() => void connectReddit()}
+                  loading={connectingReddit}
+                  style={{ marginTop: 12 }}
+                >
+                  Connect Additional Account
+                </Button>
+              </div>
+            )}
+          </section>
         </div>
       )}
 

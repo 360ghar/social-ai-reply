@@ -54,6 +54,13 @@ interface ProjectContext {
   name: string;
 }
 
+interface Campaign {
+  id: number;
+  name: string;
+  description?: string;
+  status?: string;
+}
+
 export default function DiscoveryPage() {
   const { token } = useAuth();
   const toast = useToast();
@@ -78,6 +85,12 @@ export default function DiscoveryPage() {
 
   const [statusFilter, setStatusFilter] = useState("");
   const [project, setProject] = useState<ProjectContext | null>(null);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignFilter, setCampaignFilter] = useState("");
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [newCampaignName, setNewCampaignName] = useState("");
+  const [newCampaignDesc, setNewCampaignDesc] = useState("");
+  const [creatingCampaign, setCreatingCampaign] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -103,10 +116,11 @@ export default function DiscoveryPage() {
       setProject(currentProject);
 
       const projectId = currentProject.id;
-      const [kwRes, subRes, oppRes] = await Promise.allSettled([
+      const [kwRes, subRes, oppRes, campRes] = await Promise.allSettled([
         apiRequest<Keyword[]>(`/v1/discovery/keywords?project_id=${projectId}`, {}, token),
         apiRequest<Subreddit[]>(`/v1/discovery/subreddits?project_id=${projectId}`, {}, token),
         apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${projectId}`, {}, token),
+        apiRequest<Campaign[]>(`/v1/campaigns?project_id=${projectId}`, {}, token),
       ]);
 
       if (kwRes.status === "fulfilled") {
@@ -117,6 +131,9 @@ export default function DiscoveryPage() {
       }
       if (oppRes.status === "fulfilled") {
         setOpportunities(oppRes.value || []);
+      }
+      if (campRes.status === "fulfilled") {
+        setCampaigns(campRes.value || []);
       }
     } catch (error) {
       console.error(error);
@@ -293,6 +310,32 @@ export default function DiscoveryPage() {
     }
   }
 
+  async function createCampaign() {
+    if (!project || !newCampaignName.trim()) {
+      toast.warning("Please enter a campaign name");
+      return;
+    }
+    setCreatingCampaign(true);
+    try {
+      const campaign = await apiRequest<Campaign>("/v1/campaigns", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: project.id,
+          name: newCampaignName.trim(),
+          description: newCampaignDesc.trim() || null,
+        }),
+      }, token);
+      setCampaigns((prev) => [campaign, ...prev]);
+      setNewCampaignName("");
+      setNewCampaignDesc("");
+      setShowCampaignModal(false);
+      toast.success("Campaign created");
+    } catch (error: any) {
+      toast.error("Failed to create campaign", error.message);
+    }
+    setCreatingCampaign(false);
+  }
+
   const steps = [
     { label: "Audience Signals", done: keywords.length > 0 },
     { label: "Community Coverage", done: subreddits.length > 0 },
@@ -333,6 +376,29 @@ export default function DiscoveryPage() {
           Discover live Reddit conversations now using a workflow shaped for broader forum, Q and A, and social comment patterns over time.
         </p>
       </div>
+
+      {campaigns.length > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div className="field-label">Active Campaigns</div>
+            <button
+              className="ghost-button"
+              onClick={() => setShowCampaignModal(true)}
+              style={{ fontSize: 12, padding: "4px 8px", color: "var(--accent)" }}
+            >
+              + New Campaign
+            </button>
+          </div>
+          <div className="badge-row">
+            {campaigns.map((campaign) => (
+              <span key={campaign.id} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {campaign.name}
+                {campaign.status && <span style={{ fontSize: 11, opacity: 0.7 }}>({campaign.status})</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="section-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
         <div className="card">
@@ -439,6 +505,14 @@ export default function DiscoveryPage() {
         <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
           <h3 className="card-title">Step 3: Conversation Queue ({filteredOpps.length})</h3>
           <div className="flex gap-sm">
+            {campaigns.length > 0 && (
+              <select value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)} style={{ minWidth: 120 }}>
+                <option value="">All Campaigns</option>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={{ minWidth: 140 }}>
               <option value="">All Statuses</option>
               <option value="new">New</option>
@@ -580,6 +654,53 @@ export default function DiscoveryPage() {
         confirmText="Delete"
         danger
       />
+
+      {showCampaignModal && (
+        <div className="modal-overlay" onClick={() => setShowCampaignModal(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Create Campaign</h3>
+              <button className="ghost-button modal-close" onClick={() => setShowCampaignModal(false)}>
+                x
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label className="field-label">Campaign Name</label>
+                <input
+                  type="text"
+                  value={newCampaignName}
+                  onChange={(e) => setNewCampaignName(e.target.value)}
+                  placeholder="e.g., Q4 Engagement"
+                />
+              </div>
+              <div className="field" style={{ marginTop: 12 }}>
+                <label className="field-label">Description</label>
+                <textarea
+                  rows={3}
+                  value={newCampaignDesc}
+                  onChange={(e) => setNewCampaignDesc(e.target.value)}
+                  placeholder="What is this campaign focused on?"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
+                <button className="secondary-button" onClick={() => setShowCampaignModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => void createCampaign()}
+                  disabled={creatingCampaign}
+                >
+                  {creatingCampaign ? "Creating..." : "Create Campaign"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

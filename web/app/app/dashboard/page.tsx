@@ -102,11 +102,15 @@ export default function DashboardPage() {
   const [bizName, setBizName] = useState("");
   const [bizDesc, setBizDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const [autoPipelineUrl, setAutoPipelineUrl] = useState("");
+  const [dismissedWizard, setDismissedWizard] = useState(false);
 
   useEffect(() => {
     if (!token) {
       return;
     }
+    const dismissed = localStorage.getItem("wizard-dismissed") === "true";
+    setDismissedWizard(dismissed);
     void loadAll();
   }, [token, selectedProjectId]);
 
@@ -166,6 +170,19 @@ export default function DashboardPage() {
       toast.error("Could not create project", error.message);
     }
     setCreating(false);
+  }
+
+  function dismissWizard() {
+    localStorage.setItem("wizard-dismissed", "true");
+    setDismissedWizard(true);
+  }
+
+  function handleAutoPipeline() {
+    if (!autoPipelineUrl.trim()) {
+      toast.warning("Please enter a URL");
+      return;
+    }
+    router.push(`/app/auto-pipeline?url=${encodeURIComponent(autoPipelineUrl)}`);
   }
 
   const hasProject = (dash?.projects?.length || 0) > 0;
@@ -244,6 +261,46 @@ export default function DashboardPage() {
 
   return (
     <div style={{ display: "grid", gap: 24 }}>
+      <div
+        className="card"
+        style={{
+          background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
+          color: "white",
+          padding: 24,
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ marginBottom: 8, color: "white" }}>Launch Auto-Pipeline</h3>
+          <p style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: 14, lineHeight: 1.5 }}>
+            Enter any website URL and get a complete engagement strategy in minutes
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="url"
+            value={autoPipelineUrl}
+            onChange={(e) => setAutoPipelineUrl(e.target.value)}
+            placeholder="https://example.com"
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "none",
+              fontSize: 13,
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleAutoPipeline()}
+          />
+          <button
+            className="primary-button"
+            onClick={handleAutoPipeline}
+            style={{ backgroundColor: "white", color: "#6366F1", fontWeight: 600 }}
+          >
+            Go
+          </button>
+        </div>
+      </div>
+
       <section className="card dashboard-hero-card">
         <div className="dashboard-hero-head">
           <div>
@@ -258,68 +315,83 @@ export default function DashboardPage() {
         </div>
 
         {focusProject ? (
-          <div className="dashboard-focus-grid">
-            <div className="dashboard-focus-card">
-              <span className="badge badge-info">Focused Project</span>
-              <h3 style={{ marginTop: 12, marginBottom: 10 }}>{focusProject.name}</h3>
-              <p>
-                {focusProject.description || "Use this project as the active scope for communities, drafts, prompt sets, and source analysis."}
-              </p>
-            </div>
-            <div className="dashboard-focus-card">
-              <span className="badge">Workflow Status</span>
-              <div style={{ marginTop: 14 }}>
-                <StepIndicator
-                  steps={steps}
-                  currentStep={currentStep >= 0 ? currentStep : steps.length - 1}
-                />
-              </div>
-              <p style={{ marginTop: 14 }}>
-                {completedCount} of {steps.length} foundations are in place.
-              </p>
-              <div
-                style={{
-                  marginTop: 16,
-                  padding: 16,
-                  borderRadius: 16,
-                  border: "1px solid var(--border)",
-                  background: "var(--surface)",
-                  display: "grid",
-                  gap: 10,
-                }}
-              >
-                <div className="eyebrow" style={{ marginBottom: 0 }}>
-                  {nextStep ? "Next Step" : "Workflow Ready"}
-                </div>
-                <h3 style={{ marginBottom: 0 }}>
-                  {nextStep ? nextStep.title : "All setup steps are complete"}
-                </h3>
+          !dismissedWizard ? (
+            <div className="dashboard-focus-grid">
+              <div className="dashboard-focus-card">
+                <span className="badge badge-info">Focused Project</span>
+                <h3 style={{ marginTop: 12, marginBottom: 10 }}>{focusProject.name}</h3>
                 <p>
-                  {nextStep
-                    ? nextStep.description
-                    : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
+                  {focusProject.description || "Use this project as the active scope for communities, drafts, prompt sets, and source analysis."}
                 </p>
-                <div className="action-row" style={{ marginTop: 4 }}>
-                  {nextStep ? (
-                    nextStep.actionKind === "modal" ? (
-                      <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
+              </div>
+              <div className="dashboard-focus-card">
+                <span className="badge">Workflow Status</span>
+                <div style={{ marginTop: 14 }}>
+                  <StepIndicator
+                    steps={steps}
+                    currentStep={currentStep >= 0 ? currentStep : steps.length - 1}
+                  />
+                </div>
+                <p style={{ marginTop: 14 }}>
+                  {completedCount} of {steps.length} foundations are in place.
+                </p>
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: 16,
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div className="eyebrow" style={{ marginBottom: 0 }}>
+                    {nextStep ? "Next Step" : "Workflow Ready"}
+                  </div>
+                  <h3 style={{ marginBottom: 0 }}>
+                    {nextStep ? nextStep.title : "All setup steps are complete"}
+                  </h3>
+                  <p>
+                    {nextStep
+                      ? nextStep.description
+                      : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
+                  </p>
+                  <div className="action-row" style={{ marginTop: 4 }}>
+                    {nextStep ? (
+                      nextStep.actionKind === "modal" ? (
+                        <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
+                      ) : (
+                        <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
+                          {nextStep.actionLabel}
+                        </Button>
+                      )
                     ) : (
-                      <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
-                        {nextStep.actionLabel}
-                      </Button>
-                    )
-                  ) : (
-                    <>
-                      <Button onClick={() => router.push("/app/visibility")}>Open AI Visibility</Button>
-                      <Button variant="secondary" onClick={() => router.push("/app/discovery")}>
-                        Open Radar
-                      </Button>
-                    </>
+                      <>
+                        <Button onClick={() => router.push("/app/visibility")}>Open AI Visibility</Button>
+                        <Button variant="secondary" onClick={() => router.push("/app/discovery")}>
+                          Open Radar
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {completedCount === steps.length && (
+                    <button
+                      className="ghost-button"
+                      onClick={dismissWizard}
+                      style={{ marginTop: 8, textAlign: "left", color: "var(--muted)" }}
+                    >
+                      Dismiss setup wizard
+                    </button>
                   )}
                 </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+              <p>{focusProject.name} • Ready for engagement workflows</p>
+            </div>
+          )
         ) : (
           <EmptyState
             title="No projects yet"
@@ -330,10 +402,10 @@ export default function DashboardPage() {
       </section>
 
       <div className="data-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <KpiCard label="Share of Voice" value={`${visibility?.share_of_voice || 0}%`} />
-        <KpiCard label="Prompt Runs" value={visibility?.total_runs || 0} />
-        <KpiCard label="Citations Found" value={visibility?.total_citations || 0} />
-        <KpiCard label="Reply Opportunities" value={topOpps.length} />
+        <KpiCard label="Visibility Score" value={`${visibility?.share_of_voice || 0}%`} />
+        <KpiCard label="Opportunities" value={topOpps.length} />
+        <KpiCard label="Drafts Ready" value={0} />
+        <KpiCard label="Published" value={0} />
       </div>
 
       <div className="section-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
