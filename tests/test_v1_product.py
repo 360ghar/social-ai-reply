@@ -141,21 +141,21 @@ def test_v1_discovery_scan_and_draft_flow(monkeypatch):
     assert keywords.json()
 
     monkeypatch.setattr(
-        "app.api.v1.routes.RedditClient.search_subreddits",
+        "app.api.v1.routes.discovery.RedditClient.search_subreddits",
         lambda self, keyword, limit=10: [
             RedditSubredditMatch(name="saas", title="SaaS", description="Software founders discussing growth", subscribers=120000)
         ],
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.RedditClient.subreddit_rules",
+        "app.api.v1.routes.discovery.RedditClient.subreddit_rules",
         lambda self, name: ["No self-promo", "Explain your reasoning"],
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.RedditClient.subreddit_about",
+        "app.api.v1.routes.discovery.RedditClient.subreddit_about",
         lambda self, name: {"title": "SaaS", "public_description": "Software founders discussing growth", "subscribers": 120000},
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.RedditClient.search_posts",
+        "app.api.v1.routes.discovery.RedditClient.search_posts",
         lambda self, subreddit, keywords, limit=20, sort="new": [
             RedditPost(
                 post_id="abc123",

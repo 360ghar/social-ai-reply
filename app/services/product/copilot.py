@@ -9,7 +9,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.core.config import get_settings
-from app.db.saas_models import BrandProfile, Opportunity, Persona, PromptTemplate
+from app.db.models import BrandProfile, Opportunity, Persona, PromptTemplate
 
 logger = logging.getLogger(__name__)
 

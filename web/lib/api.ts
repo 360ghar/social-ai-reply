@@ -17,6 +17,8 @@ export type AuthPayload = {
   };
 };
 
+// ── Shared types (used across multiple domain modules) ──────────
+
 export type Project = {
   id: number;
   workspace_id: number;
@@ -182,6 +184,8 @@ export type SecretRecord = {
   updated_at: string;
 };
 
+// ── Base helpers ────────────────────────────────────────────────
+
 export function isAuthError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -217,165 +221,66 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
   return response.json() as Promise<T>;
 }
 
-// ── New Types ────────────────────────────────────────────────────
+// ── Re-export from domain modules (backwards compatibility) ─────
 
-export interface NotificationItem {
-  id: number;
-  type: string;
-  title: string;
-  body: string | null;
-  action_url: string | null;
-  is_read: boolean;
-  created_at: string | null;
-}
+export {
+  forgotPassword,
+  resetPassword,
+} from "./api/auth";
 
-export interface ActivityItem {
-  id: number;
-  action: string;
-  entity_type: string | null;
-  entity_id: number | null;
-  metadata: Record<string, any>;
-  created_at: string | null;
-}
+export {
+  getProjects,
+  getProject,
+  createProject,
+  getDashboard,
+} from "./api/projects";
 
-export interface PromptSetItem {
-  id: number;
-  name: string;
-  category: string;
-  prompts: string[];
-  target_models: string[];
-  is_active: boolean;
-  schedule: string;
-  created_at: string | null;
-}
+export {
+  getKeywords,
+  createKeyword,
+  deleteKeyword,
+  getSubreddits,
+  addSubreddit,
+  removeSubreddit,
+  triggerScan,
+  getScanStatus,
+  getOpportunities,
+} from "./api/discovery";
 
-export interface VisibilitySummary {
-  total_runs: number;
-  brand_mentioned: number;
-  share_of_voice: number;
-  total_citations: number;
-  models: Record<string, { total_runs: number; brand_mentioned: number; share_of_voice: number }>;
-}
+export {
+  generateReply,
+  getReplyDrafts,
+  createPostDraft,
+  getPostDrafts,
+  getPrompts,
+  createPrompt,
+  updatePrompt,
+  deletePrompt,
+} from "./api/content";
 
-export interface PromptRunResult {
-  id: number;
-  prompt_text: string;
-  model_name: string;
-  status: string;
-  brand_mentioned: boolean;
-  competitor_mentions: any[];
-  sentiment: string | null;
-  citations_count: number;
-  completed_at: string | null;
-}
+export {
+  getPromptSets,
+  createPromptSet,
+  runPromptSet,
+  getVisibilitySummary,
+  getVisibilityPrompts,
+  getCitations,
+  getSourceDomains,
+  getSourceGaps,
 
-export interface CitationItem {
-  id: number;
-  url: string;
-  domain: string;
-  title: string | null;
-  content_type: string | null;
-  first_seen_at: string | null;
-}
+  // Re-export interfaces that were previously on this module
+  type PromptSetItem,
+  type VisibilitySummary,
+  type PromptRunResult,
+  type CitationItem,
+} from "./api/visibility";
 
-// ── New API Functions ────────────────────────────────────────────
+export {
+  getNotifications,
+  type NotificationItem,
+} from "./api/notifications";
 
-export async function getNotifications(token: string, unreadOnly = false) {
-  return apiRequest<{ items: NotificationItem[]; total: number; unread_count: number }>(
-    `/v1/notifications?unread_only=${unreadOnly}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function markNotificationRead(token: string, id: number) {
-  return apiRequest<{ ok: boolean }>(
-    `/v1/notifications/${id}/read`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function markAllNotificationsRead(token: string) {
-  return apiRequest<{ ok: boolean }>(
-    `/v1/notifications/read-all`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getActivity(token: string) {
-  return apiRequest<{ items: ActivityItem[] }>(
-    `/v1/activity`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getPromptSets(token: string, projectId?: number | null) {
-  const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ items: PromptSetItem[] }>(
-    `/v1/prompt-sets${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function createPromptSet(
-  token: string,
-  data: { name: string; category: string; prompts: string[]; target_models: string[]; schedule: string },
-  projectId?: number | null
-) {
-  const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ id: number; name: string }>(
-    `/v1/prompt-sets${suffix}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(data) }
-  );
-}
-
-export async function runPromptSet(token: string, id: number, projectId?: number | null) {
-  const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ prompt_set_id: number; results: any[]; total_runs: number }>(
-    `/v1/prompt-sets/${id}/run${suffix}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getVisibilitySummary(token: string, projectId?: number | null) {
-  const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<VisibilitySummary>(
-    `/v1/visibility/summary${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getVisibilityPrompts(token: string, model?: string, limit = 20, offset = 0, projectId?: number | null) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  if (model) params.set("model", model);
-  if (projectId) params.set("project_id", String(projectId));
-  return apiRequest<{ items: PromptRunResult[]; total: number }>(
-    `/v1/visibility/prompts?${params}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getCitations(token: string, domain?: string, limit = 20, projectId?: number | null) {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (domain) params.set("domain", domain);
-  if (projectId) params.set("project_id", String(projectId));
-  return apiRequest<{ items: CitationItem[]; total: number }>(
-    `/v1/citations?${params}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getSourceDomains(token: string, projectId?: number | null) {
-  const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ items: { domain: string; total_citations: number }[] }>(
-    `/v1/sources/domains${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function getSourceGaps(token: string, projectId?: number | null) {
-  const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ items: any[] }>(
-    `/v1/sources/gaps${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-
-export async function forgotPassword(email: string) {
-  return apiRequest<{ ok: boolean }>(
-    `/v1/auth/forgot-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }
-  );
-}
-
-export async function resetPassword(token: string, password: string) {
-  return apiRequest<{ ok: boolean; message: string }>(
-    `/v1/auth/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password }) }
-  );
-}
+export {
+  getActivity,
+  type ActivityItem,
+} from "./api/analytics";

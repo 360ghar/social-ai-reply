@@ -3,6 +3,8 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from app.core.exceptions import AppException
 from app.db.base import Base
 from app.db.session import engine
 from app.core.config import get_settings
@@ -45,20 +47,23 @@ app.add_middleware(RequestTracingMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 # Routes
-from app.api.routes import router as legacy_router
 from app.api.v1.routes import router as v1_router
 app.include_router(v1_router)
-app.include_router(legacy_router, prefix="/api")
-app.include_router(v1_router, prefix="/api")
+
+
+@app.exception_handler(AppException)
+async def app_exception_handler(request, exc: AppException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.get("/health")
 def health_check():
+    from sqlalchemy import text
     checks = {"api": "ok"}
     try:
         from app.db.session import SessionLocal
         db = SessionLocal()
-        db.execute("SELECT 1" if hasattr(db, 'execute') else None)
+        db.execute(text("SELECT 1"))
         db.close()
         checks["database"] = "ok"
     except Exception:

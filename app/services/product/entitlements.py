@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.saas_models import (
+from app.db.models import (
     DiscoveryKeyword,
     MonitoredSubreddit,
     PlanEntitlement,

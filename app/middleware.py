@@ -1,4 +1,5 @@
 """FastAPI middleware: rate limiting, request tracing, logging."""
+import hashlib
 import time
 import uuid
 import logging
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Simple in-memory rate limiter (use Redis in production)
 _rate_store: dict = defaultdict(list)
+MAX_STORE_KEYS = 10_000
 
 RATE_LIMITS = {
     "default": (60, 60),        # 60 requests per 60 seconds
@@ -30,6 +32,23 @@ SLOW_ENDPOINTS = {
     "/api/v1/auth/login": "auth",
     "/api/v1/auth/register": "auth",
 }
+
+
+def _rate_limit_key(request: Request) -> str:
+    """Derive a privacy-preserving rate limit key from auth header or IP."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header:
+        # Hash the token instead of using raw suffix — prevents token leakage
+        return hashlib.sha256(auth_header.encode("utf-8")).hexdigest()[:16]
+    return request.client.host if request.client else "unknown"
+
+
+def _resolve_limit_type(path: str) -> str:
+    """Match path with prefix support for rate limit categories."""
+    for prefix, limit_type in SLOW_ENDPOINTS.items():
+        if path.startswith(prefix):
+            return limit_type
+    return "default"
 
 
 class RequestTracingMiddleware(BaseHTTPMiddleware):
@@ -52,17 +71,25 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
-        auth_header = request.headers.get("authorization", "")
-        key = auth_header[-16:] if auth_header else client_ip
-
+        key = _rate_limit_key(request)
         path = request.url.path
-        limit_type = SLOW_ENDPOINTS.get(path, "default")
+        limit_type = _resolve_limit_type(path)
         max_requests, window = RATE_LIMITS[limit_type]
 
         now = time.time()
         store_key = f"{key}:{limit_type}"
+
+        # Prune expired entries for this key
         _rate_store[store_key] = [t for t in _rate_store[store_key] if t > now - window]
+
+        # Periodically clean up the store to prevent unbounded memory growth
+        if len(_rate_store) > MAX_STORE_KEYS:
+            expired_keys = [
+                k for k, v in _rate_store.items()
+                if not v or max(v) < now - 300  # no activity in 5 min
+            ]
+            for k in expired_keys:
+                del _rate_store[k]
 
         if len(_rate_store[store_key]) >= max_requests:
             logger.warning(f"Rate limit hit: {store_key} ({limit_type})")

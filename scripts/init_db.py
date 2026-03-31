@@ -1,6 +1,5 @@
 from app.db.base import Base
 from app.db import models as _models  # noqa: F401
-from app.db import saas_models as _saas_models  # noqa: F401
 from app.db.session import engine
 
 
