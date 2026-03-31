@@ -1,11 +1,11 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import ensure_workspace_membership, get_current_user, get_current_workspace
-from app.db.models import AccountUser, Notification as NotificationModel, Workspace
+from app.db.models import AccountUser, Workspace
+from app.db.models import Notification as NotificationModel
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ def mark_notification_read(
     notification = db.query(NotificationModel).filter(
         NotificationModel.id == notification_id,
         NotificationModel.workspace_id == workspace.id,
-        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
+        NotificationModel.user_id == current_user.id,
     ).first()
     if not notification:
         raise HTTPException(404, "Notification not found.")
@@ -88,7 +88,7 @@ def mark_all_read(
     ensure_workspace_membership(db, workspace.id, current_user.id)
     db.query(NotificationModel).filter(
         NotificationModel.workspace_id == workspace.id,
-        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
+        NotificationModel.user_id == current_user.id,
         NotificationModel.is_read.is_(False)
     ).update({NotificationModel.is_read: True}, synchronize_session=False)
     db.commit()
@@ -108,7 +108,7 @@ def delete_notification(
     notification = db.query(NotificationModel).filter(
         NotificationModel.id == notification_id,
         NotificationModel.workspace_id == workspace.id,
-        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
+        NotificationModel.user_id == current_user.id,
     ).first()
     if not notification:
         raise HTTPException(404, "Notification not found.")

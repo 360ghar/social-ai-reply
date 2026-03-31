@@ -88,6 +88,82 @@ class TestNotificationAuthorization:
         still_exists = db_session.scalar(select(Notification).where(Notification.id == notification.id))
         assert still_exists is not None
 
+    def test_mark_read_cannot_touch_workspace_wide_notification(self, client, db_session):
+        payload = _register_owner(client)
+        workspace_id = payload["workspace"]["id"]
+
+        notification = Notification(
+            workspace_id=workspace_id,
+            user_id=None,
+            type="mention",
+            title="Workspace-wide notification",
+            body="Visible to every member",
+            is_read=False,
+        )
+        db_session.add(notification)
+        db_session.commit()
+        db_session.refresh(notification)
+
+        response = client.put(f"/v1/notifications/{notification.id}/read")
+
+        assert response.status_code == 404
+        db_session.refresh(notification)
+        assert notification.is_read is False
+
+    def test_delete_cannot_touch_workspace_wide_notification(self, client, db_session):
+        payload = _register_owner(client)
+        workspace_id = payload["workspace"]["id"]
+
+        notification = Notification(
+            workspace_id=workspace_id,
+            user_id=None,
+            type="mention",
+            title="Shared notification",
+            body="Visible to every member",
+        )
+        db_session.add(notification)
+        db_session.commit()
+        db_session.refresh(notification)
+
+        response = client.delete(f"/v1/notifications/{notification.id}")
+
+        assert response.status_code == 404
+        still_exists = db_session.scalar(select(Notification).where(Notification.id == notification.id))
+        assert still_exists is not None
+
+    def test_mark_all_read_only_updates_current_users_personal_notifications(self, client, db_session):
+        payload = _register_owner(client)
+        workspace_id = payload["workspace"]["id"]
+
+        personal_notification = Notification(
+            workspace_id=workspace_id,
+            user_id=payload["user"]["id"],
+            type="mention",
+            title="Personal notification",
+            body="Should be marked read",
+            is_read=False,
+        )
+        shared_notification = Notification(
+            workspace_id=workspace_id,
+            user_id=None,
+            type="mention",
+            title="Workspace-wide notification",
+            body="Should remain unread",
+            is_read=False,
+        )
+        db_session.add_all([personal_notification, shared_notification])
+        db_session.commit()
+        db_session.refresh(personal_notification)
+        db_session.refresh(shared_notification)
+
+        response = client.put("/v1/notifications/read-all")
+
+        assert response.status_code == 200
+        db_session.refresh(personal_notification)
+        db_session.refresh(shared_notification)
+        assert personal_notification.is_read is True
+        assert shared_notification.is_read is False
+
 
 class TestWebhookSecurity:
     def test_test_webhook_revalidates_stored_target_url(self, client, db_session):
