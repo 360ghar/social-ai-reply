@@ -87,7 +87,10 @@ def list_reply_drafts(
     proj = get_active_project(db, workspace.id, project_id)
     if not proj:
         return []
-    opp_status = OpportunityStatus(status_filter)
+    try:
+        opp_status = OpportunityStatus(status_filter)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
     latest_draft_sq = (
         select(ReplyDraft.opportunity_id, func.max(ReplyDraft.id).label("max_id"))
         .group_by(ReplyDraft.opportunity_id)

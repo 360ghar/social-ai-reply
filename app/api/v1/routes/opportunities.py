@@ -45,14 +45,26 @@ def list_opportunities(
     proj = get_active_project(db, workspace.id, project_id)
     if not proj:
         return []
-    opp_status = OpportunityStatus(status_filter)
-    stmt = (
-        select(Opportunity)
-        .where(Opportunity.project_id == proj.id, Opportunity.status == opp_status)
-        .order_by(Opportunity.score.desc())
-        .offset(offset)
-        .limit(limit)
-    )
+    if status_filter == "all":
+        stmt = (
+            select(Opportunity)
+            .where(Opportunity.project_id == proj.id)
+            .order_by(Opportunity.score.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    else:
+        try:
+            opp_status = OpportunityStatus(status_filter)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
+        stmt = (
+            select(Opportunity)
+            .where(Opportunity.project_id == proj.id, Opportunity.status == opp_status)
+            .order_by(Opportunity.score.desc())
+            .offset(offset)
+            .limit(limit)
+        )
     rows = db.scalars(stmt).all()
     return [OpportunityResponse.model_validate(row) for row in rows]
 
