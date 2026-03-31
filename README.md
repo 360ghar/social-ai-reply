@@ -1,6 +1,6 @@
 # RedditFlow
 
-Hosted Reddit opportunity intelligence built on `FastAPI + Celery + Postgres/SQLite + Redis + Next.js`.
+Hosted Reddit opportunity intelligence built on `FastAPI + Postgres/SQLite + Next.js`.
 
 RedditFlow is a hosted web app for finding relevant Reddit posts, reviewing good-fit communities, and drafting helpful replies without auto-posting.
 
@@ -27,7 +27,7 @@ uv sync --extra dev
 uv run uvicorn app.main:app --reload
 ```
 
-The default `.env.example` uses SQLite so local setup works immediately. For production, switch `DATABASE_URL` to Postgres and run with Redis/Celery enabled.
+The default `.env.example` uses SQLite so local setup works immediately. For production, switch `DATABASE_URL` to Postgres.
 
 Backend app:
 
@@ -55,8 +55,6 @@ Frontend app:
 - `OPENAI_API_KEY`
 - `FRONTEND_URL`
 - `CORS_ORIGINS_RAW`
-- `CELERY_BROKER_URL`
-- `CELERY_RESULT_BACKEND`
 - `REDDIT_USER_AGENT`
 
 ## Tests

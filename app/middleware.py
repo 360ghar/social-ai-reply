@@ -22,15 +22,15 @@ RATE_LIMITS = {
 }
 
 SLOW_ENDPOINTS = {
-    "/api/v1/scans": "scan",
-    "/api/v1/drafts/replies": "generate",
-    "/api/v1/drafts/posts": "generate",
-    "/api/v1/brand/analyze": "generate",
-    "/api/v1/personas/generate": "generate",
-    "/api/v1/discovery/keywords/generate": "generate",
-    "/api/v1/discovery/subreddits/discover": "generate",
-    "/api/v1/auth/login": "auth",
-    "/api/v1/auth/register": "auth",
+    "/v1/scans": "scan",
+    "/v1/drafts/replies": "generate",
+    "/v1/drafts/posts": "generate",
+    "/v1/brand/analyze": "generate",
+    "/v1/personas/generate": "generate",
+    "/v1/discovery/keywords/generate": "generate",
+    "/v1/discovery/subreddits/discover": "generate",
+    "/v1/auth/login": "auth",
+    "/v1/auth/register": "auth",
 }
 
 

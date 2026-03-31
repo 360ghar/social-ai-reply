@@ -128,6 +128,8 @@ def reset_password(payload: dict, db: Session = Depends(get_db)):
     if not reset:
         raise HTTPException(400, "Invalid or expired reset link.")
     user = db.scalar(select(AccountUser).where(AccountUser.id == reset.user_id))
+    if not user:
+        raise HTTPException(400, "User account no longer exists.")
     user.password_hash = hash_password(new_password)
     reset.used_at = datetime.now(timezone.utc)
     db.commit()

@@ -89,7 +89,7 @@ def mark_all_read(
         NotificationModel.workspace_id == workspace.id,
         (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
         NotificationModel.is_read.is_(False)
-    ).update({NotificationModel.is_read: True})
+    ).update({NotificationModel.is_read: True}, synchronize_session=False)
     db.commit()
 
     return {"success": True, "message": "All notifications marked as read."}
