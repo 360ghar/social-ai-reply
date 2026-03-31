@@ -195,6 +195,7 @@ export function isAuthError(error: unknown): boolean {
   return [
     "Authentication required.",
     "Invalid token.",
+    "User not found.",
   ].includes(error.message);
 }
 
