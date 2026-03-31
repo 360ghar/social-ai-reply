@@ -17,6 +17,8 @@ export type AuthPayload = {
   };
 };
 
+// ── Shared types (used across multiple domain modules) ──────────
+
 export type Project = {
   id: number;
   workspace_id: number;
@@ -59,18 +61,20 @@ export type ReplyDraft = {
   created_at: string;
 };
 
-export type Subscription = {
-  plan_code: string;
-  status: string;
-  current_period_end: string | null;
-  features: string[];
-  limits: Record<string, number>;
+export type PostDraft = {
+  id: number;
+  project_id: number;
+  title: string;
+  body: string;
+  rationale: string | null;
+  source_prompt: string | null;
+  version: number;
+  created_at: string;
 };
 
 export type Dashboard = {
   projects: Project[];
   top_opportunities: Opportunity[];
-  subscription: Subscription;
 };
 
 export type BrandProfile = {
@@ -153,6 +157,14 @@ export type PromptTemplate = {
   updated_at: string;
 };
 
+export type Subscription = {
+  plan_code: string;
+  status: string;
+  current_period_end: string | null;
+  features: string[];
+  limits: Record<string, number>;
+};
+
 export type WebhookEndpoint = {
   id: number;
   workspace_id: number;
@@ -172,19 +184,22 @@ export type SecretRecord = {
   updated_at: string;
 };
 
+// ── Base helpers ────────────────────────────────────────────────
+
 export function isAuthError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
+  // Only treat genuine authentication failures as auth errors.
+  // Do NOT include workspace/permission errors — those are 403s, not 401s.
   return [
     "Authentication required.",
     "Invalid token.",
     "User not found.",
-    "No workspace membership found."
   ].includes(error.message);
 }
 
-export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
   if (token) {
@@ -206,3 +221,67 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
   }
   return response.json() as Promise<T>;
 }
+
+// ── Re-export from domain modules (backwards compatibility) ─────
+
+export {
+  forgotPassword,
+  resetPassword,
+} from "./api/auth";
+
+export {
+  getProjects,
+  getProject,
+  createProject,
+  getDashboard,
+} from "./api/projects";
+
+export {
+  getKeywords,
+  createKeyword,
+  deleteKeyword,
+  getSubreddits,
+  addSubreddit,
+  removeSubreddit,
+  triggerScan,
+  getScanStatus,
+  getOpportunities,
+} from "./api/discovery";
+
+export {
+  generateReply,
+  getReplyDrafts,
+  createPostDraft,
+  getPostDrafts,
+  getPrompts,
+  createPrompt,
+  updatePrompt,
+  deletePrompt,
+} from "./api/content";
+
+export {
+  getPromptSets,
+  createPromptSet,
+  runPromptSet,
+  getVisibilitySummary,
+  getVisibilityPrompts,
+  getCitations,
+  getSourceDomains,
+  getSourceGaps,
+
+  // Re-export interfaces that were previously on this module
+  type PromptSetItem,
+  type VisibilitySummary,
+  type PromptRunResult,
+  type CitationItem,
+} from "./api/visibility";
+
+export {
+  getNotifications,
+  type NotificationItem,
+} from "./api/notifications";
+
+export {
+  getActivity,
+  type ActivityItem,
+} from "./api/analytics";

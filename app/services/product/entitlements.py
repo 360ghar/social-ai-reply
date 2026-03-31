@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.saas_models import (
+from app.db.models import (
     DiscoveryKeyword,
     MonitoredSubreddit,
     PlanEntitlement,
@@ -21,36 +21,29 @@ PLAN_CATALOG = [
         "name": "Free",
         "price_monthly": 0,
         "features": [
-            "1 project",
-            "10 active keywords",
-            "5 active subreddits",
-            "Manual Reddit opportunity workflow",
+            "Unlimited projects",
+            "Unlimited keywords",
+            "Unlimited communities",
+            "AI visibility tracking",
+            "Analytics & reporting",
+            "Campaign management",
+            "Auto-pipeline setup",
+            "Reddit posting (unlimited)",
+            "All product capabilities unlocked",
         ],
-        "limits": {"projects": 1, "keywords": 10, "subreddits": 5},
+        "limits": {"projects": 999999, "keywords": 999999, "subreddits": 999999},
     },
     {
-        "code": "starter",
-        "name": "Starter",
-        "price_monthly": 79,
+        "code": "internal",
+        "name": "Internal",
+        "price_monthly": 0,
         "features": [
-            "3 projects",
-            "50 active keywords",
-            "25 active subreddits",
-            "Priority scan throughput",
+            "Unlimited projects",
+            "Unlimited keywords",
+            "Unlimited communities",
+            "All product capabilities unlocked",
         ],
-        "limits": {"projects": 3, "keywords": 50, "subreddits": 25},
-    },
-    {
-        "code": "growth",
-        "name": "Growth",
-        "price_monthly": 199,
-        "features": [
-            "10 projects",
-            "150 active keywords",
-            "75 active subreddits",
-            "Team collaboration and webhooks",
-        ],
-        "limits": {"projects": 10, "keywords": 150, "subreddits": 75},
+        "limits": {"projects": 999999, "keywords": 999999, "subreddits": 999999},
     },
 ]
 
@@ -86,8 +79,21 @@ def seed_plan_entitlements(db: Session) -> None:
 def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscription:
     subscription = db.scalar(select(Subscription).where(Subscription.workspace_id == workspace.id))
     if subscription:
+        changed = False
+        if subscription.plan_code not in ("free", "internal"):
+            subscription.plan_code = "free"
+            changed = True
+        if subscription.status != SubscriptionStatus.ACTIVE:
+            subscription.status = SubscriptionStatus.ACTIVE
+            changed = True
+        if subscription.current_period_end is not None:
+            subscription.current_period_end = None
+            changed = True
+        if changed:
+            db.commit()
+            db.refresh(subscription)
         return subscription
-    subscription = Subscription(workspace_id=workspace.id, plan_code="free", status=SubscriptionStatus.TRIALING)
+    subscription = Subscription(workspace_id=workspace.id, plan_code="free", status=SubscriptionStatus.ACTIVE)
     db.add(subscription)
     db.commit()
     db.refresh(subscription)
@@ -95,24 +101,13 @@ def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscriptio
 
 
 def get_limit(db: Session, workspace: Workspace, feature_key: str) -> int:
-    seed_plan_entitlements(db)
-    subscription = get_or_create_subscription(db, workspace)
-    entitlement = db.scalar(
-        select(PlanEntitlement).where(
-            PlanEntitlement.plan_code == subscription.plan_code,
-            PlanEntitlement.feature_key == feature_key,
-        )
-    )
-    return entitlement.limit_value if entitlement else 0
+    # The private workspace always runs in unlocked mode.
+    return 999999
 
 
 def enforce_limit(db: Session, workspace: Workspace, feature_key: str, current_count: int) -> None:
-    limit_value = get_limit(db, workspace, feature_key)
-    if current_count >= limit_value:
-        raise HTTPException(
-            status_code=403,
-            detail=f"{feature_key} limit reached for your current plan.",
-        )
+    # Limits are intentionally disabled for the internal workspace.
+    pass
 
 
 def count_projects(db: Session, workspace_id: int) -> int:

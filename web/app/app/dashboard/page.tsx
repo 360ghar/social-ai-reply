@@ -1,256 +1,577 @@
 "use client";
 
-import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
-import { useAuth } from "../../../components/auth-provider";
+import { useAuth } from "@/components/auth-provider";
+import { useToast } from "@/components/toast";
 import {
-  apiRequest,
-  type BrandProfile,
-  type Dashboard,
-  type Keyword,
-  type MonitoredSubreddit,
-  type Opportunity,
-  type Persona,
-  type Project
-} from "../../../lib/api";
-import { setStoredProjectId } from "../../../lib/project";
-import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
+  Button,
+  EmptyState,
+  KpiCard,
+  SkeletonCard,
+  StepIndicator,
+  UsageMeter,
+  ScoreBadge,
+  PlatformIcon,
+} from "@/components/ui";
+import { apiRequest, type Project } from "@/lib/api";
+import { setStoredProjectId, withProjectId } from "@/lib/project";
+import { useSelectedProjectId } from "@/lib/use-selected-project";
 
-type ChecklistItem = {
+interface SetupStatus {
+  brand_configured: boolean;
+  personas_count: number;
+  subreddits_count: number;
+}
+
+interface DashData {
+  projects: {
+    id: number;
+    name: string;
+    description?: string | null;
+  }[];
+  top_opportunities: any[];
+  subscription: any;
+  setup_status?: SetupStatus;
+}
+
+interface UsageData {
+  metrics?: {
+    projects?: { used: number; limit: number };
+    keywords?: { used: number; limit: number };
+    subreddits?: { used: number; limit: number };
+  };
+}
+
+interface VisibilitySummary {
+  share_of_voice?: number;
+  total_citations?: number;
+  total_runs?: number;
+  brand_mentioned?: number;
+}
+
+interface ActivityItem {
+  id: number;
+  action: string;
+  created_at?: string;
+}
+
+interface WorkflowStep {
   label: string;
+  title: string;
   description: string;
+  actionLabel: string;
   done: boolean;
-  href: string;
-};
+  href?: string;
+  actionKind: "route" | "modal";
+}
+
+const LANE_COPY = [
+  {
+    title: "Visibility Lane",
+    body: "Track how AI models recommend your brand, which domains they cite, and where competitors outrank you.",
+    href: "/app/visibility",
+    action: "Run Prompt Set",
+  },
+  {
+    title: "Community Lane",
+    body: "Convert audience signals into monitored communities and review reply-ready conversations with fit and risk context.",
+    href: "/app/discovery",
+    action: "Open Radar",
+  },
+  {
+    title: "Publishing Lane",
+    body: "Turn community insights into reply drafts or original posts, then review and publish manually with control.",
+    href: "/app/content",
+    action: "Open Studio",
+  },
+];
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { token } = useAuth();
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [brand, setBrand] = useState<BrandProfile | null>(null);
-  const [personas, setPersonas] = useState<Persona[]>([]);
-  const [keywords, setKeywords] = useState<Keyword[]>([]);
-  const [subreddits, setSubreddits] = useState<MonitoredSubreddit[]>([]);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-  const [businessName, setBusinessName] = useState("");
-  const [businessDescription, setBusinessDescription] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  const selectedProjectId = useSelectedProjectId();
+  const [loading, setLoading] = useState(true);
+  const [dash, setDash] = useState<DashData | null>(null);
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [visibility, setVisibility] = useState<VisibilitySummary | null>(null);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [bizName, setBizName] = useState("");
+  const [bizDesc, setBizDesc] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [autoPipelineUrl, setAutoPipelineUrl] = useState("");
+  const [dismissedWizard, setDismissedWizard] = useState(false);
 
-  const project = dashboard ? getCurrentProject(dashboard) : null;
-
-  async function loadDashboardAndDetails(selectedProjectId?: number) {
+  useEffect(() => {
     if (!token) {
       return;
     }
-    const dashboardPayload = await fetchDashboard(token);
-    setDashboard(dashboardPayload);
-    const currentProject =
-      (selectedProjectId ? dashboardPayload.projects.find((item) => item.id === selectedProjectId) : null) ??
-      getCurrentProject(dashboardPayload);
+    const dismissed = localStorage.getItem("wizard-dismissed") === "true";
+    setDismissedWizard(dismissed);
+    void loadAll();
+  }, [token, selectedProjectId]);
 
-    if (!currentProject) {
-      setBrand(null);
-      setPersonas([]);
-      setKeywords([]);
-      setSubreddits([]);
-      setOpportunities([]);
-      return;
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [dashRes, usageRes, visRes, actRes] = await Promise.allSettled([
+        apiRequest<DashData>(withProjectId("/v1/dashboard", selectedProjectId), {}, token),
+        apiRequest<UsageData>(withProjectId("/v1/usage", selectedProjectId), {}, token),
+        apiRequest<VisibilitySummary>(withProjectId("/v1/visibility/summary", selectedProjectId), {}, token),
+        apiRequest<{ items: ActivityItem[] }>("/v1/activity", {}, token),
+      ]);
+
+      if (dashRes.status === "fulfilled") {
+        setDash(dashRes.value);
+      }
+      if (usageRes.status === "fulfilled") {
+        setUsage(usageRes.value);
+      }
+      if (visRes.status === "fulfilled") {
+        setVisibility(visRes.value);
+      }
+      if (actRes.status === "fulfilled") {
+        setActivity(actRes.value.items || []);
+      }
+    } catch (error) {
+      console.error(error);
     }
-
-    const [brandPayload, personaPayload, keywordPayload, subredditPayload, opportunityPayload] = await Promise.all([
-      apiRequest<BrandProfile>(`/v1/brand/${currentProject.id}`, {}, token),
-      apiRequest<Persona[]>(`/v1/personas?project_id=${currentProject.id}`, {}, token),
-      apiRequest<Keyword[]>(`/v1/discovery/keywords?project_id=${currentProject.id}`, {}, token),
-      apiRequest<MonitoredSubreddit[]>(`/v1/discovery/subreddits?project_id=${currentProject.id}`, {}, token),
-      apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${currentProject.id}`, {}, token)
-    ]);
-
-    setBrand(brandPayload);
-    setPersonas(personaPayload);
-    setKeywords(keywordPayload);
-    setSubreddits(subredditPayload);
-    setOpportunities(opportunityPayload);
+    setLoading(false);
   }
 
-  useEffect(() => {
-    if (!token) return;
-    let ignore = false;
-    loadDashboardAndDetails()
-      .catch((err) => { if (!ignore) setError(err.message); });
-    return () => { ignore = true; };
-  }, [token]);
-
-  const checklist = useMemo<ChecklistItem[]>(() => {
-    return [
-      {
-        label: "Add your product",
-        description: "Tell RedditFlow what you sell and paste your website.",
-        done: Boolean(brand?.website_url || brand?.product_summary || brand?.summary),
-        href: "/app/brand"
-      },
-      {
-        label: "Add customer types",
-        description: "Write down who you want to reach on Reddit.",
-        done: personas.length > 0,
-        href: "/app/persona"
-      },
-      {
-        label: "Create search words",
-        description: "Use customer language so we can find the right posts.",
-        done: keywords.length > 0,
-        href: "/app/discovery"
-      },
-      {
-        label: "Pick communities",
-        description: "Choose the subreddits worth checking first.",
-        done: subreddits.length > 0,
-        href: "/app/subreddits"
-      },
-      {
-        label: "Find matching posts",
-        description: "Run a scan and start drafting helpful replies.",
-        done: opportunities.length > 0,
-        href: "/app/discovery"
-      }
-    ];
-  }, [brand, keywords.length, opportunities.length, personas.length, subreddits.length]);
-
-  const nextStep = checklist.find((item) => !item.done) ?? checklist[checklist.length - 1];
-
-  async function createBusiness(event: FormEvent) {
-    event.preventDefault();
-    if (!token || !businessName.trim()) {
+  async function handleCreate() {
+    if (!bizName.trim()) {
+      toast.warning("Please enter a business name.");
       return;
     }
-    setSaving(true);
-    setError(null);
+    setCreating(true);
     try {
-      const created = await apiRequest<Project>("/v1/projects", {
-        method: "POST",
-        body: JSON.stringify({ name: businessName.trim(), description: businessDescription.trim() || null })
-      }, token);
-      setStoredProjectId(created.id);
-      setBusinessName("");
-      setBusinessDescription("");
-      await loadDashboardAndDetails(created.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the business.");
-    } finally {
-      setSaving(false);
+      const createdProject = await apiRequest<Project>(
+        "/v1/projects",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: bizName.trim(),
+            description: bizDesc.trim() || null,
+          }),
+        },
+        token
+      );
+      setStoredProjectId(createdProject.id);
+      toast.success("Project created", "Next: add your first audience.");
+      setBizName("");
+      setBizDesc("");
+      setShowCreate(false);
+      router.push("/app/persona");
+    } catch (error: any) {
+      toast.error("Could not create project", error.message);
     }
+    setCreating(false);
+  }
+
+  function dismissWizard() {
+    localStorage.setItem("wizard-dismissed", "true");
+    setDismissedWizard(true);
+  }
+
+  function handleAutoPipeline() {
+    if (!autoPipelineUrl.trim()) {
+      toast.warning("Please enter a URL");
+      return;
+    }
+    router.push(`/app/auto-pipeline?url=${encodeURIComponent(autoPipelineUrl)}`);
+  }
+
+  const hasProject = (dash?.projects?.length || 0) > 0;
+  const focusProject =
+    dash?.projects?.find((project) => project.id === selectedProjectId) ??
+    dash?.projects?.[0] ??
+    null;
+  const topOpps = dash?.top_opportunities || [];
+  const setupStatus = dash?.setup_status;
+  const steps: WorkflowStep[] = [
+    {
+      label: "Create Project",
+      title: "Create your first project",
+      description: "Start a project to connect brand setup, audience signals, community mapping, and visibility tracking.",
+      actionLabel: "Create Project",
+      done: hasProject,
+      actionKind: "modal",
+    },
+    {
+      label: "Define Brand",
+      title: "Review your brand profile",
+      description: "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
+      actionLabel: "Open Brand",
+      done: setupStatus?.brand_configured || false,
+      href: "/app/brand",
+      actionKind: "route",
+    },
+    {
+      label: "Add Audience",
+      title: "Add your first audience",
+      description: "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
+      actionLabel: "Open Audience",
+      done: (setupStatus?.personas_count || 0) > 0,
+      href: "/app/persona",
+      actionKind: "route",
+    },
+    {
+      label: "Map Communities",
+      title: "Discover matching communities",
+      description: "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
+      actionLabel: "Open Radar",
+      done: (setupStatus?.subreddits_count || 0) > 0,
+      href: "/app/discovery",
+      actionKind: "route",
+    },
+    {
+      label: "Track Visibility",
+      title: "Run your first visibility check",
+      description: "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
+      actionLabel: "Open AI Visibility",
+      done: (visibility?.total_runs || 0) > 0,
+      href: "/app/visibility",
+      actionKind: "route",
+    },
+  ];
+  const currentStep = steps.findIndex((step) => !step.done);
+  const completedCount = steps.filter((step) => step.done).length;
+  const nextStep = steps.find((step) => !step.done) ?? null;
+
+  if (loading) {
+    return (
+      <div>
+        <div className="section-grid" style={{ marginBottom: 24 }}>
+          {[1, 2, 3].map((item) => (
+            <SkeletonCard key={item} />
+          ))}
+        </div>
+        <div className="data-grid" style={{ gap: 24 }}>
+          {[1, 2, 3, 4].map((item) => (
+            <SkeletonCard key={item} />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="layout-two">
-      <section className="card">
-        <div className="eyebrow">Start here</div>
-        <h2>{project ? `Use ${project.name} in 5 simple steps` : "Create your first business"}</h2>
-        <p>
-          {project
-            ? "Follow these steps from top to bottom. You do not need to use every page right away."
-            : "Everything starts with one business. Add its name now and you can fill in the rest step by step."}
-        </p>
-        {error ? <div className="notice">{error}</div> : null}
+    <div style={{ display: "grid", gap: 24 }}>
+      <div
+        className="card"
+        style={{
+          background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
+          color: "white",
+          padding: 24,
+          borderRadius: 12,
+        }}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ marginBottom: 8, color: "white" }}>Launch Auto-Pipeline</h3>
+          <p style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: 14, lineHeight: 1.5 }}>
+            Enter any website URL and get a complete engagement strategy in minutes
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            type="url"
+            value={autoPipelineUrl}
+            onChange={(e) => setAutoPipelineUrl(e.target.value)}
+            placeholder="https://example.com"
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "none",
+              fontSize: 13,
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleAutoPipeline()}
+          />
+          <button
+            className="primary-button"
+            onClick={handleAutoPipeline}
+            style={{ backgroundColor: "white", color: "#6366F1", fontWeight: 600 }}
+          >
+            Go
+          </button>
+        </div>
+      </div>
 
-        {!project ? (
-          <form className="item-list" onSubmit={createBusiness}>
-            <label className="field">
-              <span>Business name</span>
-              <input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Acme Analytics" />
-            </label>
-            <label className="field">
-              <span>What does this business sell?</span>
-              <textarea
-                value={businessDescription}
-                onChange={(event) => setBusinessDescription(event.target.value)}
-                placeholder="Short plain-English description"
-              />
-            </label>
-            <button className="primary-button" type="submit" disabled={saving}>
-              {saving ? "Creating..." : "Create business"}
-            </button>
-          </form>
-        ) : (
-          <>
-            <div className="step-list">
-              {checklist.map((item, index) => (
-                <div key={item.label} className={item.done ? "step-row done" : "step-row"}>
-                  <div className="step-marker">{index + 1}</div>
-                  <div className="step-copy">
-                    <strong>{item.label}</strong>
-                    <p>{item.description}</p>
+      <section className="card dashboard-hero-card">
+        <div className="dashboard-hero-head">
+          <div>
+            <div className="eyebrow">Product Overview</div>
+            <h2 style={{ marginBottom: 10 }}>Build a complete visibility-to-engagement workflow</h2>
+            <p className="kicker">
+              The platform already does two things well: AI visibility tracking and guided community engagement.
+              The next step is making those two motions feel like one coordinated system.
+            </p>
+          </div>
+          <Button onClick={() => setShowCreate(true)}>New Project</Button>
+        </div>
+
+        {focusProject ? (
+          !dismissedWizard ? (
+            <div className="dashboard-focus-grid">
+              <div className="dashboard-focus-card">
+                <span className="badge badge-info">Focused Project</span>
+                <h3 style={{ marginTop: 12, marginBottom: 10 }}>{focusProject.name}</h3>
+                <p>
+                  {focusProject.description || "Use this project as the active scope for communities, drafts, prompt sets, and source analysis."}
+                </p>
+              </div>
+              <div className="dashboard-focus-card">
+                <span className="badge">Workflow Status</span>
+                <div style={{ marginTop: 14 }}>
+                  <StepIndicator
+                    steps={steps}
+                    currentStep={currentStep >= 0 ? currentStep : steps.length - 1}
+                  />
+                </div>
+                <p style={{ marginTop: 14 }}>
+                  {completedCount} of {steps.length} foundations are in place.
+                </p>
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: 16,
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div className="eyebrow" style={{ marginBottom: 0 }}>
+                    {nextStep ? "Next Step" : "Workflow Ready"}
                   </div>
-                  <div className="step-action">
-                    <span className={item.done ? "badge success" : "badge"}>{item.done ? "Done" : "Next"}</span>
-                    <Link href={item.href} className="secondary-button">
-                      Open
-                    </Link>
+                  <h3 style={{ marginBottom: 0 }}>
+                    {nextStep ? nextStep.title : "All setup steps are complete"}
+                  </h3>
+                  <p>
+                    {nextStep
+                      ? nextStep.description
+                      : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
+                  </p>
+                  <div className="action-row" style={{ marginTop: 4 }}>
+                    {nextStep ? (
+                      nextStep.actionKind === "modal" ? (
+                        <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
+                      ) : (
+                        <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
+                          {nextStep.actionLabel}
+                        </Button>
+                      )
+                    ) : (
+                      <>
+                        <Button onClick={() => router.push("/app/visibility")}>Open AI Visibility</Button>
+                        <Button variant="secondary" onClick={() => router.push("/app/discovery")}>
+                          Open Radar
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {completedCount === steps.length && (
+                    <button
+                      className="ghost-button"
+                      onClick={dismissWizard}
+                      style={{ marginTop: 8, textAlign: "left", color: "var(--muted)" }}
+                    >
+                      Dismiss setup wizard
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+              <p>{focusProject.name} • Ready for engagement workflows</p>
+            </div>
+          )
+        ) : (
+          <EmptyState
+            title="No projects yet"
+            description="Create a project to connect brand setup, AI visibility, communities, and draft generation."
+            action={<Button onClick={() => setShowCreate(true)}>Create Your First Project</Button>}
+          />
+        )}
+      </section>
+
+      <div className="data-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        <KpiCard label="Visibility Score" value={`${visibility?.share_of_voice || 0}%`} />
+        <KpiCard label="Opportunities" value={topOpps.length} />
+        <KpiCard label="Drafts Ready" value={0} />
+        <KpiCard label="Published" value={0} />
+      </div>
+
+      <div className="section-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+        {LANE_COPY.map((lane) => (
+          <div key={lane.title} className="card dashboard-lane-card">
+            <div className="eyebrow">{lane.title}</div>
+            <p style={{ marginBottom: 20 }}>{lane.body}</p>
+            <a href={lane.href} className="secondary-button" style={{ width: "100%", textDecoration: "none" }}>
+              {lane.action}
+            </a>
+          </div>
+        ))}
+      </div>
+
+      <div className="layout-two">
+        <section className="card">
+          <div className="card-header">
+            <div>
+              <h3 className="card-title">Priority Queue</h3>
+              <p className="card-description">
+                High-fit conversations surfaced from the current community workflow. Reddit is live today, but the queue is being shaped for broader Q&A and social patterns.
+              </p>
+            </div>
+            <a href="/app/discovery" className="ghost-button" style={{ textDecoration: "none" }}>
+              Open Radar
+            </a>
+          </div>
+
+          {topOpps.length === 0 ? (
+            <EmptyState
+              icon="Q"
+              title="No opportunities yet"
+              description="Run your first community scan after adding audience signals and monitored communities."
+            />
+          ) : (
+            <div className="item-list">
+              {topOpps.slice(0, 6).map((opp: any) => (
+                <div key={opp.id} className="list-row dashboard-opp-row">
+                  <div className="dashboard-opp-head">
+                    <div>
+                      <div className="flex items-center gap-sm">
+                        <PlatformIcon platform="reddit" />
+                        <span className="badge">Live Source</span>
+                        <span className="text-muted text-sm">Reply opportunity</span>
+                      </div>
+                      <a
+                        href={opp.permalink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ display: "inline-block", fontWeight: 600, marginTop: 10 }}
+                      >
+                        {opp.title}
+                      </a>
+                    </div>
+                    <ScoreBadge score={opp.score || 0} />
+                  </div>
+                  <div className="badge-row">
+                    <span className="badge">r/{opp.subreddit_name}</span>
+                    {(opp.score_reasons || []).slice(0, 2).map((reason: string) => (
+                      <span key={reason} className="badge">
+                        {reason}
+                      </span>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
-            <div className="notice">
-              <strong>Recommended next step:</strong> {nextStep.label}
-              <br />
-              <span className="muted">{nextStep.description}</span>
-            </div>
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="eyebrow">Current business</div>
-        <h2>{project?.name ?? "No business selected yet"}</h2>
-        <p>{project?.description ?? "Create one business first, then follow the step-by-step checklist."}</p>
-        <div className="kpi-grid">
-          <div className="kpi-card">
-            <div className="meta-label">Customer types</div>
-            <strong>{personas.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <div className="meta-label">Search words</div>
-            <strong>{keywords.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <div className="meta-label">Communities</div>
-            <strong>{subreddits.length}</strong>
-          </div>
-          <div className="kpi-card">
-            <div className="meta-label">Matches found</div>
-            <strong>{opportunities.length}</strong>
-          </div>
-        </div>
-        {brand?.summary ? (
-          <div className="list-row">
-            <strong>What RedditFlow knows about your product</strong>
-            <p>{brand.summary}</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="card">
-        <div className="eyebrow">Best matches</div>
-        <h2>Posts worth looking at first</h2>
-        <div className="item-list">
-          {opportunities.length ? (
-            opportunities.slice(0, 6).map((opportunity) => (
-              <a key={opportunity.id} href={opportunity.permalink} target="_blank" rel="noreferrer" className="opportunity-card">
-                <div className="badge-row">
-                  <span className="score-pill">Match {opportunity.score}/100</span>
-                  <span className="badge">r/{opportunity.subreddit_name}</span>
-                </div>
-                <strong>{opportunity.title}</strong>
-                <p>{opportunity.body_excerpt?.slice(0, 180) ?? "No preview available."}</p>
-              </a>
-            ))
-          ) : (
-            <div className="empty-state">
-              Your matches will appear here after you add search words, choose communities, and run a scan.
-            </div>
           )}
+        </section>
+
+        <div style={{ display: "grid", gap: 24 }}>
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <h3 className="card-title">Project Footprint</h3>
+                <p className="card-description">Current selected project usage inside the unlocked workspace.</p>
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: 14 }}>
+              <UsageMeter
+                label="Projects"
+                used={usage?.metrics?.projects?.used || 0}
+                limit={usage?.metrics?.projects?.limit || 1}
+              />
+              <UsageMeter
+                label="Keywords"
+                used={usage?.metrics?.keywords?.used || 0}
+                limit={usage?.metrics?.keywords?.limit || 10}
+              />
+              <UsageMeter
+                label="Communities"
+                used={usage?.metrics?.subreddits?.used || 0}
+                limit={usage?.metrics?.subreddits?.limit || 5}
+              />
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-header">
+              <div>
+                <h3 className="card-title">Recent Activity</h3>
+                <p className="card-description">Workspace actions and system events.</p>
+              </div>
+            </div>
+            {activity.length === 0 ? (
+              <p className="text-muted">No activity yet. Start with brand setup or a visibility run.</p>
+            ) : (
+              <div className="item-list">
+                {activity.slice(0, 6).map((item) => (
+                  <div key={item.id} className="list-row" style={{ gap: 6 }}>
+                    <strong style={{ fontSize: 14 }}>
+                      {item.action.replace(/_/g, " ").replace(/\./g, " -> ")}
+                    </strong>
+                    <span className="text-muted text-sm">
+                      {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
-      </section>
+      </div>
+
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Create New Project</h3>
+              <button className="ghost-button modal-close" onClick={() => setShowCreate(false)}>
+                x
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label className="field-label">Business Name</label>
+                <input
+                  type="text"
+                  value={bizName}
+                  onChange={(event) => setBizName(event.target.value)}
+                  placeholder="Your company or product name"
+                />
+              </div>
+              <div className="field">
+                <label className="field-label">Description</label>
+                <textarea
+                  rows={3}
+                  value={bizDesc}
+                  onChange={(event) => setBizDesc(event.target.value)}
+                  placeholder="What category, workflow, or audience does this project represent?"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
+                <button className="secondary-button" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </button>
+                <Button loading={creating} onClick={handleCreate}>
+                  Create Project
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

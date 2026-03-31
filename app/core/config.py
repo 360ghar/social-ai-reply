@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,11 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     use_mock_llm: bool = False
 
+    # Gemini (primary LLM)
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3-flash-preview"
+    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+
     reddit_base_url: str = "https://www.reddit.com"
     reddit_user_agent: str = "redditflow/1.0"
 
@@ -34,23 +40,16 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_use_tls: bool = True
 
-    instagram_username: str | None = None
-    instagram_password: str | None = None
-    instagram_session_dir: str = "./sessions"
-    instagram_challenge_code: str | None = None
-    proxy_urls: str = ""
-
-    scrape_requests_per_minute: int = 30
-    scrape_daily_cap_per_account: int = 2500
-
-    celery_broker_url: str = "redis://localhost:6379/0"
-    celery_result_backend: str = "redis://localhost:6379/1"
-
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    @property
-    def proxies(self) -> list[str]:
-        return [item.strip() for item in self.proxy_urls.split(",") if item.strip()]
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.environment == "production":
+            if self.jwt_secret == "change-me-in-production-32-bytes-min":
+                raise ValueError("JWT_SECRET must be changed from default in production.")
+            if len(self.jwt_secret) < 32:
+                raise ValueError("JWT_SECRET must be at least 32 characters.")
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from app.db.saas_models import BrandProfile, MonitoredSubreddit
+from app.db.models import BrandProfile, MonitoredSubreddit
 from app.services.product.reddit import RedditPost
 
 

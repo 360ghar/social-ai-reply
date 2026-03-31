@@ -1,3 +1,5 @@
+"""Fernet-based encryption for secrets storage."""
+
 import base64
 import hashlib
 
@@ -8,8 +10,9 @@ from app.core.config import get_settings
 
 def _build_fernet() -> Fernet:
     settings = get_settings()
-    seed = (settings.encryption_key or settings.jwt_secret).encode("utf-8")
-    key = base64.urlsafe_b64encode(hashlib.sha256(seed).digest())
+    if not settings.encryption_key:
+        raise RuntimeError("ENCRYPTION_KEY must be set to use encryption features. Generate one with: python -c \"import base64, hashlib, secrets; print(base64.urlsafe_b64encode(hashlib.sha256(secrets.token_bytes(32)).digest()).decode())\"")
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.encryption_key.encode("utf-8")).digest())
     return Fernet(key)
 
 
