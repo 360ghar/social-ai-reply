@@ -69,6 +69,7 @@ def create_prompt_set(
         schedule=payload.get("schedule", "manual"),
     )
     db.add(ps)
+    db.flush()
     record_audit(
         db, workspace_id=workspace.id, project_id=proj.id, actor_user_id=current_user.id,
         event_type="prompt_set.created", entity_type="PromptSet", entity_id=str(ps.id),
