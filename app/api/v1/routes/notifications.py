@@ -56,7 +56,7 @@ def list_notifications(
 
 @router.put("/notifications/{notification_id}/read")
 def mark_notification_read(
-    notification_id: str,
+    notification_id: int,
     current_user: AccountUser = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: Session = Depends(get_db),
@@ -97,7 +97,7 @@ def mark_all_read(
 
 @router.delete("/notifications/{notification_id}")
 def delete_notification(
-    notification_id: str,
+    notification_id: int,
     current_user: AccountUser = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: Session = Depends(get_db),

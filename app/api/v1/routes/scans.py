@@ -23,7 +23,8 @@ def create_scan(
     db: Session = Depends(get_db),
 ) -> ScanRunResponse:
     ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    effective_project_id = project_id or payload.project_id
+    proj = get_active_project(db, workspace.id, effective_project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="No active project found.")
     result = run_scan(db, proj, payload)
