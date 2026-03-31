@@ -25,7 +25,7 @@ SLOW_ENDPOINTS = {
     "/v1/scans": "scan",
     "/v1/drafts/replies": "generate",
     "/v1/drafts/posts": "generate",
-    "/v1/brand/analyze": "generate",
+    "/v1/brand/": "generate",
     "/v1/personas/generate": "generate",
     "/v1/discovery/keywords/generate": "generate",
     "/v1/discovery/subreddits/discover": "generate",

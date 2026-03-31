@@ -55,12 +55,12 @@ def create_webhook(
         is_active=payload.is_active if payload.is_active is not None else True,
     )
     db.add(row)
-    db.commit()
-    db.refresh(row)
     record_audit(
         db, workspace_id=workspace.id, project_id=None, actor_user_id=current_user.id,
         event_type="webhook.created", entity_type="WebhookEndpoint", entity_id=str(row.id),
     )
+    db.commit()
+    db.refresh(row)
     return WebhookResponse.model_validate(row)
 
 

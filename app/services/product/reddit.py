@@ -130,3 +130,30 @@ class RedditClient:
 
         posts = sorted(posts_by_id.values(), key=lambda row: row.created_at, reverse=True)
         return posts[:limit]
+
+    # ── Write operations (require OAuth, not yet implemented) ──────
+
+    def post_comment(self, subreddit: str, parent_id: str, text: str) -> str:
+        """Post a comment to a Reddit thread. Requires Reddit OAuth."""
+        raise NotImplementedError("Reddit posting requires OAuth integration. Connect a Reddit account first.")
+
+    def post_thread(self, subreddit: str, title: str, body: str) -> str:
+        """Submit a new thread to a subreddit. Requires Reddit OAuth."""
+        raise NotImplementedError("Reddit posting requires OAuth integration. Connect a Reddit account first.")
+
+    def get_post_stats(self, reddit_id: str) -> dict[str, Any]:
+        """Fetch upvotes, comments, and removal status for a post."""
+        try:
+            data = self._get(f"/{reddit_id}.json")
+        except httpx.HTTPError:
+            return {}
+        children = data if isinstance(data, list) else data.get("data", {}).get("children", [])
+        if not children:
+            return {}
+        post_data = children[0].get("data", {}).get("children", [{}])[0].get("data", {}) if isinstance(children[0].get("data"), dict) and "children" in children[0].get("data", {}) else (children[0].get("data", {}) if isinstance(children[0], dict) else {})
+        return {
+            "upvotes": post_data.get("score", 0),
+            "num_comments": post_data.get("num_comments", 0),
+            "removed": post_data.get("removed_by_category") is not None,
+            "removal_reason": post_data.get("removed_by_category"),
+        }

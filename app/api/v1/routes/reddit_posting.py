@@ -134,7 +134,7 @@ def post_to_reddit(
         reddit = RedditClient()
         if post_type == "comment":
             reddit_id = reddit.post_comment(subreddit, parent_post_id, content)
-            permalink = f"https://reddit.com/{subreddit}/comments/{parent_post_id}/"
+            permalink = f"https://reddit.com/r/{subreddit}/comments/{parent_post_id}/"
         else:
             reddit_id = reddit.post_thread(subreddit, title, content)
             permalink = f"https://reddit.com/r/{subreddit}/comments/{reddit_id}/"

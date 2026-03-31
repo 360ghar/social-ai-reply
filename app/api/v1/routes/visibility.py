@@ -69,12 +69,12 @@ def create_prompt_set(
         schedule=payload.get("schedule", "manual"),
     )
     db.add(ps)
-    db.commit()
-    db.refresh(ps)
     record_audit(
         db, workspace_id=workspace.id, project_id=proj.id, actor_user_id=current_user.id,
         event_type="prompt_set.created", entity_type="PromptSet", entity_id=str(ps.id),
     )
+    db.commit()
+    db.refresh(ps)
     return {"id": ps.id, "name": ps.name}
 
 
@@ -154,11 +154,11 @@ def run_prompt_set(
                 pr.error_message = "No response from model"
                 results.append({"prompt": prompt_text[:80], "model": model, "brand_mentioned": False, "citations": 0, "error": True})
 
-    db.commit()
     record_audit(
         db, workspace_id=workspace.id, project_id=proj.id, actor_user_id=current_user.id,
         event_type="visibility.run", entity_type="PromptSet", entity_id=str(ps.id),
     )
+    db.commit()
     return {"prompt_set_id": ps.id, "results": results, "total_runs": len(results)}
 
 
