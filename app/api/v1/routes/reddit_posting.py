@@ -69,7 +69,8 @@ def handle_reddit_callback(
             "message": "Reddit account connected successfully.",
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to connect Reddit account: {str(e)}")
+        logger.exception("Failed to connect Reddit account")
+        raise HTTPException(500, "Failed to connect Reddit account. Please try again.")
 
 
 @router.get("/reddit/accounts")
