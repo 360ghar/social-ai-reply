@@ -1,5 +1,6 @@
 """Opportunity listing and status management endpoints."""
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -78,6 +79,8 @@ def update_opportunity_status(
     if target not in _VALID_TRANSITIONS.get(current, set()):
         raise HTTPException(status_code=422, detail=f"Cannot transition from '{current}' to '{target}'.")
     opportunity.status = OpportunityStatus(target)
+    if target == "posted":
+        opportunity.posted_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(opportunity)
     return OpportunityResponse.model_validate(opportunity)

@@ -43,10 +43,13 @@ def _rate_limit_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _resolve_limit_type(path: str) -> str:
+def _resolve_limit_type(path: str, method: str) -> str:
     """Match path with prefix support for rate limit categories."""
     for prefix, limit_type in SLOW_ENDPOINTS.items():
         if path.startswith(prefix):
+            # Stricter scan/generate limits only apply to mutating requests
+            if limit_type in ("scan", "generate") and method != "POST":
+                return "default"
             return limit_type
     return "default"
 
@@ -73,7 +76,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         key = _rate_limit_key(request)
         path = request.url.path
-        limit_type = _resolve_limit_type(path)
+        limit_type = _resolve_limit_type(path, request.method)
         max_requests, window = RATE_LIMITS[limit_type]
 
         now = time.time()
