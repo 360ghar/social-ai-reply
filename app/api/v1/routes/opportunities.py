@@ -10,6 +10,7 @@ from app.db.models import (
     AccountUser,
     Opportunity,
     OpportunityStatus,
+    Project,
     ReplyDraft,
     Workspace,
 )
@@ -19,11 +20,11 @@ from app.schemas.v1.product import OpportunityResponse, OpportunityStatusRequest
 logger = logging.getLogger(__name__)
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
-    "new": {"drafting", "skipped", "archived"},
-    "drafting": {"replied", "skipped", "archived"},
-    "replied": {"archived"},
-    "skipped": {"new", "archived"},
-    "archived": {"new"},
+    "new": {"saved", "drafting", "ignored"},
+    "saved": {"drafting", "ignored"},
+    "drafting": {"posted", "saved", "ignored"},
+    "posted": set(),
+    "ignored": {"new"},
 }
 
 router = APIRouter(prefix="/v1", tags=["opportunities"])
@@ -66,8 +67,8 @@ def update_opportunity_status(
     ensure_workspace_membership(db, workspace.id, current_user.id)
     opportunity = db.scalar(
         select(Opportunity)
-        .join(ReplyDraft, isouter=True)
-        .where(Opportunity.id == opportunity_id)
+        .join(Project)
+        .where(Opportunity.id == opportunity_id, Project.workspace_id == workspace.id)
         .options(selectinload(Opportunity.reply_drafts))
     )
     if not opportunity:

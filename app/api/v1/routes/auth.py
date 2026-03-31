@@ -106,7 +106,7 @@ def forgot_password(payload: dict, db: Session = Depends(get_db)):
     if not user:
         return {"ok": True}  # Don't reveal if email exists
     token = secrets.token_urlsafe(48)
-    expires = datetime.utcnow() + timedelta(hours=1)
+    expires = datetime.now(timezone.utc) + timedelta(hours=1)
     db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=expires))
     db.commit()
     from app.services.product.email_service import EmailService
@@ -123,12 +123,12 @@ def reset_password(payload: dict, db: Session = Depends(get_db)):
     reset = db.scalar(select(PasswordResetToken).where(
         PasswordResetToken.token == token,
         PasswordResetToken.used_at.is_(None),
-        PasswordResetToken.expires_at > datetime.utcnow(),
+        PasswordResetToken.expires_at > datetime.now(timezone.utc),
     ))
     if not reset:
         raise HTTPException(400, "Invalid or expired reset link.")
     user = db.scalar(select(AccountUser).where(AccountUser.id == reset.user_id))
     user.password_hash = hash_password(new_password)
-    reset.used_at = datetime.utcnow()
+    reset.used_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": True, "message": "Password updated. You can now log in."}

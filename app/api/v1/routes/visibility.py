@@ -117,7 +117,7 @@ def run_prompt_set(
             response_text = runner.run_prompt(prompt_text, model)
             if response_text:
                 pr.status = "complete"
-                pr.completed_at = datetime.utcnow()
+                pr.completed_at = datetime.now(timezone.utc)
 
                 mentions = detector.detect_mentions(response_text, brand_name, competitors)
                 citations = extractor.extract_citations(response_text)

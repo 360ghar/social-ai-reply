@@ -44,14 +44,14 @@ def create_webhook(
     db: Session = Depends(get_db),
 ) -> WebhookResponse:
     ensure_workspace_membership(db, workspace.id, current_user.id)
-    if not validate_webhook_url(payload.url):
-        raise HTTPException(status_code=400, detail="Invalid webhook URL.")
-    import secrets
+    try:
+        validate_webhook_url(str(payload.target_url))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     row = WebhookEndpoint(
         workspace_id=workspace.id,
-        url=payload.url,
-        events=payload.events,
-        secret=secrets.token_hex(32),
+        target_url=str(payload.target_url),
+        event_types=payload.event_types,
         is_active=payload.is_active if payload.is_active is not None else True,
     )
     db.add(row)
@@ -147,10 +147,10 @@ async def test_webhook(
     test_payload = {
         "event": "webhook.test",
         "timestamp": "2024-01-15T10:30:00Z",
-        "data": {"test": True, "message": payload.message if payload else "Test webhook delivery"},
+        "data": {"test": True, "message": "Test webhook delivery"},
     }
     body = json.dumps(test_payload)
-    signature = hmac.new(row.secret.encode(), body.encode(), hashlib.sha256).hexdigest() if row.secret else ""
+    signature = hmac.new(row.signing_secret.encode(), body.encode(), hashlib.sha256).hexdigest() if row.signing_secret else ""
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -159,7 +159,7 @@ async def test_webhook(
                 "X-Webhook-Signature": signature,
                 "X-Webhook-Event": "webhook.test",
             }
-            resp = await client.post(row.url, content=body, headers=headers)
+            resp = await client.post(row.target_url, content=body, headers=headers)
         return {
             "delivered": True,
             "status_code": resp.status_code,
