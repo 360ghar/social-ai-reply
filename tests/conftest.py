@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import get_db
+from app.middleware import reset_rate_limit_store
 from app.main import app
 
 
@@ -38,6 +39,14 @@ def db_session(db_engine):
     session = SessionLocal()
     yield session
     session.close()
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Keep the in-memory rate limiter isolated across tests."""
+    reset_rate_limit_store()
+    yield
+    reset_rate_limit_store()
 
 
 @pytest.fixture

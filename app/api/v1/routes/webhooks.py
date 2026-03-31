@@ -153,6 +153,11 @@ async def test_webhook(
     signature = hmac.new(row.signing_secret.encode(), body.encode(), hashlib.sha256).hexdigest() if row.signing_secret else ""
 
     try:
+        validate_webhook_url(row.target_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             headers = {
                 "Content-Type": "application/json",

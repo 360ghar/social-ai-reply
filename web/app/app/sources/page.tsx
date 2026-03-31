@@ -2,15 +2,13 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast";
-import { EmptyState, KpiCard, Tabs, Spinner, Skeleton } from "@/components/ui";
-import { getCitations, getSourceDomains, getSourceGaps, CitationItem, apiRequest } from "@/lib/api";
+import { EmptyState, KpiCard, Tabs, Skeleton } from "@/components/ui";
+import { getCitations, getSourceDomains, getSourceGaps, CitationItem, apiRequest, type BrandProfile } from "@/lib/api";
 import { useSelectedProjectId } from "@/lib/use-selected-project";
-import { withProjectId } from "@/lib/project";
 
 interface SourceDomain {
   domain: string;
   total_citations: number;
-  is_owned?: boolean;
 }
 
 interface SourceGap {
@@ -18,6 +16,32 @@ interface SourceGap {
   competitor_name: string;
   domain: string;
   citation_count: number;
+}
+
+function normalizeHostname(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value.includes("://") ? value : `https://${value}`);
+    return parsed.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return value.toLowerCase().replace(/^www\./, "").replace(/\/.*$/, "");
+  }
+}
+
+function isOwnedDomain(domain: string, ownedWebsiteHost: string | null) {
+  const normalizedDomain = normalizeHostname(domain);
+  if (!normalizedDomain || !ownedWebsiteHost) {
+    return false;
+  }
+
+  return (
+    normalizedDomain === ownedWebsiteHost
+    || normalizedDomain.endsWith(`.${ownedWebsiteHost}`)
+    || ownedWebsiteHost.endsWith(`.${normalizedDomain}`)
+  );
 }
 
 export default function SourcesPage() {
@@ -31,7 +55,7 @@ export default function SourcesPage() {
   const [gaps, setGaps] = useState<SourceGap[]>([]);
   const [uniqueDomains, setUniqueDomains] = useState(0);
   const [citationTotal, setCitationTotal] = useState(0);
-  const [ownedSources, setOwnedSources] = useState(0);
+  const [ownedWebsiteHost, setOwnedWebsiteHost] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -41,17 +65,16 @@ export default function SourcesPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [domRes, citRes, gapRes] = await Promise.allSettled([
+      const [domRes, citRes, gapRes, brandRes] = await Promise.allSettled([
         getSourceDomains(token!, selectedProjectId),
         getCitations(token!, undefined, 100, selectedProjectId),
         getSourceGaps(token!, selectedProjectId),
+        selectedProjectId ? apiRequest<BrandProfile>(`/v1/brand/${selectedProjectId}`, {}, token) : Promise.resolve(null),
       ]);
 
       if (domRes.status === "fulfilled") {
         setDomains(domRes.value.items || []);
         setUniqueDomains(domRes.value.items?.length || 0);
-        const owned = domRes.value.items?.filter((d: SourceDomain) => d.is_owned).length || 0;
-        setOwnedSources(owned);
       }
       if (citRes.status === "fulfilled") {
         setCitations(citRes.value.items || []);
@@ -59,6 +82,11 @@ export default function SourcesPage() {
       }
       if (gapRes.status === "fulfilled") {
         setGaps(gapRes.value.items || []);
+      }
+      if (brandRes.status === "fulfilled") {
+        setOwnedWebsiteHost(normalizeHostname(brandRes.value?.website_url));
+      } else {
+        setOwnedWebsiteHost(null);
       }
     } catch (e: any) {
       const msg = e?.message || "";
@@ -68,6 +96,9 @@ export default function SourcesPage() {
     }
     setLoading(false);
   }
+
+  const ownedDomainItems = domains.filter((domainItem) => isOwnedDomain(domainItem.domain, ownedWebsiteHost));
+  const ownedSources = ownedDomainItems.length;
 
   if (loading) {
     return (
@@ -177,9 +208,7 @@ export default function SourcesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {domains
-                      .filter(d => d.is_owned)
-                      .map(d => {
+                    {ownedDomainItems.map(d => {
                         const share = citationTotal > 0 ? Math.round((d.total_citations / citationTotal) * 100) : 0;
                         return (
                           <tr key={d.domain} style={{ borderBottom: "1px solid var(--border)", height: 40 }}>

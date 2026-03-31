@@ -168,7 +168,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         setNotifCount(notifRes.value.unread_count || 0);
       }
       if (usageRes.status === "fulfilled") {
-        setUsage(usageRes.value);
+        _setUsage(usageRes.value);
       }
 
       const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);

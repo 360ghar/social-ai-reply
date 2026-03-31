@@ -2,34 +2,31 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/components/toast";
-import { Button, EmptyState, KpiCard, Spinner, Skeleton } from "@/components/ui";
+import { EmptyState, KpiCard, Skeleton } from "@/components/ui";
 import { apiRequest } from "@/lib/api";
 import { useSelectedProjectId } from "@/lib/use-selected-project";
 import { withProjectId } from "@/lib/project";
 
 interface AnalyticsOverview {
   visibility_score: number;
-  visibility_trend?: number;
-  opportunities_found: number;
-  drafts_created: number;
-  posts_published: number;
+  total_opportunities: number;
+  total_drafts: number;
+  total_published: number;
 }
 
 interface TrendData {
-  date: string;
-  score: number;
+  date: string | null;
+  visibility_score: number;
 }
 
-interface FunnelData {
-  opportunities: number;
-  saved: number;
-  drafted: number;
-  posted: number;
+interface EngagementData {
+  by_status: Record<string, number>;
+  total_scans: number;
 }
 
 interface KeywordData {
   keyword: string;
-  opportunities_count: number;
+  priority_score: number;
 }
 
 interface SubredditData {
@@ -39,9 +36,25 @@ interface SubredditData {
 
 interface ActivityEvent {
   id: number;
-  type: string;
-  title: string;
-  created_at: string;
+  action: string;
+  entity_type: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+}
+
+function toTitleCase(value: string) {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatActivityLabel(event: ActivityEvent) {
+  const metadataTitle = typeof event.metadata?.title === "string" ? event.metadata.title : null;
+  if (metadataTitle) {
+    return metadataTitle;
+  }
+
+  const action = toTitleCase(event.action.replace(/[._]/g, " "));
+  const entityType = event.entity_type ? toTitleCase(event.entity_type.replace(/_/g, " ")) : "";
+  return entityType ? `${action} · ${entityType}` : action;
 }
 
 export default function AnalyticsPage() {
@@ -52,7 +65,7 @@ export default function AnalyticsPage() {
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [trendData, setTrendData] = useState<TrendData[]>([]);
-  const [funnelData, setFunnelData] = useState<FunnelData | null>(null);
+  const [engagementData, setEngagementData] = useState<EngagementData | null>(null);
   const [keywords, setKeywords] = useState<KeywordData[]>([]);
   const [subreddits, setSubreddits] = useState<SubredditData[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
@@ -78,7 +91,7 @@ export default function AnalyticsPage() {
           {},
           token
         ),
-        apiRequest<FunnelData>(
+        apiRequest<EngagementData>(
           withProjectId(`/v1/analytics/engagement`, selectedProjectId),
           {},
           token
@@ -102,7 +115,7 @@ export default function AnalyticsPage() {
 
       if (overviewRes.status === "fulfilled") setOverview(overviewRes.value);
       if (trendRes.status === "fulfilled") setTrendData(trendRes.value.items || []);
-      if (funnelRes.status === "fulfilled") setFunnelData(funnelRes.value);
+      if (funnelRes.status === "fulfilled") setEngagementData(funnelRes.value);
       if (keywordsRes.status === "fulfilled") setKeywords(keywordsRes.value.items || []);
       if (subredditsRes.status === "fulfilled") setSubreddits(subredditsRes.value.items || []);
       if (activityRes.status === "fulfilled") setActivity(activityRes.value.items || []);
@@ -129,20 +142,23 @@ export default function AnalyticsPage() {
     );
   }
 
-  // Calculate trend arrow
-  const trendDir = (overview?.visibility_trend ?? 0) >= 0 ? "↑" : "↓";
-  const trendColor = (overview?.visibility_trend ?? 0) >= 0 ? "var(--success)" : "var(--error)";
+  const firstTrendPoint = trendData[0]?.visibility_score ?? overview?.visibility_score ?? 0;
+  const lastTrendPoint = trendData[trendData.length - 1]?.visibility_score ?? overview?.visibility_score ?? 0;
+  const visibilityTrend = Math.round((lastTrendPoint - firstTrendPoint) * 10) / 10;
+  const trendDir = visibilityTrend >= 0 ? "↑" : "↓";
+  const trendColor = visibilityTrend >= 0 ? "var(--success)" : "var(--error)";
 
   // Max values for bar heights
-  const maxTrendScore = Math.max(...trendData.map(d => d.score), 100);
-  const maxKeywords = Math.max(...keywords.map(k => k.opportunities_count), 1);
+  const maxTrendScore = Math.max(...trendData.map(d => d.visibility_score), 100);
+  const maxKeywords = Math.max(...keywords.map(k => k.priority_score), 1);
   const maxSubreddits = Math.max(...subreddits.map(s => s.fit_score), 100);
 
   // Funnel calculations
-  const funnelOpp = funnelData?.opportunities || 0;
-  const funnelSaved = funnelData?.saved || 0;
-  const funnelDraft = funnelData?.drafted || 0;
-  const funnelPost = funnelData?.posted || 0;
+  const byStatus = engagementData?.by_status || {};
+  const funnelOpp = Object.values(byStatus).reduce((total, count) => total + count, 0);
+  const funnelSaved = byStatus.saved || 0;
+  const funnelDraft = byStatus.drafting || 0;
+  const funnelPost = byStatus.posted || 0;
   const conv1 = funnelOpp > 0 ? Math.round((funnelSaved / funnelOpp) * 100) : 0;
   const conv2 = funnelSaved > 0 ? Math.round((funnelDraft / funnelSaved) * 100) : 0;
   const conv3 = funnelDraft > 0 ? Math.round((funnelPost / funnelDraft) * 100) : 0;
@@ -172,14 +188,14 @@ export default function AnalyticsPage() {
           <div style={{ fontSize: 28, fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>
             {overview?.visibility_score || 0}%
             <span style={{ fontSize: 16, color: trendColor, marginLeft: 8 }}>
-              {trendDir} {Math.abs(overview?.visibility_trend || 0)}%
+              {trendDir} {Math.abs(visibilityTrend)} pts
             </span>
           </div>
           <div className="text-muted" style={{ fontSize: 13 }}>Visibility Score</div>
         </div>
-        <KpiCard label="Opportunities Found" value={overview?.opportunities_found || 0} />
-        <KpiCard label="Drafts Created" value={overview?.drafts_created || 0} />
-        <KpiCard label="Posts Published" value={overview?.posts_published || 0} />
+        <KpiCard label="Opportunities Found" value={overview?.total_opportunities || 0} />
+        <KpiCard label="Drafts Created" value={overview?.total_drafts || 0} />
+        <KpiCard label="Posts Published" value={overview?.total_published || 0} />
       </div>
 
       {/* Section 1: Visibility Trend Chart (CSS bars) */}
@@ -217,11 +233,11 @@ export default function AnalyticsPage() {
               {trendData.slice(-30).map((d, i) => (
                 <div
                   key={i}
-                  title={`${d.date}: ${d.score}`}
+                  title={`${d.date || "Unknown date"}: ${d.visibility_score}`}
                   style={{
                     flex: 1,
                     minWidth: 0,
-                    height: `${(d.score / maxTrendScore) * 100}%`,
+                    height: `${(d.visibility_score / maxTrendScore) * 100}%`,
                     backgroundColor: "var(--accent)",
                     borderRadius: "2px 2px 0 0",
                     opacity: 0.8,
@@ -237,6 +253,9 @@ export default function AnalyticsPage() {
       {/* Section 2: Engagement Funnel */}
       <div className="card" style={{ padding: 20, marginBottom: 24 }}>
         <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Engagement Funnel</h3>
+        <p className="text-muted" style={{ fontSize: 12, marginBottom: 16 }}>
+          Based on opportunity status counts and {engagementData?.total_scans || 0} total scans.
+        </p>
         <div style={{ display: "grid", gap: 16 }}>
           {[
             { label: "Opportunities", value: funnelOpp, width: 100 },
@@ -283,7 +302,7 @@ export default function AnalyticsPage() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
         {/* Left: Top Keywords */}
         <div className="card" style={{ padding: 20 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Top Keywords by Opportunities</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Top Keywords by Priority Score</h3>
           {keywords.length === 0 ? (
             <div style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}>
               <p style={{ fontSize: 13 }}>No keyword data yet</p>
@@ -305,7 +324,7 @@ export default function AnalyticsPage() {
                     overflow: "hidden"
                   }}>
                     <div style={{
-                      width: `${(k.opportunities_count / maxKeywords) * 100}%`,
+                      width: `${(k.priority_score / maxKeywords) * 100}%`,
                       height: "100%",
                       backgroundColor: "var(--accent)",
                       display: "flex",
@@ -315,7 +334,7 @@ export default function AnalyticsPage() {
                       fontSize: 11,
                       fontWeight: 600
                     }}>
-                      {k.opportunities_count > 0 ? k.opportunities_count : ""}
+                      {k.priority_score > 0 ? Math.round(k.priority_score) : ""}
                     </div>
                   </div>
                 </div>
@@ -400,7 +419,7 @@ export default function AnalyticsPage() {
                   flexShrink: 0
                 }} />
                 <div style={{ flex: 1 }}>
-                  <strong>{evt.title || evt.type.replace(/_/g, " ")}</strong>
+                  <strong>{formatActivityLabel(evt)}</strong>
                 </div>
                 <div className="text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                   {evt.created_at ? new Date(evt.created_at).toLocaleString() : ""}

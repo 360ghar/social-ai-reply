@@ -66,6 +66,7 @@ def mark_notification_read(
     notification = db.query(NotificationModel).filter(
         NotificationModel.id == notification_id,
         NotificationModel.workspace_id == workspace.id,
+        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
     ).first()
     if not notification:
         raise HTTPException(404, "Notification not found.")
@@ -107,6 +108,7 @@ def delete_notification(
     notification = db.query(NotificationModel).filter(
         NotificationModel.id == notification_id,
         NotificationModel.workspace_id == workspace.id,
+        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
     ).first()
     if not notification:
         raise HTTPException(404, "Notification not found.")

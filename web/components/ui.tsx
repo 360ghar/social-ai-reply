@@ -1,5 +1,5 @@
 "use client";
-import { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, forwardRef } from "react";
+import { ReactNode, ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, forwardRef, useState } from "react";
 export { Modal, ConfirmModal } from "./modal";
 
 // ── Loading Spinner ──────────────────────────────────────────────
@@ -44,11 +44,18 @@ export function EmptyState({ icon = "📭", title, description, action }: EmptyS
 }
 
 // ── Skeleton Loader ──────────────────────────────────────────────
-export function Skeleton({ width, height = 20, rounded = false }: { width?: number | string; height?: number; rounded?: boolean }) {
+interface SkeletonProps extends HTMLAttributes<HTMLDivElement> {
+  width?: number | string;
+  height?: number;
+  rounded?: boolean;
+}
+
+export function Skeleton({ width, height = 20, rounded = false, className, style, ...props }: SkeletonProps) {
   return (
     <div
-      className={`skeleton ${rounded ? "skeleton-circle" : "skeleton-text"}`}
-      style={{ width: width || "100%", height, borderRadius: rounded ? "50%" : "var(--radius-sm)" }}
+      className={`skeleton ${rounded ? "skeleton-circle" : "skeleton-text"} ${className || ""}`.trim()}
+      style={{ width: width || "100%", height, borderRadius: rounded ? "50%" : "var(--radius-sm)", ...style }}
+      {...props}
     />
   );
 }

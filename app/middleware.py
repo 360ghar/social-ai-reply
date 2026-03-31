@@ -1,9 +1,10 @@
 """FastAPI middleware: rate limiting, request tracing, logging."""
 import hashlib
+import logging
 import time
 import uuid
-import logging
 from collections import defaultdict
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -11,7 +12,7 @@ from starlette.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 # Simple in-memory rate limiter (use Redis in production)
-_rate_store: dict = defaultdict(list)
+_rate_store: defaultdict[str, list[float]] = defaultdict(list)
 MAX_STORE_KEYS = 10_000
 
 RATE_LIMITS = {
@@ -31,7 +32,14 @@ SLOW_ENDPOINTS = {
     "/v1/discovery/subreddits/discover": "generate",
     "/v1/auth/login": "auth",
     "/v1/auth/register": "auth",
+    "/v1/auth/forgot-password": "auth",
+    "/v1/auth/reset-password": "auth",
 }
+
+
+def reset_rate_limit_store() -> None:
+    """Clear in-memory rate limit state, primarily for isolated test runs."""
+    _rate_store.clear()
 
 
 def _rate_limit_key(request: Request) -> str:
