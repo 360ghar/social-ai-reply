@@ -33,6 +33,7 @@ from app.schemas.v1.product import (
     ReplyDraftUpdateRequest,
 )
 from app.services.product.copilot import ProductCopilot
+from app.services.product.scanner import revalidate_opportunity
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["drafts"])
@@ -55,6 +56,11 @@ def generate_reply_draft(
     if not opportunity:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
     project = get_project(db, workspace.id, opportunity.project_id)
+    is_valid, _score = revalidate_opportunity(db, project, opportunity)
+    if not is_valid:
+        opportunity.status = OpportunityStatus.IGNORED
+        db.commit()
+        raise HTTPException(status_code=422, detail="Opportunity no longer meets the relevance threshold.")
     ensure_default_prompts(db, project.id)
     prompts = db.scalars(select(PromptTemplate).where(PromptTemplate.project_id == project.id)).all()
     content, rationale, source_prompt = ProductCopilot().generate_reply(opportunity, project.brand_profile, list(prompts))
@@ -89,8 +95,8 @@ def list_reply_drafts(
         return []
     try:
         opp_status = OpportunityStatus(status_filter)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}") from exc
     latest_draft_sq = (
         select(ReplyDraft.opportunity_id, func.max(ReplyDraft.id).label("max_id"))
         .group_by(ReplyDraft.opportunity_id)

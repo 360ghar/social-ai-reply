@@ -1,72 +1,160 @@
-"""Unit tests for post scoring module."""
-from datetime import datetime, timezone
+"""Unit tests for post scoring and eligibility gates."""
+
+from datetime import UTC, datetime
 
 from app.services.product.reddit import RedditPost
-from app.services.product.scoring import score_post
+from app.services.product.scoring import MIN_RELEVANT_OPPORTUNITY_SCORE, score_post
 
 
 def _make_brand():
     from app.db.models import BrandProfile
+
     return BrandProfile(
-        id=1, project_id=1,
-        brand_name="TestBrand",
-        summary="A test brand for unit testing.",
-        product_summary="Test product.",
-        target_audience="developers",
+        id=1,
+        project_id=1,
+        brand_name="SignalFlow",
+        summary="High-intent Reddit thread discovery for SaaS teams.",
+        product_summary="Find relevant Reddit conversations and draft grounded replies.",
+        target_audience="founders, growth marketers",
     )
 
 
-def _make_subreddit():
+def _make_real_estate_brand():
+    from app.db.models import BrandProfile
+
+    return BrandProfile(
+        id=2,
+        project_id=2,
+        brand_name="360Ghar",
+        summary="AI-powered real estate marketplace for home buyers and renters.",
+        product_summary="Compare property listings, apartments, rent options, and home tours.",
+        target_audience="home buyers, renters, real estate agents",
+    )
+
+
+def _make_subreddit(fit_score: int = 80):
     from app.db.models import MonitoredSubreddit
+
     return MonitoredSubreddit(
-        id=1, project_id=1,
-        name="test", title="Test", description="A test subreddit",
-        subscribers=1000, fit_score=50,
+        id=1,
+        project_id=1,
+        name="saas",
+        title="SaaS",
+        description="Software founders discussing growth and demand capture.",
+        subscribers=1000,
+        fit_score=fit_score,
     )
 
 
 def _make_post(**overrides):
     defaults = dict(
-        post_id="p1", subreddit="test", title="Looking for a good tool",
-        author="user1", permalink="https://reddit.com/r/test/p1",
-        body="I need help finding something",
-        created_at=datetime.now(timezone.utc),
-        num_comments=5, score=10,
+        post_id="p1",
+        subreddit="saas",
+        title="How do founders find non-spammy demand capture on Reddit?",
+        author="user1",
+        permalink="https://reddit.com/r/saas/p1",
+        body="Looking for tools to discover Reddit threads without blasting generic replies.",
+        created_at=datetime.now(UTC),
+        num_comments=5,
+        score=10,
     )
     defaults.update(overrides)
     return RedditPost(**defaults)
 
 
 class TestScorePost:
-    def test_returns_score_result(self):
-        brand = _make_brand()
-        subreddit = _make_subreddit()
-        post = _make_post(title="Looking for a test tool for developers")
-        keywords = ["test tool"]
-        rules = []
+    def test_high_intent_topic_match_passes(self):
+        result = score_post(
+            _make_post(),
+            _make_brand(),
+            _make_subreddit(),
+            ["reddit threads", "demand capture", "non-spammy replies"],
+            ["No self-promo", "Explain your reasoning"],
+        )
 
-        result = score_post(post, brand, subreddit, keywords, rules)
-        assert hasattr(result, "total")
-        assert hasattr(result, "reasons")
-        assert hasattr(result, "keyword_hits")
-        assert hasattr(result, "rule_risk")
+        assert result.eligible is True
+        assert result.total >= MIN_RELEVANT_OPPORTUNITY_SCORE
+        assert "demand capture" in result.keyword_hits
 
-    def test_irrelevant_post_still_returns_result(self):
-        brand = _make_brand()
-        subreddit = _make_subreddit()
-        post = _make_post(title="My cat is cute", body="Just look at this photo")
-        keywords = ["enterprise software"]
-        rules = []
+    def test_help_intent_without_topic_match_fails(self):
+        result = score_post(
+            _make_post(
+                title="How do I improve my sleep schedule?",
+                body="Looking for advice on getting better rest every night.",
+            ),
+            _make_brand(),
+            _make_subreddit(),
+            ["reddit threads", "demand capture", "non-spammy replies"],
+            [],
+        )
 
-        result = score_post(post, brand, subreddit, keywords, rules)
-        assert isinstance(result.total, (int, float))
+        assert result.eligible is False
+        assert result.total < MIN_RELEVANT_OPPORTUNITY_SCORE
+        assert any("topical overlap" in reason.lower() for reason in result.reasons)
 
-    def test_keyword_hits_detected(self):
-        brand = _make_brand()
-        subreddit = _make_subreddit()
-        post = _make_post(title="Need a test brand solution", body="test brand is great")
-        keywords = ["test brand"]
-        rules = []
+    def test_topic_match_without_explicit_ask_fails(self):
+        result = score_post(
+            _make_post(
+                title="Reddit thread discovery workflow for SaaS teams",
+                body="Our team built a repeatable demand capture process last quarter.",
+            ),
+            _make_brand(),
+            _make_subreddit(),
+            ["reddit thread discovery", "demand capture", "saas teams"],
+            [],
+        )
 
-        result = score_post(post, brand, subreddit, keywords, rules)
-        assert len(result.keyword_hits) > 0
+        assert result.eligible is False
+        assert result.total < MIN_RELEVANT_OPPORTUNITY_SCORE
+        assert any(
+            "help-seeking" in reason.lower() or "recommendation intent" in reason.lower()
+            for reason in result.reasons
+        )
+
+    def test_direct_brand_mention_bypasses_intent_gate(self):
+        result = score_post(
+            _make_post(
+                title="SignalFlow rollout notes from our pilot",
+                body="We used SignalFlow to review conversations internally this week.",
+            ),
+            _make_brand(),
+            _make_subreddit(),
+            ["reddit thread discovery", "demand capture"],
+            [],
+        )
+
+        assert result.eligible is True
+        assert result.total >= MIN_RELEVANT_OPPORTUNITY_SCORE
+        assert "signalflow" in result.keyword_hits
+
+    def test_ambiguous_tech_terms_do_not_pass_real_estate_domain_gate(self):
+        result = score_post(
+            _make_post(
+                subreddit="realestate",
+                title="Which VR headset should I buy for gaming?",
+                body="Looking for AI features and better graphics performance.",
+            ),
+            _make_real_estate_brand(),
+            _make_subreddit(),
+            ["real", "vr", "ai", "property listings", "home buyers"],
+            [],
+        )
+
+        assert result.eligible is False
+        assert result.total < MIN_RELEVANT_OPPORTUNITY_SCORE
+        assert any("domain-specific overlap" in reason.lower() for reason in result.reasons)
+
+    def test_multiword_keywords_do_not_match_on_single_role_token_and_stopwords(self):
+        result = score_post(
+            _make_post(
+                subreddit="realestate",
+                title="What should sellers disclose before listing in Florida?",
+                body="Looking for legal guidance before putting a house on the market.",
+            ),
+            _make_real_estate_brand(),
+            _make_subreddit(),
+            ["sellers in gurugram", "real estate marketplace"],
+            [],
+        )
+
+        assert "sellers in gurugram" not in result.keyword_hits

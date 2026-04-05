@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import (
+    ensure_default_project,
     ensure_workspace_membership,
     get_active_project,
     get_current_user,
@@ -23,9 +24,9 @@ from app.db.models import (
     Workspace,
 )
 from app.db.session import get_db
-from app.schemas.v1.product import (
+from app.schemas.v1.discovery import OpportunityResponse
+from app.schemas.v1.projects import (
     DashboardResponse,
-    OpportunityResponse,
     ProjectCreateRequest,
     ProjectResponse,
     ProjectUpdateRequest,
@@ -48,6 +49,7 @@ def dashboard(
     db: Session = Depends(get_db),
 ) -> DashboardResponse:
     ensure_workspace_membership(db, workspace.id, current_user.id)
+    ensure_default_project(db, workspace)
     projects = db.scalars(select(Project).where(Project.workspace_id == workspace.id).order_by(Project.created_at.desc())).all()
     selected_project = get_active_project(db, workspace.id, project_id)
     project_ids = [selected_project.id] if selected_project else [project.id for project in projects]
@@ -77,7 +79,7 @@ def dashboard(
     return DashboardResponse(
         projects=[ProjectResponse.model_validate(project) for project in projects],
         top_opportunities=[OpportunityResponse.model_validate(item) for item in top_opportunities],
-        subscription=subscription_response(db, workspace),
+        subscription=subscription_response(db, workspace).model_dump(),
         setup_status=setup,
     )
 

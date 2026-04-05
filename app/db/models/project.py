@@ -103,6 +103,7 @@ class BrandProfile(Base):
     product_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
     call_to_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     reddit_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     linkedin_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     last_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

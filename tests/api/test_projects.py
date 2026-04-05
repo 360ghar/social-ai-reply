@@ -2,6 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db.models import Project
 from app.main import app
 from app.db.session import get_db
 
@@ -35,6 +36,18 @@ def authed_client(client):
 
 
 class TestProjects:
+    def test_dashboard_bootstraps_default_project_and_subscription(self, authed_client, db_session):
+        db_session.query(Project).delete()
+        db_session.commit()
+
+        resp = authed_client.get("/v1/dashboard")
+        assert resp.status_code == 200
+
+        payload = resp.json()
+        assert len(payload["projects"]) == 1
+        assert payload["projects"][0]["status"] == "active"
+        assert payload["subscription"]["plan_code"]
+
     def test_create_project(self, authed_client):
         resp = authed_client.post("/v1/projects", json={
             "name": "Test Project",
@@ -66,3 +79,11 @@ class TestProjects:
     def test_unauthenticated_access(self, client):
         resp = client.get("/v1/projects")
         assert resp.status_code == 401
+
+    def test_auto_pipeline_list_bootstraps_default_project(self, authed_client, db_session):
+        db_session.query(Project).delete()
+        db_session.commit()
+
+        resp = authed_client.get("/v1/auto-pipeline")
+        assert resp.status_code == 200
+        assert resp.json() == {"items": []}

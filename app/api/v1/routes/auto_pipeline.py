@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.v1.deps import (
+    ensure_default_project,
     ensure_workspace_membership,
     get_active_project,
     get_current_user,
@@ -49,9 +50,7 @@ def start_auto_pipeline(
     if not website_url:
         raise HTTPException(400, "website_url is required.")
 
-    proj = get_active_project(db, workspace.id, project_id)
-    if not proj:
-        raise HTTPException(404, "No active project found.")
+    proj = get_active_project(db, workspace.id, project_id) or ensure_default_project(db, workspace)
 
     pipeline = AutoPipeline(
         project_id=proj.id,
@@ -175,9 +174,7 @@ def list_auto_pipelines(
 ):
     """List all pipeline runs."""
     ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
-    if not proj:
-        raise HTTPException(404, "No active project found.")
+    proj = get_active_project(db, workspace.id, project_id) or ensure_default_project(db, workspace)
 
     pipelines = db.query(AutoPipeline).filter(
         AutoPipeline.project_id == proj.id

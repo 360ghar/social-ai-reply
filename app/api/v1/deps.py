@@ -23,6 +23,7 @@ from app.services.product.entitlements import (
     get_or_create_subscription,
 )
 from app.services.product.security import decode_access_token
+from app.utils.slug import unique_slug as _unique_slug
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -109,6 +110,30 @@ def get_active_project(db: Session, workspace_id: int, project_id: int | None = 
         .order_by(Project.created_at.desc())
         .options(selectinload(Project.brand_profile), selectinload(Project.prompts))
     )
+
+
+def ensure_default_project(db: Session, workspace: Workspace) -> Project:
+    project = get_active_project(db, workspace.id)
+    if project:
+        return project
+
+    base_name = (workspace.name or "").strip() or "Default"
+    if not base_name.lower().endswith("project"):
+        base_name = f"{base_name} Project"
+
+    project = Project(
+        workspace_id=workspace.id,
+        name=base_name,
+        slug=_unique_slug(db, Project, base_name, "workspace_id", workspace.id),
+        status=ProjectStatus.ACTIVE,
+    )
+    db.add(project)
+    db.flush()
+    db.add(BrandProfile(project_id=project.id, brand_name=project.name))
+    db.commit()
+    ensure_default_prompts(db, project.id)
+    db.refresh(project)
+    return get_project(db, workspace.id, project.id)
 
 
 def ensure_default_prompts(db: Session, project_id: int) -> None:
@@ -199,6 +224,7 @@ def build_subreddit_analysis(name: str, description: str, rules: list[str]) -> t
 _ensure_workspace_membership = ensure_workspace_membership
 _get_project = get_project
 _get_active_project = get_active_project
+_ensure_default_project = ensure_default_project
 _ensure_default_prompts = ensure_default_prompts
 _workspace_summary = workspace_summary
 _subscription_response = subscription_response

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_current_user, get_current_workspace, workspace_summary
+from app.api.v1.deps import ensure_default_project, get_current_user, get_current_workspace, workspace_summary
 from app.db.models import (
     AccountUser,
     Membership,
@@ -56,6 +56,7 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     db.commit()
     seed_plan_entitlements(db)
     get_or_create_subscription(db, workspace)
+    ensure_default_project(db, workspace)
 
     token = create_access_token(user.id, user.email)
     return AuthResponse(

@@ -96,7 +96,7 @@ export default function AutoPipelinePage() {
 
   // Load previous runs on mount
   useEffect(() => {
-    if (!token || !selectedProjectId) return;
+    if (!token) return;
     loadPreviousRuns();
   }, [token, selectedProjectId]);
 
@@ -115,11 +115,10 @@ export default function AutoPipelinePage() {
   async function loadPreviousRuns() {
     setLoading(true);
     try {
-      const runs = await apiRequest<{ items: PipelineRun[] }>(
-        `/v1/auto-pipeline?project_id=${selectedProjectId}`,
-        {},
-        token
-      );
+      const url = selectedProjectId
+        ? `/v1/auto-pipeline?project_id=${selectedProjectId}`
+        : `/v1/auto-pipeline`;
+      const runs = await apiRequest<{ items: PipelineRun[] }>(url, {}, token);
       setPreviousRuns(runs.items || []);
     } catch (error: any) {
       console.error(error);
@@ -147,28 +146,38 @@ export default function AutoPipelinePage() {
       return;
     }
 
-    if (!token || !selectedProjectId) {
-      toast.error("Missing authentication or project.");
+    if (!token) {
+      toast.error("Please log in first.");
       return;
     }
 
     setLaunching(true);
     try {
+      // Ensure URL has a scheme so the backend fetch doesn't choke.
+      let url = urlInput.trim();
+      if (!/^https?:\/\//i.test(url)) {
+        url = `https://${url}`;
+      }
+      // project_id is optional — the backend will resolve or create a
+      // default project when it is omitted or null.
+      const body: Record<string, unknown> = {
+        website_url: url,
+      };
+      if (selectedProjectId) {
+        body.project_id = selectedProjectId;
+      }
       const run = await apiRequest<PipelineRun>(
         "/v1/auto-pipeline/run",
         {
           method: "POST",
-          body: JSON.stringify({
-            website_url: urlInput.trim(),
-            project_id: selectedProjectId,
-          }),
+          body: JSON.stringify(body),
         },
         token
       );
       setActiveRun(run);
       setUrlInput("");
     } catch (error: any) {
-      toast.error("Failed to launch pipeline", error.message);
+      toast.error("Failed to launch pipeline", error.message || "Unknown error");
     }
     setLaunching(false);
   }
@@ -692,8 +701,11 @@ export default function AutoPipelinePage() {
       <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
         <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Pipeline Failed</h2>
-        <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 24 }}>
+        <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 16 }}>
           {activeRun.error_message || "An error occurred while running the pipeline."}
+        </p>
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24, opacity: 0.7 }}>
+          Tip: Make sure the URL is publicly accessible and includes the full address (e.g. https://example.com).
         </p>
         <Button onClick={() => setActiveRun(null)}>Try Again</Button>
       </div>

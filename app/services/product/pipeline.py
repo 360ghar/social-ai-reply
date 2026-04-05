@@ -2,16 +2,12 @@
 
 import logging
 import traceback
-from datetime import datetime, timezone
-
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from datetime import UTC, datetime
 
 from app.db.models import (
     AutoPipeline,
     BrandProfile,
     DiscoveryKeyword,
-    MembershipRole,
     MonitoredSubreddit,
     Opportunity,
     OpportunityStatus,
@@ -19,18 +15,19 @@ from app.db.models import (
     Project,
     PromptTemplate,
     ReplyDraft,
-    ScanRun,
-    ScanStatus,
-    SubscriptionStatus,
+)
+from app.db.models import (
     Notification as NotificationModel,
 )
 from app.db.session import SessionLocal
 from app.schemas.v1.discovery import ScanRequest
 from app.services.product.copilot import ProductCopilot
-from app.services.product.reddit import RedditClient
-from app.services.product.scanner import run_scan
+from app.services.product.discovery import discover_and_store_subreddits
+from app.services.product.scanner import revalidate_opportunity, run_scan
+from app.services.product.scoring import MIN_RELEVANT_OPPORTUNITY_SCORE
 
 log = logging.getLogger("redditflow.pipeline")
+TARGET_PIPELINE_SUBREDDITS = 6
 
 
 def run_auto_pipeline_background(
@@ -82,6 +79,7 @@ def run_auto_pipeline_background(
             brand.target_audience = website_analysis.target_audience
             brand.call_to_action = website_analysis.call_to_action
             brand.voice_notes = website_analysis.voice_notes
+            brand.business_domain = website_analysis.business_domain
             log.info("Updated existing BrandProfile id=%s", brand.id)
         else:
             brand = BrandProfile(
@@ -93,6 +91,7 @@ def run_auto_pipeline_background(
                 target_audience=website_analysis.target_audience,
                 call_to_action=website_analysis.call_to_action,
                 voice_notes=website_analysis.voice_notes,
+                business_domain=website_analysis.business_domain,
             )
             db.add(brand)
             log.info("Created new BrandProfile for project %s", proj.id)
@@ -177,46 +176,34 @@ def run_auto_pipeline_background(
         pipeline.current_step = "Discovering relevant subreddits..."
         db.commit()
 
-        reddit = RedditClient()
-        discovered_subreddits: list[str] = []
-        existing_subs = {
-            row.name
-            for row in db.query(MonitoredSubreddit.name).filter(
-                MonitoredSubreddit.project_id == proj.id
-            ).all()
-        }
-        keywords_list = db.query(DiscoveryKeyword).filter(
-            DiscoveryKeyword.project_id == proj.id,
-            DiscoveryKeyword.is_active.is_(True),
-        ).limit(5).all()
+        existing_sub_count = db.query(MonitoredSubreddit).filter(
+            MonitoredSubreddit.project_id == proj.id,
+            MonitoredSubreddit.is_active.is_(True),
+        ).count()
+        subreddits_to_discover = max(TARGET_PIPELINE_SUBREDDITS - existing_sub_count, 0)
+        try:
+            if subreddits_to_discover > 0:
+                created_subreddits = discover_and_store_subreddits(
+                    db,
+                    proj,
+                    max_subreddits=subreddits_to_discover,
+                )
+                discovered_subreddits = [row.name for row in created_subreddits]
+            else:
+                discovered_subreddits = []
+                log.info(
+                    "Skipping subreddit discovery because project %s already has %d active subreddits",
+                    proj.id,
+                    existing_sub_count,
+                )
+        except Exception as e:
+            log.warning("Shared subreddit discovery failed: %s", e)
+            discovered_subreddits = []
 
-        for kw in keywords_list:
-            try:
-                subreddits = reddit.search_subreddits(kw.keyword, limit=2)
-            except Exception as e:
-                log.warning("Reddit search failed for keyword '%s': %s", kw.keyword, e)
-                continue
-            for sub_match in subreddits[:2]:
-                if sub_match.name not in discovered_subreddits and sub_match.name not in existing_subs:
-                    discovered_subreddits.append(sub_match.name)
-                    try:
-                        sub_info = reddit.subreddit_about(sub_match.name)
-                    except Exception:
-                        sub_info = {}
-                    subreddit = MonitoredSubreddit(
-                        project_id=proj.id,
-                        name=sub_match.name,
-                        title=sub_info.get("title", "") or sub_match.title,
-                        description=sub_info.get("public_description", "") or sub_match.description,
-                        subscribers=sub_info.get("subscribers", 0) or sub_match.subscribers,
-                        fit_score=75,
-                    )
-                    db.add(subreddit)
-
-        pipeline.subreddits_found = len(discovered_subreddits) + len(existing_subs)
+        pipeline.subreddits_found = existing_sub_count + len(discovered_subreddits)
         pipeline.progress = 60
         db.commit()
-        log.info("Discovered %d new subreddits (%d already existed)", len(discovered_subreddits), len(existing_subs))
+        log.info("Discovered %d new subreddits (%d already existed)", len(discovered_subreddits), existing_sub_count)
 
         # ── Step 5: Scan for Opportunities (60→75%) ─────────────
         log.info("Step 5/7: Scanning Reddit for opportunities")
@@ -227,9 +214,23 @@ def run_auto_pipeline_background(
 
         opp_found = 0
         try:
-            scan_req = ScanRequest(project_id=proj.id, search_window_hours=72, max_posts_per_subreddit=10, min_score=25)
+            scan_req = ScanRequest(
+                project_id=proj.id,
+                search_window_hours=72,
+                max_posts_per_subreddit=10,
+                min_score=MIN_RELEVANT_OPPORTUNITY_SCORE,
+            )
             scan_run = run_scan(db, proj, scan_req)
             opp_found = scan_run.opportunities_found
+            if opp_found == 0:
+                fallback_scan_req = ScanRequest(
+                    project_id=proj.id,
+                    search_window_hours=720,
+                    max_posts_per_subreddit=10,
+                    min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 45),
+                )
+                fallback_scan_run = run_scan(db, proj, fallback_scan_req)
+                opp_found = fallback_scan_run.opportunities_found
             log.info("Scan complete — %d opportunities found", opp_found)
         except Exception as e:
             log.warning("Scan step skipped or failed: %s", e)
@@ -257,6 +258,10 @@ def run_auto_pipeline_background(
         drafts_count = 0
         for opp in opportunities:
             try:
+                is_valid, _score = revalidate_opportunity(db, proj, opp)
+                if not is_valid:
+                    opp.status = OpportunityStatus.IGNORED
+                    continue
                 content, rationale, source_prompt = copilot.generate_reply(opp, brand, prompts)
                 reply_draft = ReplyDraft(
                     project_id=proj.id,
@@ -285,7 +290,7 @@ def run_auto_pipeline_background(
         pipeline.status = "ready"
         pipeline.progress = 100
         pipeline.current_step = "Complete!"
-        pipeline.completed_at = datetime.now(timezone.utc)
+        pipeline.completed_at = datetime.now(UTC)
         db.commit()
 
         # Create notification
@@ -312,7 +317,7 @@ def run_auto_pipeline_background(
             if pipeline:
                 pipeline.status = "error"
                 pipeline.error_message = str(e)[:500]
-                pipeline.completed_at = datetime.now(timezone.utc)
+                pipeline.completed_at = datetime.now(UTC)
                 db.commit()
         except Exception as inner:
             log.error("Failed to save error status: %s", inner)

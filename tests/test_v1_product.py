@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.main import app
 from app.db.session import get_db
+from app.main import app
+from app.services.product.copilot import GeneratedKeyword
 from app.services.product.reddit import RedditPost, RedditSubredditMatch
 
 
@@ -136,6 +137,15 @@ def test_v1_discovery_scan_and_draft_flow(monkeypatch):
         headers=headers,
     )
 
+    monkeypatch.setattr(
+        "app.services.product.copilot.ProductCopilot.generate_keywords",
+        lambda self, brand, personas, count=12: [
+            GeneratedKeyword(keyword="demand capture", rationale="High-intent SaaS pain point.", priority_score=92),
+            GeneratedKeyword(keyword="reddit threads", rationale="Relevant channel phrase.", priority_score=86),
+            GeneratedKeyword(keyword="founders", rationale="Audience phrase.", priority_score=65),
+        ],
+    )
+
     keywords = client.post(f"/v1/discovery/keywords/generate?project_id={project_id}", json={"count": 6}, headers=headers)
     assert keywords.status_code == 200
     assert keywords.json()
@@ -155,6 +165,22 @@ def test_v1_discovery_scan_and_draft_flow(monkeypatch):
         lambda self, name: {"title": "SaaS", "public_description": "Software founders discussing growth", "subscribers": 120000},
     )
     monkeypatch.setattr(
+        "app.api.v1.routes.discovery.RedditClient.list_subreddit_posts",
+        lambda self, name, sort="hot", limit=6: [
+            RedditPost(
+                post_id="sub123",
+                subreddit=name,
+                title="How do founders find non-spammy demand capture?",
+                author="maker1",
+                permalink=f"https://reddit.com/r/{name}/comments/sub123",
+                body="Looking for a better way to find relevant threads without blasting replies.",
+                created_at=datetime.now(UTC),
+                num_comments=6,
+                score=18,
+            )
+        ],
+    )
+    monkeypatch.setattr(
         "app.api.v1.routes.discovery.RedditClient.search_posts",
         lambda self, subreddit, keywords, limit=20, sort="new": [
             RedditPost(
@@ -164,7 +190,7 @@ def test_v1_discovery_scan_and_draft_flow(monkeypatch):
                 author="maker1",
                 permalink="https://reddit.com/r/saas/comments/abc123",
                 body="Looking for a better way to find relevant threads without blasting replies.",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 num_comments=8,
                 score=42,
             )
