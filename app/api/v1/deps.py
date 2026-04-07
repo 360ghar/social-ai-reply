@@ -1,3 +1,8 @@
+import hashlib
+import logging
+from datetime import UTC, datetime
+
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -7,11 +12,9 @@ from app.db.models import (
     AccountUser,
     BrandProfile,
     Membership,
-    MembershipRole,
     Project,
     ProjectStatus,
     PromptTemplate,
-    Subscription,
     Workspace,
 )
 from app.db.session import get_db
@@ -22,34 +25,127 @@ from app.services.product.entitlements import (
     feature_set,
     get_or_create_subscription,
 )
-from app.services.product.security import decode_access_token
+from app.services.product.supabase_auth import verify_supabase_jwt
 from app.utils.slug import unique_slug as _unique_slug
 
+logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _issued_at_utc(payload: dict) -> datetime | None:
+    raw_value = payload.get("iat")
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, datetime):
+        return raw_value.astimezone(UTC) if raw_value.tzinfo else raw_value.replace(tzinfo=UTC)
+    try:
+        return datetime.fromtimestamp(float(raw_value), tz=UTC)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _coerce_utc(value: datetime) -> datetime:
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _is_token_revoked(user: AccountUser, payload: dict, token: str) -> bool:
+    if user.revoked_access_token_hash and _token_hash(token) == user.revoked_access_token_hash:
+        return True
+    if not user.tokens_invalid_before:
+        return False
+    issued_at = _issued_at_utc(payload)
+    if issued_at is None:
+        return True
+    return issued_at < _coerce_utc(user.tokens_invalid_before)
+
+
+def _find_user_by_supabase_identity(db: Session, supabase_uid: str) -> AccountUser | None:
+    return db.scalar(
+        select(AccountUser).where(
+            AccountUser.supabase_user_id == supabase_uid,
+            AccountUser.is_active.is_(True),
+        )
+    )
+
+
+def _backfill_legacy_user_from_email(db: Session, payload: dict, supabase_uid: str) -> AccountUser | None:
+    email = str(payload.get("email", "")).strip().lower()
+    if not email:
+        return None
+
+    user = db.scalar(
+        select(AccountUser).where(
+            AccountUser.email == email,
+            AccountUser.supabase_user_id.is_(None),
+            AccountUser.is_active.is_(True),
+        )
+    )
+    if not user:
+        return None
+
+    user.supabase_user_id = supabase_uid
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> AccountUser:
+    """Validate the Supabase JWT and return the local AccountUser.
+
+    The token's `sub` claim contains the Supabase user UUID which maps
+    to AccountUser.supabase_user_id in our local database.
+    """
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
     try:
-        payload = decode_access_token(credentials.credentials)
-        user_id = int(payload["sub"])
-    except (ValueError, KeyError, IndexError) as exc:
+        payload = verify_supabase_jwt(credentials.credentials)
+        supabase_uid = payload["sub"]
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
     except Exception as exc:
-        # Catch jwt.DecodeError, jwt.ExpiredSignatureError, etc.
-        import jwt as _jwt
-
-        if isinstance(exc, _jwt.PyJWTError):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
-        raise
-    user = db.scalar(select(AccountUser).where(AccountUser.id == user_id, AccountUser.is_active.is_(True)))
+        logger.error("Unexpected error verifying JWT: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
+    user = _find_user_by_supabase_identity(db, supabase_uid)
+    if not user:
+        user = _backfill_legacy_user_from_email(db, payload, supabase_uid)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
+    if _is_token_revoked(user, payload, credentials.credentials):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
+    return user
+
+
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> AccountUser | None:
+    """Like get_current_user but returns None instead of raising when unauthenticated."""
+    if not credentials:
+        return None
+    try:
+        payload = verify_supabase_jwt(credentials.credentials)
+        supabase_uid = payload["sub"]
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError):
+        return None
+    except Exception:
+        logger.error("Unexpected error verifying JWT in optional auth")
+        return None
+    user = _find_user_by_supabase_identity(db, supabase_uid)
+    if not user:
+        user = _backfill_legacy_user_from_email(db, payload, supabase_uid)
+    if not user:
+        return None
+    if _is_token_revoked(user, payload, credentials.credentials):
+        return None
     return user
 
 

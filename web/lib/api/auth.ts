@@ -1,13 +1,31 @@
+import { supabase } from "@/lib/supabase";
 import { apiRequest } from "../api";
 
-export async function forgotPassword(email: string) {
-  return apiRequest<{ ok: boolean }>(
-    `/v1/auth/forgot-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }
-  );
+/**
+ * Request a password reset email via Supabase.
+ * Supabase sends the email with a magic link that redirects back to the app.
+ */
+export async function forgotPassword(email: string): Promise<{ ok: boolean }> {
+  const redirectTo = `${window.location.origin}/reset-password`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return { ok: true };
 }
 
-export async function resetPassword(token: string, password: string) {
-  return apiRequest<{ ok: boolean; message: string }>(
-    `/v1/auth/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password }) }
-  );
+/**
+ * Update password using the Supabase session that was established
+ * when the user clicked the reset link in their email.
+ */
+export async function resetPassword(_token: string, password: string): Promise<{ ok: boolean; message: string }> {
+  // After clicking the reset link, Supabase sets a session automatically.
+  // We use that session to update the password.
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return { ok: true, message: "Password updated. You can now log in." };
 }
