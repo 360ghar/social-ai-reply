@@ -197,9 +197,13 @@ def sign_in_with_password(email: str, password: str) -> dict:
 
 
 def sign_out(access_token: str) -> None:
-    """Invalidate a user's session on Supabase side."""
+    """Invalidate a user's session on Supabase side.
+
+    Raises SupabaseAuthError if Supabase returns an error response,
+    so callers can decide whether to treat sign-out failure as critical.
+    """
     settings = get_settings()
-    httpx.post(
+    resp = httpx.post(
         _auth_url("/logout"),
         headers={
             "apikey": settings.supabase_anon_key,
@@ -208,6 +212,11 @@ def sign_out(access_token: str) -> None:
         },
         timeout=10,
     )
+    if resp.status_code >= 400:
+        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        msg = data.get("error_description") or data.get("msg") or data.get("message") or f"Logout failed ({resp.status_code})"
+        logger.warning("Supabase sign_out failed: %s %s", resp.status_code, msg)
+        raise SupabaseAuthError(resp.status_code, msg)
 
 
 def reset_password_for_email(email: str) -> None:

@@ -55,6 +55,8 @@ class Settings(BaseSettings):
                 raise ValueError("SUPABASE_JWT_SECRET is required in production.")
             if not self.supabase_service_role_key:
                 raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required in production.")
+            if not self.supabase_anon_key:
+                raise ValueError("SUPABASE_ANON_KEY is required in production.")
         return self
 
     @property

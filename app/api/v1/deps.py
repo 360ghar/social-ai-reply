@@ -1,6 +1,8 @@
 import hashlib
+import logging
 from datetime import UTC, datetime
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -25,6 +27,8 @@ from app.services.product.entitlements import (
 )
 from app.services.product.supabase_auth import verify_supabase_jwt
 from app.utils.slug import unique_slug as _unique_slug
+
+logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -105,8 +109,11 @@ def get_current_user(
     try:
         payload = verify_supabase_jwt(credentials.credentials)
         supabase_uid = payload["sub"]
-    except Exception as exc:
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
+    except Exception as exc:
+        logger.error("Unexpected error verifying JWT: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
     user = _find_user_by_supabase_identity(db, supabase_uid)
     if not user:
         user = _backfill_legacy_user_from_email(db, payload, supabase_uid)
@@ -127,7 +134,10 @@ def get_current_user_optional(
     try:
         payload = verify_supabase_jwt(credentials.credentials)
         supabase_uid = payload["sub"]
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError):
+        return None
     except Exception:
+        logger.error("Unexpected error verifying JWT in optional auth")
         return None
     user = _find_user_by_supabase_identity(db, supabase_uid)
     if not user:

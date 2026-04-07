@@ -35,5 +35,5 @@ def validate_webhook_url(url: str) -> None:
 
     for addr_info in addr_infos:
         ip = ipaddress.ip_address(addr_info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local:
+        if not ip.is_global:
             raise ValueError("Internal URLs are not allowed.")

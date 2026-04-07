@@ -161,6 +161,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
+    // Call backend to revoke token server-side (sets tokens_invalid_before)
+    if (token) {
+      try {
+        await apiRequest("/v1/auth/logout", { method: "POST" }, token);
+      } catch {
+        // Best-effort: clear locally even if backend call fails
+      }
+    }
     await supabase.auth.signOut();
     clearAuth();
   }

@@ -33,6 +33,21 @@ def _migrate_auth_schema(bind) -> None:
             if "supabase_user_id" not in account_user_columns:
                 conn.execute(text("ALTER TABLE account_users ADD COLUMN supabase_user_id VARCHAR(255)"))
                 logger.info("Migration: added supabase_user_id column to account_users.")
+
+            # Ensure the unique index exists for supabase_user_id
+            existing_indexes = {idx["name"] for idx in inspector.get_indexes("account_users")}
+            if "ix_account_users_supabase_user_id" not in existing_indexes:
+                try:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX ix_account_users_supabase_user_id "
+                        "ON account_users (supabase_user_id) WHERE supabase_user_id IS NOT NULL"
+                    ) if bind.dialect.name != "sqlite" else text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_account_users_supabase_user_id "
+                        "ON account_users (supabase_user_id)"
+                    ))
+                    logger.info("Migration: created unique index on account_users.supabase_user_id.")
+                except Exception:
+                    logger.warning("Migration: could not create unique index on supabase_user_id (may already exist).")
             if "password_hash" not in account_user_columns:
                 conn.execute(text("ALTER TABLE account_users ADD COLUMN password_hash VARCHAR(255)"))
                 logger.info("Migration: added password_hash column to account_users.")
@@ -99,9 +114,13 @@ def _service_checks() -> dict[str, str]:
         from app.db.session import SessionLocal
 
         db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
-        checks["database"] = "ok"
+        try:
+            db.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception:
+            checks["database"] = "error"
+        finally:
+            db.close()
     except Exception:
         checks["database"] = "error"
     return checks

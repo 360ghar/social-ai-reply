@@ -84,23 +84,23 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     """
     email = payload.email.lower()
 
-    legacy_user = None
     existing = db.scalar(select(AccountUser).where(AccountUser.email == email))
-    if existing:
-        if existing.supabase_user_id:
-            raise HTTPException(status_code=409, detail="Email already registered.")
-        legacy_user = existing
+    if existing and existing.supabase_user_id:
+        raise HTTPException(status_code=409, detail="Email already registered.")
 
     # Create user in Supabase
     try:
         supabase_data = sign_up(email, payload.password, payload.full_name.strip())
     except SupabaseAuthError as exc:
-        if legacy_user and (exc.status_code == 422 or "already registered" in exc.message.lower()):
-            try:
-                supabase_data = sign_in_with_password(email, payload.password)
-            except SupabaseAuthError as login_exc:
-                raise HTTPException(status_code=409, detail="Email already registered. Please sign in.") from login_exc
-        elif exc.status_code == 422 or "already registered" in exc.message.lower():
+        if exc.status_code == 422 or "already registered" in exc.message.lower():
+            if existing:
+                # Legacy user exists — they must use /auth/login to link their account.
+                # We do NOT auto-link here to prevent account takeover by anyone
+                # who merely knows a legacy email address.
+                raise HTTPException(
+                    status_code=409,
+                    detail="Email already registered. Please sign in to link your account.",
+                ) from exc
             raise HTTPException(status_code=409, detail="Email already registered.") from exc
         else:
             logger.error("Supabase sign_up failed: %s", exc)
@@ -110,8 +110,10 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     access_token = supabase_data.get("access_token", "")
     refresh_token = supabase_data.get("refresh_token")
 
-    if legacy_user:
-        user = legacy_user
+    if existing:
+        # Legacy user: link Supabase identity only after successful Supabase sign-up
+        # (which proves email ownership via Supabase's verification flow)
+        user = existing
         user.supabase_user_id = sb_user.id
         user.full_name = payload.full_name.strip()
         if not user.password_hash:
@@ -140,10 +142,12 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
         db.flush()
         db.add(Membership(workspace_id=workspace.id, user_id=user.id, role=MembershipRole.OWNER))
 
-    db.commit()
+    # Provision entitlements, subscription, and default project BEFORE committing
+    # so a failure rolls back the entire registration atomically.
     seed_plan_entitlements(db)
     get_or_create_subscription(db, workspace)
     ensure_default_project(db, workspace)
+    db.commit()
 
     return AuthResponse(
         access_token=access_token,

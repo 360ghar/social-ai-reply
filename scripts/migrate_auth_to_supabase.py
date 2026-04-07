@@ -123,7 +123,8 @@ def run_migration(dry_run: bool = True, mapping_file: str | None = None):
                 session.commit()
 
         # Step 5: Check for users without supabase_user_id
-        if not dry_run and has_supabase_id:
+        # Re-check column existence since Step 3 may have just added it
+        if not dry_run:
             result = conn.execute(text(
                 "SELECT id, email FROM account_users WHERE supabase_user_id IS NULL"
             ))

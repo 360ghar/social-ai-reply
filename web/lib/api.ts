@@ -198,6 +198,7 @@ export function isAuthError(error: unknown): boolean {
     "Authentication required.",
     "Invalid token.",
     "User not found.",
+    "Session expired. Please sign in again.",
   ].includes(error.message);
 }
 

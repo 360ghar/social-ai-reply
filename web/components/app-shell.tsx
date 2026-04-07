@@ -184,7 +184,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       }
     } catch (e: any) {
       const msg = e?.message || "";
-      if (msg === "Authentication required." || msg === "Invalid token.") {
+      if (isAuthError(e)) {
         logout();
         router.replace("/login");
         return;
