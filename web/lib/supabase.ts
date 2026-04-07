@@ -17,7 +17,11 @@ function getSupabaseClient(): SupabaseClient {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn("Supabase environment variables are not set. Auth will not work.");
+    if (typeof window !== "undefined") {
+      throw new Error(
+        "Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are not set. Auth will not work."
+      );
+    }
   }
 
   _client = createClient(supabaseUrl, supabaseAnonKey, {

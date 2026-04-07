@@ -47,7 +47,18 @@ def _migrate_auth_schema(bind) -> None:
                     ))
                     logger.info("Migration: created unique index on account_users.supabase_user_id.")
                 except Exception:
-                    logger.warning("Migration: could not create unique index on supabase_user_id (may already exist).")
+                    # Check whether duplicates prevent the unique index
+                    dupes = conn.execute(text(
+                        "SELECT supabase_user_id, COUNT(*) AS cnt FROM account_users "
+                        "WHERE supabase_user_id IS NOT NULL "
+                        "GROUP BY supabase_user_id HAVING COUNT(*) > 1"
+                    )).fetchall()
+                    if dupes:
+                        raise RuntimeError(
+                            f"Cannot create unique index on supabase_user_id: {len(dupes)} duplicate value(s) found. "
+                            "Resolve duplicates before starting the application."
+                        ) from None
+                    logger.info("Migration: unique index on supabase_user_id already exists.")
             if "password_hash" not in account_user_columns:
                 conn.execute(text("ALTER TABLE account_users ADD COLUMN password_hash VARCHAR(255)"))
                 logger.info("Migration: added password_hash column to account_users.")
@@ -136,8 +147,9 @@ def health_check():
 @app.get("/ready")
 def readiness_check():
     checks = _service_checks()
-    status = "ready" if all(value == "ok" for value in checks.values()) else "not_ready"
-    return {"status": status, "checks": checks}
+    ready = all(value == "ok" for value in checks.values())
+    payload = {"status": "ready" if ready else "not_ready", "checks": checks}
+    return JSONResponse(content=payload, status_code=200 if ready else 503)
 
 
 @app.get("/")

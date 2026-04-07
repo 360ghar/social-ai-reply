@@ -73,28 +73,6 @@ def _find_user_by_supabase_identity(db: Session, supabase_uid: str) -> AccountUs
     )
 
 
-def _backfill_legacy_user_from_email(db: Session, payload: dict, supabase_uid: str) -> AccountUser | None:
-    email = str(payload.get("email", "")).strip().lower()
-    if not email:
-        return None
-
-    user = db.scalar(
-        select(AccountUser).where(
-            AccountUser.email == email,
-            AccountUser.supabase_user_id.is_(None),
-            AccountUser.is_active.is_(True),
-        )
-    )
-    if not user:
-        return None
-
-    user.supabase_user_id = supabase_uid
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -115,8 +93,6 @@ def get_current_user(
         logger.error("Unexpected error verifying JWT: %s", exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
     user = _find_user_by_supabase_identity(db, supabase_uid)
-    if not user:
-        user = _backfill_legacy_user_from_email(db, payload, supabase_uid)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
     if _is_token_revoked(user, payload, credentials.credentials):
@@ -140,8 +116,6 @@ def get_current_user_optional(
         logger.error("Unexpected error verifying JWT in optional auth")
         return None
     user = _find_user_by_supabase_identity(db, supabase_uid)
-    if not user:
-        user = _backfill_legacy_user_from_email(db, payload, supabase_uid)
     if not user:
         return None
     if _is_token_revoked(user, payload, credentials.credentials):
