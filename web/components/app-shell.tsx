@@ -97,6 +97,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { token, loading: authLoading, logout } = useAuth();
   const [dash, setDash] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState("");
   const [notifCount, setNotifCount] = useState(0);
   const [_usage, _setUsage] = useState<UsageData | null>(null);
@@ -153,7 +154,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [dash?.projects, selectedProjectId]);
 
   async function loadShell(projectId: number | null) {
-    setLoading(true);
+    // Only show full-page spinner on the very first load (before any data exists).
+    // Subsequent project switches keep the current UI visible while fetching.
+    if (initialLoad) {
+      setLoading(true);
+    }
     try {
       const [dashRes, notifRes, usageRes] = await Promise.allSettled([
         apiRequest<DashData>(withProjectId("/v1/dashboard", projectId), {}, token),
@@ -187,6 +192,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       setError(msg || "Failed to load workspace");
     }
     setLoading(false);
+    setInitialLoad(false);
   }
 
   async function loadNotifications() {
@@ -245,8 +251,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     setStoredProjectId(nextProjectId);
-    setSidebarOpen(false);
-    router.refresh();
+    // Note: loadShell will be triggered automatically via the useEffect that
+    // watches selectedProjectId (which updates when setStoredProjectId fires
+    // the custom event). No need for router.refresh() or closing the sidebar.
   }
 
   const selectedProject =
@@ -336,7 +343,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </div>
             </div>
             <select
-              value={selectedProject?.id || ""}
+              value={String(selectedProject?.id ?? "")}
               onChange={(event) => handleProjectChange(event.target.value)}
               style={{
                 width: "100%",
@@ -346,10 +353,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 backgroundColor: "rgba(255,255,255,0.08)",
                 color: "white",
                 fontSize: 13,
+                cursor: "pointer",
               }}
             >
               {(dash?.projects || []).map((project) => (
-                <option key={project.id} value={project.id} style={{ color: "#1a1a2e" }}>
+                <option key={project.id} value={String(project.id)} style={{ color: "#1a1a2e" }}>
                   {project.name}
                 </option>
               ))}

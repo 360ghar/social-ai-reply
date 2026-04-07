@@ -12,9 +12,13 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
     cors_origins_raw: str = "http://localhost:3000,http://127.0.0.1:3000"
-    jwt_secret: str = "change-me-in-production-32-bytes-min"
-    jwt_algorithm: str = "HS256"
-    jwt_exp_minutes: int = 60 * 24
+
+    # Supabase Auth
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
+    supabase_jwt_secret: str = ""
+
     encryption_key: str | None = None
 
     openai_api_key: str | None = None
@@ -45,10 +49,12 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
         if self.environment == "production":
-            if self.jwt_secret == "change-me-in-production-32-bytes-min":
-                raise ValueError("JWT_SECRET must be changed from default in production.")
-            if len(self.jwt_secret) < 32:
-                raise ValueError("JWT_SECRET must be at least 32 characters.")
+            if not self.supabase_url:
+                raise ValueError("SUPABASE_URL is required in production.")
+            if not self.supabase_jwt_secret:
+                raise ValueError("SUPABASE_JWT_SECRET is required in production.")
+            if not self.supabase_service_role_key:
+                raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required in production.")
         return self
 
     @property

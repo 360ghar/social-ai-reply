@@ -18,7 +18,7 @@ from app.db.models.enums import (
 from app.db.models.integrations import IntegrationSecret, RedditAccount, WebhookEndpoint
 from app.db.models.notifications import ActivityLog, Notification, UsageMetric
 from app.db.models.project import BrandProfile, Persona, Project
-from app.db.models.user import AccountUser, PasswordResetToken
+from app.db.models.user import AccountUser
 from app.db.models.visibility import (
     AIResponse,
     BrandMention,
@@ -47,7 +47,6 @@ __all__ = [
     "SubscriptionStatus",
     # User
     "AccountUser",
-    "PasswordResetToken",
     # Workspace
     "Workspace",
     "Membership",

@@ -2,9 +2,11 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhos
 
 export type AuthPayload = {
   access_token: string;
+  refresh_token?: string | null;
   token_type: string;
   user: {
     id: number;
+    supabase_user_id: string;
     email: string;
     full_name: string;
     is_active: boolean;

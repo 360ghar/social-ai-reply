@@ -9,7 +9,6 @@ from app.db.models import (
     Notification,
     WebhookEndpoint,
 )
-from app.services.product.security import hash_password
 
 
 def _register_owner(client: TestClient) -> dict:
@@ -31,7 +30,7 @@ def _register_owner(client: TestClient) -> dict:
 def _add_member(db_session, workspace_id: int, email: str = "member@example.com") -> AccountUser:
     member = AccountUser(
         email=email,
-        password_hash=hash_password("strongpass123"),
+        supabase_user_id=f"test-member-{email}",
         full_name="Member User",
     )
     db_session.add(member)
