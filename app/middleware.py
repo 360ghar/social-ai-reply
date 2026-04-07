@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory rate limiter (use Redis in production)
+# Simple in-memory rate limiter
 _rate_store: defaultdict[str, list[float]] = defaultdict(list)
 MAX_STORE_KEYS = 10_000
 
