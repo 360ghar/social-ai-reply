@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { ToastProvider, useToast } from "@/components/toast";
@@ -176,9 +177,9 @@ function RegisterForm() {
 
         <p style={{ textAlign: "center", marginTop: 24, fontSize: 13 }}>
           Already have an account?{" "}
-          <a href="/login" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+          <Link href="/login" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
             Sign in
-          </a>
+          </Link>
         </p>
       </div>
     </div>

@@ -12,7 +12,7 @@ export function getStoredProjectId(): number | null {
     return null;
   }
   const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 export function setStoredProjectId(projectId: number): void {

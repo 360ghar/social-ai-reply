@@ -19,7 +19,7 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-const STORAGE_KEY = "redditflow-auth";
+export const STORAGE_KEY = "redditflow-auth";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
@@ -64,6 +64,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else if (isSetupRequired(err)) {
               // User exists in Supabase but not locally — don't clear session,
               // the callback/setup page will handle this.
+              clearAuth();
+            } else {
+              // Unexpected error (network, server) — fail-safe to logged-out
               clearAuth();
             }
           }

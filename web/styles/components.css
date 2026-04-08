@@ -272,6 +272,11 @@ select {
   border-color: var(--ink-light);
 }
 
+.google-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .google-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -300,6 +305,11 @@ select {
 
 .password-toggle:hover {
   color: var(--ink);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .password-strength {

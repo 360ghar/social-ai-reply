@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { apiRequest, isSetupRequired, type AuthPayload } from "@/lib/api";
+import { STORAGE_KEY } from "@/components/auth-provider";
 import { Spinner } from "@/components/ui";
 
 export default function AuthCallbackPage() {
@@ -12,6 +13,7 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     async function handleCallback() {
       // Wait for Supabase to establish the session from the URL hash/params
@@ -30,7 +32,7 @@ export default function AuthCallbackPage() {
         );
 
         // Timeout after 10 seconds
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           if (!cancelled) {
             subscription.unsubscribe();
             setError("Authentication timed out. Please try again.");
@@ -50,7 +52,7 @@ export default function AuthCallbackPage() {
         const payload = await apiRequest<AuthPayload>("/v1/auth/me", {}, accessToken);
         // User exists — persist and go to dashboard
         const stored = { ...payload, access_token: accessToken };
-        window.localStorage.setItem("redditflow-auth", JSON.stringify(stored));
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
         router.replace("/app/dashboard");
       } catch (err) {
         if (isSetupRequired(err)) {
@@ -66,6 +68,7 @@ export default function AuthCallbackPage() {
 
     return () => {
       cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [router]);
 

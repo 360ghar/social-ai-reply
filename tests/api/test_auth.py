@@ -256,4 +256,5 @@ class TestDeactivatedUser:
         db_session.commit()
 
         resp = client.get("/v1/auth/me", headers={"Authorization": f"Bearer {data['access_token']}"})
-        assert resp.status_code == 404
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "account_deactivated"

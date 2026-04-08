@@ -152,14 +152,14 @@ def me(
     supabase_uid = payload["sub"]
 
     user = db.scalar(
-        select(AccountUser).where(
-            AccountUser.supabase_user_id == supabase_uid,
-            AccountUser.is_active.is_(True),
-        )
+        select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
     )
 
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_local_account")
+
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
 
     if _is_token_revoked(user, payload, raw_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
@@ -197,6 +197,14 @@ def oauth_complete(
         select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
     )
     if existing:
+        if not existing.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
+        # Sync email if changed in Supabase (e.g. via account settings)
+        if email and email != existing.email:
+            existing.email = email
+            db.add(existing)
+            db.commit()
+            db.refresh(existing)
         workspace = _workspace_for_user(db, existing.id)
         if not workspace:
             workspace = _provision_workspace(db, existing, payload.workspace_name)

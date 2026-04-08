@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { ToastProvider, useToast } from "@/components/toast";
@@ -122,9 +123,9 @@ function LoginForm() {
               <label className="field-label" htmlFor="password">
                 Password
               </label>
-              <a href="/reset-password" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}>
+              <Link href="/reset-password" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}>
                 Forgot password?
-              </a>
+              </Link>
             </div>
             <PasswordInput
               id="password"
@@ -143,9 +144,9 @@ function LoginForm() {
 
         <p style={{ textAlign: "center", marginTop: 24, fontSize: 13 }}>
           Need an account?{" "}
-          <a href="/register" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+          <Link href="/register" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
             Sign up free
-          </a>
+          </Link>
         </p>
       </div>
     </div>

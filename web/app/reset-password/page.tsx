@@ -1,5 +1,6 @@
 "use client";
 import { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Button, Spinner } from "@/components/ui";
 import { ToastProvider, useToast } from "@/components/toast";
 import { forgotPassword, resetPassword } from "@/lib/api";
@@ -139,7 +140,7 @@ function ResetPasswordContent() {
             </div>
             <Button loading={loading} onClick={handleRequest} disabled={emailTouched && !!emailError} style={{ width: "100%" }}>Send Reset Link</Button>
             <p style={{ marginTop: 16, textAlign: "center" }}>
-              <a href="/login" className="text-muted">Back to login</a>
+              <Link href="/login" className="text-muted">Back to login</Link>
             </p>
           </>
         )}
@@ -150,7 +151,7 @@ function ResetPasswordContent() {
             <h3>Check Your Email</h3>
             <p className="text-muted">We sent a password reset link to <strong>{email}</strong>.</p>
             <p style={{ marginTop: 16 }}>
-              <a href="/login" className="text-muted">Back to login</a>
+              <Link href="/login" className="text-muted">Back to login</Link>
             </p>
           </div>
         )}
@@ -195,7 +196,7 @@ function ResetPasswordContent() {
             <div style={{ fontSize: 48, marginBottom: 16 }}>&#x2705;</div>
             <h3>Password Updated!</h3>
             <p className="text-muted">Your password has been changed. You can now log in.</p>
-            <a href="/login" className="primary-button" style={{ display: "inline-block", marginTop: 16, textDecoration: "none" }}>Go to Login</a>
+            <Link href="/login" className="primary-button" style={{ display: "inline-block", marginTop: 16, textDecoration: "none" }}>Go to Login</Link>
           </div>
         )}
       </div>

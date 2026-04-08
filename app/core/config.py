@@ -51,8 +51,6 @@ class Settings(BaseSettings):
         if self.environment == "production":
             if not self.supabase_url:
                 raise ValueError("SUPABASE_URL is required in production.")
-            if not self.supabase_jwt_secret:
-                raise ValueError("SUPABASE_JWT_SECRET is required in production.")
             if not self.supabase_secret_key:
                 raise ValueError("SUPABASE_SECRET_KEY is required in production.")
             if not self.supabase_publishable_key:
