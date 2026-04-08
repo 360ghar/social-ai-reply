@@ -137,21 +137,17 @@ def run_migration(dry_run: bool = True, mapping_file: str | None = None):
                 print("  The migration will NOT remove password_hash until all users are mapped.")
                 return
 
-        # Step 6: Remove password_hash column
+        # Step 6: Clear password_hash values (column kept for ORM compatibility)
+        # The ORM model still maps password_hash as a nullable column, so
+        # we must NOT drop it — only null the values to erase legacy secrets.
         if has_password_hash:
-            print("\nRemoving password_hash column from account_users...")
+            print("\nClearing password_hash values in account_users...")
             if not dry_run:
-                if is_sqlite:
-                    # SQLite doesn't support DROP COLUMN before 3.35.0
-                    # For safety, we leave the column but set all values to null
-                    conn.execute(text("UPDATE account_users SET password_hash = NULL"))
-                    print("  Set all password_hash values to NULL (SQLite cannot drop columns).")
-                else:
-                    conn.execute(text("ALTER TABLE account_users DROP COLUMN password_hash"))
-                    print("  Dropped column.")
+                conn.execute(text("UPDATE account_users SET password_hash = NULL"))
                 session.commit()
+                print("  Set all password_hash values to NULL.")
             else:
-                print("  [Would remove column]")
+                print("  [Would set password_hash values to NULL]")
 
         # Step 7: Drop password_reset_tokens table
         if has_reset_tokens:

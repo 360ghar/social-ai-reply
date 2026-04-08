@@ -20,7 +20,7 @@ export async function forgotPassword(email: string): Promise<{ ok: boolean }> {
  * Update password using the Supabase session that was established
  * when the user clicked the reset link in their email.
  */
-export async function resetPassword(_token: string, password: string): Promise<{ ok: boolean; message: string }> {
+export async function resetPassword(password: string): Promise<{ ok: boolean; message: string }> {
   // After clicking the reset link, Supabase sets a session automatically.
   // We use that session to update the password.
   const { error } = await supabase.auth.updateUser({ password });

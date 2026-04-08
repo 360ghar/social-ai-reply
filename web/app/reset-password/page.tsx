@@ -1,13 +1,11 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui";
+import { Button, Spinner } from "@/components/ui";
 import { ToastProvider, useToast } from "@/components/toast";
 import { forgotPassword, resetPassword } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 function ResetPasswordContent() {
-  const params = useSearchParams();
   const toast = useToast();
 
   const [email, setEmail] = useState("");
@@ -61,7 +59,7 @@ function ResetPasswordContent() {
     if (password !== confirm) { toast.warning("Passwords do not match."); return; }
     setLoading(true);
     try {
-      await resetPassword("", password);
+      await resetPassword(password);
       setDone(true);
       toast.success("Password updated!", "You can now log in with your new password.");
     } catch (e: any) {
@@ -73,7 +71,9 @@ function ResetPasswordContent() {
   if (checking) {
     return (
       <div className="auth-shell">
-        <div className="auth-card">Loading...</div>
+        <div className="auth-card" style={{ display: "flex", justifyContent: "center", padding: 32 }}>
+          <Spinner />
+        </div>
       </div>
     );
   }
@@ -141,7 +141,7 @@ function ResetPasswordContent() {
 export default function ResetPasswordPage() {
   return (
     <ToastProvider>
-      <Suspense fallback={<div className="auth-shell"><div className="auth-card">Loading...</div></div>}>
+      <Suspense fallback={<div className="auth-shell"><div className="auth-card" style={{ display: "flex", justifyContent: "center", padding: 32 }}><Spinner /></div></div>}>
         <ResetPasswordContent />
       </Suspense>
     </ToastProvider>
