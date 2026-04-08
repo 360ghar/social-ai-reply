@@ -1,0 +1,27 @@
+# Railway deployment config for the FastAPI backend.
+#
+# Create a service in Railway pointing to this repo's root directory.
+# Required environment variables (set in Railway dashboard):
+#   DATABASE_URL          - PostgreSQL connection string (use Railway's Postgres plugin)
+#   ENVIRONMENT           - "production"
+#   FRONTEND_URL          - URL of the frontend service (for CORS & password reset redirects)
+#   CORS_ORIGINS_RAW      - Comma-separated allowed origins
+#   SUPABASE_URL          - Supabase project URL
+#   SUPABASE_ANON_KEY     - Supabase anon/public key
+#   SUPABASE_SERVICE_ROLE_KEY - Supabase service role key
+#   SUPABASE_JWT_SECRET   - Supabase JWT secret
+#   GEMINI_API_KEY        - Google Gemini API key (or set USE_MOCK_LLM=true)
+#
+# Optional:
+#   ENCRYPTION_KEY, STRIPE_SECRET_KEY, SMTP_* for billing/email features
+
+[build]
+builder = "nixpacks"
+buildCommand = "pip install uv && uv sync --no-dev"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

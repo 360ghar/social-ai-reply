@@ -12,7 +12,7 @@ type AuthContextValue = {
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (input: { email: string; password: string; fullName: string; workspaceName: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
 };
 
@@ -161,16 +161,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function logout() {
-    // Call backend to revoke token server-side (sets tokens_invalid_before)
-    if (token) {
-      try {
-        await apiRequest("/v1/auth/logout", { method: "POST" }, token);
-      } catch {
-        // Best-effort: clear locally even if backend call fails
-      }
-    }
-    await supabase.auth.signOut();
+    // Always clear local state first so the user is logged out regardless
+    // of whether the backend call succeeds.
+    const currentToken = token;
     clearAuth();
+    await supabase.auth.signOut();
+
+    // Revoke token server-side (sets tokens_invalid_before).
+    // Runs after local clear so a network failure doesn't leave the
+    // user stuck in a logged-in UI.
+    if (currentToken) {
+      await apiRequest("/v1/auth/logout", { method: "POST" }, currentToken);
+    }
   }
 
   const refreshSession = useCallback(async () => {

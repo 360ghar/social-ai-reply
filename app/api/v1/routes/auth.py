@@ -39,6 +39,7 @@ from app.schemas.v1.auth import (
 from app.services.product.entitlements import get_or_create_subscription, seed_plan_entitlements
 from app.services.product.supabase_auth import (
     SupabaseAuthError,
+    admin_delete_user,
     extract_user_from_response,
     refresh_session,
     reset_password_for_email,
@@ -69,6 +70,7 @@ def _legacy_user_by_email(db: Session, email: str) -> AccountUser | None:
         select(AccountUser).where(
             AccountUser.email == email,
             AccountUser.supabase_user_id.is_(None),
+            AccountUser.is_active.is_(True),
         )
     )
 
@@ -84,44 +86,31 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     """
     email = payload.email.lower()
 
+    # Short-circuit on ANY existing email — legacy users must use /auth/login
+    # to link their account, which requires proving ownership via password.
     existing = db.scalar(select(AccountUser).where(AccountUser.email == email))
-    if existing and existing.supabase_user_id:
-        raise HTTPException(status_code=409, detail="Email already registered.")
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="Email already registered. Please sign in to link your account.",
+        )
 
     # Create user in Supabase
     try:
         supabase_data = sign_up(email, payload.password, payload.full_name.strip())
     except SupabaseAuthError as exc:
         if exc.status_code == 422 or "already registered" in exc.message.lower():
-            if existing:
-                # Legacy user exists — they must use /auth/login to link their account.
-                # We do NOT auto-link here to prevent account takeover by anyone
-                # who merely knows a legacy email address.
-                raise HTTPException(
-                    status_code=409,
-                    detail="Email already registered. Please sign in to link your account.",
-                ) from exc
             raise HTTPException(status_code=409, detail="Email already registered.") from exc
-        else:
-            logger.error("Supabase sign_up failed: %s", exc)
-            raise HTTPException(status_code=502, detail="Authentication service error.") from exc
+        logger.error("Supabase sign_up failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Authentication service error.") from exc
 
     sb_user = extract_user_from_response(supabase_data)
     access_token = supabase_data.get("access_token", "")
     refresh_token = supabase_data.get("refresh_token")
 
-    if existing:
-        # Legacy user: link Supabase identity only after successful Supabase sign-up
-        # (which proves email ownership via Supabase's verification flow)
-        user = existing
-        user.supabase_user_id = sb_user.id
-        user.full_name = payload.full_name.strip()
-        if not user.password_hash:
-            user.password_hash = _legacy_password_placeholder()
-        db.add(user)
-        db.flush()
-        workspace = _workspace_for_user(db, user.id)
-    else:
+    # Create local user + workspace. If anything fails, clean up the
+    # Supabase user so we don't leave an orphaned remote identity.
+    try:
         user = AccountUser(
             supabase_user_id=sb_user.id,
             email=email,
@@ -130,9 +119,7 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
         )
         db.add(user)
         db.flush()
-        workspace = None
 
-    if workspace is None:
         workspace = Workspace(
             name=payload.workspace_name.strip(),
             slug=_unique_slug(db, Workspace, payload.workspace_name),
@@ -142,12 +129,19 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
         db.flush()
         db.add(Membership(workspace_id=workspace.id, user_id=user.id, role=MembershipRole.OWNER))
 
-    # Provision entitlements, subscription, and default project BEFORE committing
-    # so a failure rolls back the entire registration atomically.
-    seed_plan_entitlements(db)
-    get_or_create_subscription(db, workspace)
-    ensure_default_project(db, workspace)
-    db.commit()
+        # Provision entitlements, subscription, and default project BEFORE
+        # committing so a failure rolls back the entire registration atomically.
+        seed_plan_entitlements(db)
+        get_or_create_subscription(db, workspace)
+        ensure_default_project(db, workspace)
+        db.commit()
+    except Exception:
+        db.rollback()
+        try:
+            admin_delete_user(sb_user.id)
+        except Exception:
+            logger.error("Failed to clean up Supabase user %s after local provisioning failure", sb_user.id)
+        raise
 
     return AuthResponse(
         access_token=access_token,
@@ -174,8 +168,10 @@ def login(payload: AuthLoginRequest, db: Session = Depends(get_db)) -> AuthRespo
     access_token = supabase_data.get("access_token", "")
     refresh_token = supabase_data.get("refresh_token")
 
-    # Look up local user by Supabase ID
-    user = db.scalar(select(AccountUser).where(AccountUser.supabase_user_id == sb_user.id))
+    # Look up local user by Supabase ID (active users only)
+    user = db.scalar(
+        select(AccountUser).where(AccountUser.supabase_user_id == sb_user.id, AccountUser.is_active.is_(True))
+    )
     if not user:
         user = _legacy_user_by_email(db, email)
         if user:
@@ -254,7 +250,9 @@ def refresh_token_endpoint(payload: RefreshTokenRequest, db: Session = Depends(g
         raise HTTPException(status_code=401, detail="Session expired. Please sign in again.") from exc
 
     sb_user = extract_user_from_response(supabase_data)
-    user = db.scalar(select(AccountUser).where(AccountUser.supabase_user_id == sb_user.id))
+    user = db.scalar(
+        select(AccountUser).where(AccountUser.supabase_user_id == sb_user.id, AccountUser.is_active.is_(True))
+    )
     if not user:
         raise HTTPException(status_code=401, detail="User not found.")
 
@@ -293,7 +291,11 @@ def logout(
 
     try:
         sign_out(raw_token)
-    except Exception:
+    except SupabaseAuthError:
         logger.warning("Supabase sign_out failed for user %s", current_user.id, exc_info=True)
+        return {"ok": True, "warning": "Local session revoked but remote sign-out failed."}
+    except Exception as exc:
+        logger.error("Unexpected error during sign_out for user %s", current_user.id, exc_info=True)
+        raise HTTPException(status_code=502, detail="Remote sign-out failed.") from exc
 
     return {"ok": True}

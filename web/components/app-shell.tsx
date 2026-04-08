@@ -178,14 +178,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);
       if (dashFailed) {
-        logout();
+        void logout();
         router.replace("/login");
         return;
       }
     } catch (e: any) {
       const msg = e?.message || "";
       if (isAuthError(e)) {
-        logout();
+        void logout();
         router.replace("/login");
         return;
       }
@@ -241,7 +241,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   function handleLogout() {
-    logout();
+    void logout();
     router.replace("/login");
   }
 
