@@ -59,16 +59,6 @@ def _workspace_for_user(db: Session, user_id: int) -> Workspace | None:
     return db.scalar(select(Workspace).join(Membership).where(Membership.user_id == user_id).order_by(Workspace.id.asc()))
 
 
-def _legacy_user_by_email(db: Session, email: str) -> AccountUser | None:
-    return db.scalar(
-        select(AccountUser).where(
-            AccountUser.email == email,
-            AccountUser.supabase_user_id.is_(None),
-            AccountUser.is_active.is_(True),
-        )
-    )
-
-
 def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> tuple[str, dict]:
     """Verify the bearer token and return (raw_token, jwt_payload)."""
     if not credentials:
@@ -190,29 +180,12 @@ def me(
     raw_token, payload = _verify_bearer(credentials)
     supabase_uid = payload["sub"]
 
-    # Primary lookup by Supabase identity
     user = db.scalar(
         select(AccountUser).where(
             AccountUser.supabase_user_id == supabase_uid,
             AccountUser.is_active.is_(True),
         )
     )
-
-    # Legacy linking: match by email if supabase_user_id not found
-    if not user:
-        email = payload.get("email", "")
-        if email:
-            user = _legacy_user_by_email(db, email)
-            if user:
-                user.supabase_user_id = supabase_uid
-                full_name = (payload.get("user_metadata") or {}).get("full_name")
-                if full_name:
-                    user.full_name = full_name
-                if not user.password_hash:
-                    user.password_hash = _legacy_password_placeholder()
-                db.add(user)
-                db.commit()
-                db.refresh(user)
 
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_local_account")
@@ -248,18 +221,11 @@ def oauth_complete(
     metadata = jwt_payload.get("user_metadata") or {}
     full_name = metadata.get("full_name") or metadata.get("name") or email.split("@")[0]
 
-    # Check if user already exists
+    # Check if user already exists by Supabase identity
     existing = db.scalar(
-        select(AccountUser).where(
-            (AccountUser.supabase_user_id == supabase_uid) | (AccountUser.email == email)
-        )
+        select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
     )
     if existing:
-        # User already has a local account — just link and return
-        if not existing.supabase_user_id:
-            existing.supabase_user_id = supabase_uid
-            db.commit()
-            db.refresh(existing)
         workspace = _workspace_for_user(db, existing.id)
         if not workspace:
             workspace = _provision_workspace(db, existing, payload.workspace_name)
@@ -269,6 +235,11 @@ def oauth_complete(
             user=UserResponse.model_validate(existing),
             workspace=workspace_summary(db, workspace, existing.id),
         )
+
+    # Check for email collision
+    email_taken = db.scalar(select(AccountUser).where(AccountUser.email == email))
+    if email_taken:
+        raise HTTPException(status_code=409, detail="Email already registered.")
 
     # Create new local user + workspace
     user = AccountUser(

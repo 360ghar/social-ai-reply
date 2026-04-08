@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from tests.conftest import _create_test_user, _make_test_token
 
-from app.db.models import AccountUser, Membership, Workspace
+from app.db.models import AccountUser
 from app.db.session import get_db
 from app.main import app
 
@@ -54,22 +54,6 @@ def _mock_supabase_signup(email, password, full_name):
     }
 
 
-def _create_legacy_local_user(db_session, email: str, full_name: str, workspace_name: str) -> tuple[AccountUser, Workspace]:
-    _create_test_user(db_session, email, full_name, workspace_name)
-    user = db_session.scalar(select(AccountUser).where(AccountUser.email == email))
-    assert user is not None
-    user.supabase_user_id = None
-    db_session.add(user)
-    db_session.commit()
-    db_session.refresh(user)
-
-    workspace = db_session.scalar(
-        select(Workspace).join(Membership).where(Membership.user_id == user.id).order_by(Workspace.id.asc())
-    )
-    assert workspace is not None
-    return user, workspace
-
-
 class TestRegister:
     @patch("app.api.v1.routes.auth.sign_up", side_effect=_mock_supabase_signup)
     def test_register_success(self, mock_signup, client, db_session):
@@ -105,25 +89,18 @@ class TestRegister:
         resp = client.post("/v1/auth/register", json={"email": "a@b.com"})
         assert resp.status_code == 422
 
-    def test_register_rejects_existing_legacy_email(self, client, db_session):
-        """Registration must reject emails that already exist locally,
-        even for legacy users without a supabase_user_id."""
-        _create_legacy_local_user(
-            db_session,
-            "legacy-register@example.com",
-            "Legacy Register",
-            "Legacy Workspace",
-        )
+    def test_register_rejects_existing_email(self, client, db_session):
+        """Registration must reject emails that already exist locally."""
+        _create_test_user(db_session, "existing@example.com", "Existing User", "Existing WS")
 
         resp = client.post("/v1/auth/register", json={
-            "email": "legacy-register@example.com",
+            "email": "existing@example.com",
             "password": "strongpass123",
-            "full_name": "Legacy Register",
+            "full_name": "Existing User",
             "workspace_name": "New Workspace",
         })
 
         assert resp.status_code == 409
-        assert "sign in" in resp.json()["detail"].lower()
 
 
 class TestMe:
@@ -141,40 +118,6 @@ class TestMe:
     def test_me_with_invalid_token(self, client):
         resp = client.get("/v1/auth/me", headers={"Authorization": "Bearer invalid-token-here"})
         assert resp.status_code == 401
-
-    def test_me_links_legacy_user_by_email(self, client, db_session):
-        """When a JWT is valid but supabase_user_id doesn't match, /auth/me
-        should try to link by email and succeed for legacy users."""
-        legacy_user, workspace = _create_legacy_local_user(
-            db_session,
-            "legacy-me@example.com",
-            "Legacy Me",
-            "Legacy Me Workspace",
-        )
-        supabase_uid = str(uuid.uuid4())
-
-        with patch(
-            "app.api.v1.routes.auth.verify_supabase_jwt",
-            return_value={
-                "sub": supabase_uid,
-                "aud": "authenticated",
-                "exp": 9999999999,
-                "iat": 1000000000,
-                "email": "legacy-me@example.com",
-                "role": "authenticated",
-            },
-        ):
-            resp = client.get("/v1/auth/me", headers={"Authorization": "Bearer test-token"})
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["user"]["id"] == legacy_user.id
-        assert data["user"]["supabase_user_id"] == supabase_uid
-        assert data["workspace"]["id"] == workspace.id
-
-        # Verify the link was persisted
-        db_session.refresh(legacy_user)
-        assert legacy_user.supabase_user_id == supabase_uid
 
     def test_me_returns_404_for_unknown_user(self, client, db_session):
         """When a JWT is valid but no local user exists, /auth/me should return
@@ -231,13 +174,9 @@ class TestOAuthComplete:
         assert user.supabase_user_id == supabase_uid
         assert user.full_name == "OAuth User"
 
-    def test_oauth_complete_links_existing_legacy_user(self, client, db_session):
-        legacy_user, workspace = _create_legacy_local_user(
-            db_session,
-            "legacy-oauth@example.com",
-            "Legacy OAuth",
-            "Legacy OAuth WS",
-        )
+    def test_oauth_complete_rejects_duplicate_email(self, client, db_session):
+        """OAuth complete should reject if email is already taken by another account."""
+        _create_test_user(db_session, "taken@example.com", "Taken User", "Taken WS")
         supabase_uid = str(uuid.uuid4())
 
         with patch(
@@ -247,23 +186,18 @@ class TestOAuthComplete:
                 "aud": "authenticated",
                 "exp": 9999999999,
                 "iat": 1000000000,
-                "email": "legacy-oauth@example.com",
+                "email": "taken@example.com",
                 "role": "authenticated",
-                "user_metadata": {"full_name": "Legacy OAuth"},
+                "user_metadata": {"full_name": "Another User"},
             },
         ):
             resp = client.post(
                 "/v1/auth/oauth-complete",
-                json={"workspace_name": "New WS Name"},
+                json={"workspace_name": "New WS"},
                 headers={"Authorization": "Bearer test-token"},
             )
 
-        assert resp.status_code == 201
-        data = resp.json()
-        assert data["user"]["id"] == legacy_user.id
-        assert data["user"]["supabase_user_id"] == supabase_uid
-        # Should reuse existing workspace
-        assert data["workspace"]["id"] == workspace.id
+        assert resp.status_code == 409
 
     def test_oauth_complete_requires_auth(self, client):
         resp = client.post("/v1/auth/oauth-complete", json={"workspace_name": "Test WS"})
