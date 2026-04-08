@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory rate limiter (use Redis in production)
+# Simple in-memory rate limiter
 _rate_store: defaultdict[str, list[float]] = defaultdict(list)
 MAX_STORE_KEYS = 10_000
 
@@ -104,10 +104,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if len(_rate_store[store_key]) >= max_requests:
             logger.warning(f"Rate limit hit: {store_key} ({limit_type})")
+            earliest = min(_rate_store[store_key])
+            retry_after = int(window - (now - earliest)) + 1
             return JSONResponse(
                 status_code=429,
                 content={"detail": f"Too many requests. Limit: {max_requests} per {window}s. Please wait."},
-                headers={"Retry-After": str(window)},
+                headers={"Retry-After": str(retry_after)},
             )
 
         _rate_store[store_key].append(now)
