@@ -229,6 +229,139 @@ select {
 }
 
 /* ==========================================================================
+   AUTH COMPONENTS
+   ========================================================================== */
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: var(--border);
+}
+
+.google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--card);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.google-button:hover:not(:disabled) {
+  background-color: var(--surface);
+  border-color: var(--ink-light);
+}
+
+.google-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.password-input-wrapper {
+  position: relative;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: color 150ms ease;
+}
+
+.password-toggle:hover {
+  color: var(--ink);
+}
+
+.password-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.password-strength-bar {
+  flex: 1;
+  height: 3px;
+  background-color: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.password-strength-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 200ms ease, background-color 200ms ease;
+}
+
+.password-strength-fill.password-strength-weak {
+  background-color: var(--error);
+}
+
+.password-strength-fill.password-strength-fair {
+  background-color: var(--warning);
+}
+
+.password-strength-fill.password-strength-strong {
+  background-color: var(--success, #22c55e);
+}
+
+.password-strength-label {
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 40px;
+}
+
+.password-strength-label.password-strength-weak {
+  color: var(--error);
+}
+
+.password-strength-label.password-strength-fair {
+  color: var(--warning);
+}
+
+.password-strength-label.password-strength-strong {
+  color: var(--success, #22c55e);
+}
+
+.field.has-error input {
+  border-color: var(--error);
+}
+
+.field.has-error input:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+/* ==========================================================================
    TABLES & LISTS
    ========================================================================== */
 

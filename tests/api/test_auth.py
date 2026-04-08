@@ -1,7 +1,7 @@
 """API tests for auth endpoints with Supabase integration.
 
 These tests use mocked Supabase JWT verification (see conftest.py).
-Auth endpoints that call Supabase directly (register, login) are tested
+Auth endpoints that call Supabase directly (register) are tested
 with mocked supabase_auth service functions.
 """
 
@@ -50,24 +50,6 @@ def _mock_supabase_signup(email, password, full_name):
             "email": email,
             "email_confirmed_at": "2025-01-01T00:00:00Z",
             "user_metadata": {"full_name": full_name},
-        },
-    }
-
-
-def _mock_supabase_signin(email, password):
-    """Mock for supabase_auth.sign_in_with_password."""
-    # We need to look up the real supabase_user_id, but in mocked tests
-    # we'll create the user first, so the test controls the ID.
-    # This mock is only for the Supabase API call part.
-    uid = str(uuid.uuid4())
-    return {
-        "access_token": _make_test_token(uid),
-        "refresh_token": f"refresh-{uid}",
-        "user": {
-            "id": uid,
-            "email": email,
-            "email_confirmed_at": "2025-01-01T00:00:00Z",
-            "user_metadata": {"full_name": "Test User"},
         },
     }
 
@@ -125,8 +107,7 @@ class TestRegister:
 
     def test_register_rejects_existing_legacy_email(self, client, db_session):
         """Registration must reject emails that already exist locally,
-        even for legacy users without a supabase_user_id. They should use
-        /auth/login to link their Supabase identity instead."""
+        even for legacy users without a supabase_user_id."""
         _create_legacy_local_user(
             db_session,
             "legacy-register@example.com",
@@ -145,42 +126,6 @@ class TestRegister:
         assert "sign in" in resp.json()["detail"].lower()
 
 
-class TestLogin:
-    @patch("app.api.v1.routes.auth.sign_in_with_password")
-    def test_login_backfills_existing_legacy_user(self, mock_signin, client, db_session):
-        legacy_user, workspace = _create_legacy_local_user(
-            db_session,
-            "legacy-login@example.com",
-            "Legacy Login",
-            "Legacy Login Workspace",
-        )
-        supabase_uid = str(uuid.uuid4())
-        mock_signin.return_value = {
-            "access_token": _make_test_token(supabase_uid),
-            "refresh_token": f"refresh-{supabase_uid}",
-            "user": {
-                "id": supabase_uid,
-                "email": legacy_user.email,
-                "email_confirmed_at": "2025-01-01T00:00:00Z",
-                "user_metadata": {"full_name": "Legacy Login"},
-            },
-        }
-
-        resp = client.post("/v1/auth/login", json={
-            "email": legacy_user.email,
-            "password": "strongpass123",
-        })
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["user"]["id"] == legacy_user.id
-        assert data["user"]["supabase_user_id"] == supabase_uid
-        assert data["workspace"]["id"] == workspace.id
-
-        db_session.refresh(legacy_user)
-        assert legacy_user.supabase_user_id == supabase_uid
-
-
 class TestMe:
     def test_me_with_valid_token(self, client, db_session):
         data = _create_test_user(db_session, "me@example.com", "Me User", "Me WS")
@@ -197,13 +142,10 @@ class TestMe:
         resp = client.get("/v1/auth/me", headers={"Authorization": "Bearer invalid-token-here"})
         assert resp.status_code == 401
 
-    def test_me_rejects_unlinked_legacy_user(self, client, db_session):
-        """Legacy users without a supabase_user_id cannot use /auth/me.
-
-        They must link their account via /auth/login first. The auth
-        dependency no longer auto-backfills legacy users by email.
-        """
-        _create_legacy_local_user(
+    def test_me_links_legacy_user_by_email(self, client, db_session):
+        """When a JWT is valid but supabase_user_id doesn't match, /auth/me
+        should try to link by email and succeed for legacy users."""
+        legacy_user, workspace = _create_legacy_local_user(
             db_session,
             "legacy-me@example.com",
             "Legacy Me",
@@ -212,7 +154,7 @@ class TestMe:
         supabase_uid = str(uuid.uuid4())
 
         with patch(
-            "app.api.v1.deps.verify_supabase_jwt",
+            "app.api.v1.routes.auth.verify_supabase_jwt",
             return_value={
                 "sub": supabase_uid,
                 "aud": "authenticated",
@@ -224,7 +166,130 @@ class TestMe:
         ):
             resp = client.get("/v1/auth/me", headers={"Authorization": "Bearer test-token"})
 
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["user"]["id"] == legacy_user.id
+        assert data["user"]["supabase_user_id"] == supabase_uid
+        assert data["workspace"]["id"] == workspace.id
+
+        # Verify the link was persisted
+        db_session.refresh(legacy_user)
+        assert legacy_user.supabase_user_id == supabase_uid
+
+    def test_me_returns_404_for_unknown_user(self, client, db_session):
+        """When a JWT is valid but no local user exists, /auth/me should return
+        404 with 'no_local_account' to signal the OAuth setup flow."""
+        supabase_uid = str(uuid.uuid4())
+
+        with patch(
+            "app.api.v1.routes.auth.verify_supabase_jwt",
+            return_value={
+                "sub": supabase_uid,
+                "aud": "authenticated",
+                "exp": 9999999999,
+                "iat": 1000000000,
+                "email": "unknown@example.com",
+                "role": "authenticated",
+            },
+        ):
+            resp = client.get("/v1/auth/me", headers={"Authorization": "Bearer test-token"})
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "no_local_account"
+
+
+class TestOAuthComplete:
+    def test_oauth_complete_creates_user_and_workspace(self, client, db_session):
+        supabase_uid = str(uuid.uuid4())
+
+        with patch(
+            "app.api.v1.routes.auth.verify_supabase_jwt",
+            return_value={
+                "sub": supabase_uid,
+                "aud": "authenticated",
+                "exp": 9999999999,
+                "iat": 1000000000,
+                "email": "oauth@example.com",
+                "role": "authenticated",
+                "user_metadata": {"full_name": "OAuth User"},
+            },
+        ):
+            resp = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "OAuth Workspace"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["user"]["email"] == "oauth@example.com"
+        assert data["user"]["supabase_user_id"] == supabase_uid
+        assert data["workspace"]["name"] == "OAuth Workspace"
+
+        user = db_session.scalar(select(AccountUser).where(AccountUser.email == "oauth@example.com"))
+        assert user is not None
+        assert user.supabase_user_id == supabase_uid
+        assert user.full_name == "OAuth User"
+
+    def test_oauth_complete_links_existing_legacy_user(self, client, db_session):
+        legacy_user, workspace = _create_legacy_local_user(
+            db_session,
+            "legacy-oauth@example.com",
+            "Legacy OAuth",
+            "Legacy OAuth WS",
+        )
+        supabase_uid = str(uuid.uuid4())
+
+        with patch(
+            "app.api.v1.routes.auth.verify_supabase_jwt",
+            return_value={
+                "sub": supabase_uid,
+                "aud": "authenticated",
+                "exp": 9999999999,
+                "iat": 1000000000,
+                "email": "legacy-oauth@example.com",
+                "role": "authenticated",
+                "user_metadata": {"full_name": "Legacy OAuth"},
+            },
+        ):
+            resp = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "New WS Name"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["user"]["id"] == legacy_user.id
+        assert data["user"]["supabase_user_id"] == supabase_uid
+        # Should reuse existing workspace
+        assert data["workspace"]["id"] == workspace.id
+
+    def test_oauth_complete_requires_auth(self, client):
+        resp = client.post("/v1/auth/oauth-complete", json={"workspace_name": "Test WS"})
         assert resp.status_code == 401
+
+    def test_oauth_complete_requires_workspace_name(self, client, db_session):
+        supabase_uid = str(uuid.uuid4())
+
+        with patch(
+            "app.api.v1.routes.auth.verify_supabase_jwt",
+            return_value={
+                "sub": supabase_uid,
+                "aud": "authenticated",
+                "exp": 9999999999,
+                "iat": 1000000000,
+                "email": "test@example.com",
+                "role": "authenticated",
+            },
+        ):
+            resp = client.post(
+                "/v1/auth/oauth-complete",
+                json={},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert resp.status_code == 422
 
 
 class TestLogout:
@@ -249,53 +314,13 @@ class TestLogout:
 
 
 class TestDeactivatedUser:
-    @patch("app.api.v1.routes.auth.sign_in_with_password")
-    def test_login_rejects_deactivated_user(self, mock_signin, client, db_session):
-        """Deactivated users must not be able to log in."""
-        _create_test_user(db_session, "deactivated@example.com", "Deactivated", "Deactivated WS")
+    def test_me_rejects_deactivated_user(self, client, db_session):
+        """Deactivated users must not be able to access /auth/me."""
+        data = _create_test_user(db_session, "deactivated@example.com", "Deactivated", "Deactivated WS")
         user = db_session.scalar(select(AccountUser).where(AccountUser.email == "deactivated@example.com"))
-        supabase_uid = user.supabase_user_id
         user.is_active = False
         db_session.add(user)
         db_session.commit()
 
-        mock_signin.return_value = {
-            "access_token": _make_test_token(supabase_uid),
-            "refresh_token": f"refresh-{supabase_uid}",
-            "user": {
-                "id": supabase_uid,
-                "email": "deactivated@example.com",
-                "email_confirmed_at": "2025-01-01T00:00:00Z",
-                "user_metadata": {"full_name": "Deactivated"},
-            },
-        }
-
-        resp = client.post("/v1/auth/login", json={
-            "email": "deactivated@example.com",
-            "password": "strongpass123",
-        })
-        assert resp.status_code == 401
-
-    @patch("app.api.v1.routes.auth.refresh_session")
-    def test_refresh_rejects_deactivated_user(self, mock_refresh, client, db_session):
-        """Deactivated users must not be able to refresh tokens."""
-        _create_test_user(db_session, "deactivated-refresh@example.com", "Deactivated", "Deactivated WS")
-        user = db_session.scalar(select(AccountUser).where(AccountUser.email == "deactivated-refresh@example.com"))
-        supabase_uid = user.supabase_user_id
-        user.is_active = False
-        db_session.add(user)
-        db_session.commit()
-
-        mock_refresh.return_value = {
-            "access_token": _make_test_token(supabase_uid),
-            "refresh_token": f"refresh-new-{supabase_uid}",
-            "user": {
-                "id": supabase_uid,
-                "email": "deactivated-refresh@example.com",
-                "email_confirmed_at": "2025-01-01T00:00:00Z",
-                "user_metadata": {"full_name": "Deactivated"},
-            },
-        }
-
-        resp = client.post("/v1/auth/refresh", json={"refresh_token": "some-refresh-token"})
-        assert resp.status_code == 401
+        resp = client.get("/v1/auth/me", headers={"Authorization": f"Bearer {data['access_token']}"})
+        assert resp.status_code == 404

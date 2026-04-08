@@ -1,12 +1,16 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Button, Spinner } from "@/components/ui";
 import { ToastProvider, useToast } from "@/components/toast";
 import { forgotPassword, resetPassword } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { PasswordInput } from "@/components/password-input";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ResetPasswordContent() {
   const toast = useToast();
+  const emailRef = useRef<HTMLInputElement>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,18 +21,21 @@ function ResetPasswordContent() {
   const [hasSession, setHasSession] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  // Check if Supabase established a session from the reset link
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [confirmError, setConfirmError] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [confirmTouched, setConfirmTouched] = useState(false);
+
   useEffect(() => {
     async function checkSession() {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setHasSession(true);
-      }
+      if (session) setHasSession(true);
       setChecking(false);
     }
     checkSession();
 
-    // Listen for auth events — Supabase fires PASSWORD_RECOVERY when user clicks reset link
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (event === "PASSWORD_RECOVERY" && session) {
@@ -41,8 +48,33 @@ function ResetPasswordContent() {
     return () => { subscription.unsubscribe(); };
   }, []);
 
+  useEffect(() => {
+    if (!checking && !hasSession && !sent) emailRef.current?.focus();
+  }, [checking, hasSession, sent]);
+
+  function validateEmail(v: string): string {
+    if (!v.trim()) return "Email is required.";
+    if (!EMAIL_RE.test(v.trim())) return "Please enter a valid email.";
+    return "";
+  }
+
+  function validatePassword(v: string): string {
+    if (!v) return "Password is required.";
+    if (v.length < 8) return "Must be at least 8 characters.";
+    return "";
+  }
+
+  function validateConfirm(v: string): string {
+    if (!v) return "Please confirm your password.";
+    if (v !== password) return "Passwords do not match.";
+    return "";
+  }
+
   async function handleRequest() {
-    if (!email.trim()) { toast.warning("Please enter your email."); return; }
+    const err = validateEmail(email);
+    setEmailError(err);
+    setEmailTouched(true);
+    if (err) return;
     setLoading(true);
     try {
       await forgotPassword(email.trim().toLowerCase());
@@ -55,8 +87,13 @@ function ResetPasswordContent() {
   }
 
   async function handleReset() {
-    if (password.length < 8) { toast.warning("Password must be at least 8 characters."); return; }
-    if (password !== confirm) { toast.warning("Passwords do not match."); return; }
+    const pErr = validatePassword(password);
+    const cErr = validateConfirm(confirm);
+    setPasswordError(pErr);
+    setConfirmError(cErr);
+    setPasswordTouched(true);
+    setConfirmTouched(true);
+    if (pErr || cErr) return;
     setLoading(true);
     try {
       await resetPassword(password);
@@ -88,11 +125,19 @@ function ResetPasswordContent() {
         {!hasSession && !sent && (
           <>
             <p className="text-muted" style={{ marginBottom: 20 }}>Enter your email and we&apos;ll send you a reset link.</p>
-            <div className="field">
+            <div className={`field ${emailTouched && emailError ? "has-error" : ""}`}>
               <label className="field-label">Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+              <input
+                ref={emailRef}
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); if (emailTouched) setEmailError(validateEmail(e.target.value)); }}
+                onBlur={() => { setEmailTouched(true); setEmailError(validateEmail(email)); }}
+                placeholder="you@example.com"
+              />
+              {emailTouched && emailError && <p className="field-error">{emailError}</p>}
             </div>
-            <Button loading={loading} onClick={handleRequest} style={{ width: "100%" }}>Send Reset Link</Button>
+            <Button loading={loading} onClick={handleRequest} disabled={emailTouched && !!emailError} style={{ width: "100%" }}>Send Reset Link</Button>
             <p style={{ marginTop: 16, textAlign: "center" }}>
               <a href="/login" className="text-muted">Back to login</a>
             </p>
@@ -113,13 +158,33 @@ function ResetPasswordContent() {
         {hasSession && !done && (
           <>
             <p className="text-muted" style={{ marginBottom: 20 }}>Enter your new password below.</p>
-            <div className="field">
+            <div className={`field ${passwordTouched && passwordError ? "has-error" : ""}`}>
               <label className="field-label">New Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" />
+              <PasswordInput
+                value={password}
+                onChange={(e) => {
+                  const v = (e.target as HTMLInputElement).value;
+                  setPassword(v);
+                  if (passwordTouched) setPasswordError(validatePassword(v));
+                  if (confirmTouched && confirm) setConfirmError(confirm !== v ? "Passwords do not match." : "");
+                }}
+                onBlur={() => { setPasswordTouched(true); setPasswordError(validatePassword(password)); }}
+                placeholder="Min 8 characters"
+                autoComplete="new-password"
+                showStrength
+                error={passwordTouched ? passwordError : undefined}
+              />
             </div>
-            <div className="field">
+            <div className={`field ${confirmTouched && confirmError ? "has-error" : ""}`}>
               <label className="field-label">Confirm Password</label>
-              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Type password again" />
+              <PasswordInput
+                value={confirm}
+                onChange={(e) => { const v = (e.target as HTMLInputElement).value; setConfirm(v); if (confirmTouched) setConfirmError(v !== password ? "Passwords do not match." : ""); }}
+                onBlur={() => { setConfirmTouched(true); setConfirmError(validateConfirm(confirm)); }}
+                placeholder="Type password again"
+                autoComplete="new-password"
+                error={confirmTouched ? confirmError : undefined}
+              />
             </div>
             <Button loading={loading} onClick={handleReset} style={{ width: "100%" }}>Update Password</Button>
           </>

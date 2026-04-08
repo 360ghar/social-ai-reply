@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { apiRequest, isAuthError, type AuthPayload } from "../lib/api";
+import { apiRequest, isAuthError, isSetupRequired, type AuthPayload } from "../lib/api";
 
 type AuthContextValue = {
   token: string | null;
@@ -12,6 +12,8 @@ type AuthContextValue = {
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (input: { email: string; password: string; fullName: string; workspaceName: string }) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
+  completeOAuthSetup: (workspaceName: string) => Promise<AuthPayload>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
 };
@@ -27,12 +29,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Persist auth payload to local storage for fast reload
-  function persist(payload: AuthPayload) {
-    setToken(payload.access_token);
+  function persist(payload: AuthPayload, accessToken?: string) {
+    const tkn = accessToken || payload.access_token;
+    setToken(tkn);
     setUser(payload.user);
     setWorkspace(payload.workspace);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, access_token: tkn }));
     window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   }
 
@@ -49,36 +51,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function init() {
       try {
-        // Check if Supabase has an active session (handles token refresh automatically)
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
-          // Validate with our backend and get user/workspace info
           try {
             const payload = await apiRequest<AuthPayload>(
               "/v1/auth/me",
               {},
               session.access_token
             );
-            // Use the Supabase token (which is the real session token)
-            persist({ ...payload, access_token: session.access_token });
+            persist(payload, session.access_token);
           } catch (err) {
             if (isAuthError(err)) {
-              // Token is valid with Supabase but user doesn't exist in our DB
               await supabase.auth.signOut();
               clearAuth();
+            } else if (isSetupRequired(err)) {
+              // User exists in Supabase but not locally — don't clear session,
+              // the callback/setup page will handle this.
+              clearAuth();
             }
-            // Network/server errors — keep existing local state if available
           }
         } else {
-          // No Supabase session — check legacy local storage
           const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
           if (raw) {
-            // Old local-auth token — clear it, user needs to re-authenticate
             clearAuth();
           }
         }
       } catch {
-        // Supabase client error — clear state
         clearAuth();
       } finally {
         setLoading(false);
@@ -86,14 +84,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     init();
 
-    // Listen for Supabase auth state changes (e.g. token refresh, sign out from another tab)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === "SIGNED_OUT" || !session) {
           clearAuth();
         } else if (event === "TOKEN_REFRESHED" && session?.access_token) {
           setToken(session.access_token);
-          // Update stored payload with new token
           const raw = window.localStorage.getItem(STORAGE_KEY);
           if (raw) {
             try {
@@ -114,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function login(email: string, password: string) {
     setError(null);
 
-    // Sign in via Supabase
+    // Authenticate with Supabase
     const { data, error: sbError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -123,22 +119,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(sbError?.message ?? "Invalid email or password.");
     }
 
-    // Get user/workspace from our backend
+    // Get user/workspace from backend (no re-authentication needed)
     const payload = await apiRequest<AuthPayload>(
-      "/v1/auth/login",
-      {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      }
+      "/v1/auth/me",
+      {},
+      data.session.access_token
     );
 
-    persist({ ...payload, access_token: data.session.access_token });
+    persist(payload, data.session.access_token);
   }
 
   async function register(input: { email: string; password: string; fullName: string; workspaceName: string }) {
     setError(null);
 
-    // Register through our backend (which calls Supabase + creates workspace)
     const payload = await apiRequest<AuthPayload>("/v1/auth/register", {
       method: "POST",
       body: JSON.stringify({
@@ -149,7 +142,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }),
     });
 
-    // Also set the Supabase client session so it can handle token refresh
     if (payload.access_token && payload.refresh_token) {
       await supabase.auth.setSession({
         access_token: payload.access_token,
@@ -160,18 +152,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persist(payload);
   }
 
+  async function loginWithGoogle() {
+    setError(null);
+    const { error: sbError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (sbError) {
+      throw new Error(sbError.message ?? "Could not start Google sign-in.");
+    }
+    // Browser redirects to Google — no further action here
+  }
+
+  async function completeOAuthSetup(workspaceName: string): Promise<AuthPayload> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new Error("No active session. Please sign in again.");
+    }
+
+    const payload = await apiRequest<AuthPayload>(
+      "/v1/auth/oauth-complete",
+      {
+        method: "POST",
+        body: JSON.stringify({ workspace_name: workspaceName }),
+      },
+      session.access_token
+    );
+
+    persist(payload, session.access_token);
+    return payload;
+  }
+
   async function logout() {
-    // Always clear local state first so the user is logged out regardless
-    // of whether the backend call succeeds.
     const currentToken = token;
     clearAuth();
     await supabase.auth.signOut();
 
-    // Revoke token server-side (sets tokens_invalid_before).
-    // Runs after local clear so a network failure doesn't leave the
-    // user stuck in a logged-in UI.
     if (currentToken) {
-      await apiRequest("/v1/auth/logout", { method: "POST" }, currentToken);
+      try {
+        await apiRequest("/v1/auth/logout", { method: "POST" }, currentToken);
+      } catch {
+        // Best-effort server-side revocation
+      }
     }
   }
 
@@ -183,7 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, user, workspace, loading, error, login, register, logout, refreshSession }}>
+    <AuthContext.Provider value={{ token, user, workspace, loading, error, login, register, loginWithGoogle, completeOAuthSetup, logout, refreshSession }}>
       {children}
     </AuthContext.Provider>
   );

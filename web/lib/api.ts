@@ -193,13 +193,17 @@ export function isAuthError(error: unknown): boolean {
     return false;
   }
   // Only treat genuine authentication failures as auth errors.
-  // Do NOT include workspace/permission errors — those are 403s, not 401s.
+  // Do NOT include "no_local_account" (404 for OAuth setup) or
+  // workspace/permission errors (403s).
   return [
     "Authentication required.",
     "Invalid token.",
-    "User not found.",
     "Session expired. Please sign in again.",
   ].includes(error.message);
+}
+
+export function isSetupRequired(error: unknown): boolean {
+  return error instanceof Error && error.message === "no_local_account";
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> {
