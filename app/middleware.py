@@ -104,10 +104,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if len(_rate_store[store_key]) >= max_requests:
             logger.warning(f"Rate limit hit: {store_key} ({limit_type})")
+            earliest = min(_rate_store[store_key])
+            retry_after = int(window - (now - earliest)) + 1
             return JSONResponse(
                 status_code=429,
                 content={"detail": f"Too many requests. Limit: {max_requests} per {window}s. Please wait."},
-                headers={"Retry-After": str(window)},
+                headers={"Retry-After": str(retry_after)},
             )
 
         _rate_store[store_key].append(now)
