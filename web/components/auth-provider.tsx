@@ -20,7 +20,6 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const STORAGE_KEY = "redditflow-auth";
-const LEGACY_STORAGE_KEY = "reply-radar-auth";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
@@ -35,7 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(payload.user);
     setWorkspace(payload.workspace);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, access_token: tkn }));
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   }
 
   function clearAuth() {
@@ -44,7 +42,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setWorkspace(null);
     setError(null);
     window.localStorage.removeItem(STORAGE_KEY);
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   }
 
   // On mount: check for existing Supabase session, then validate with backend
@@ -71,10 +68,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } else {
-          const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
-          if (raw) {
-            clearAuth();
-          }
+          // No Supabase session — clear any stale local state
+          clearAuth();
         }
       } catch {
         clearAuth();

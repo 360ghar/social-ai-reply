@@ -70,8 +70,7 @@ class TestRegister:
         assert "supabase_user_id" in data["user"]
         user = db_session.scalar(select(AccountUser).where(AccountUser.email == "new@example.com"))
         assert user is not None
-        assert user.password_hash is not None
-        assert user.password_hash.startswith("supabase-managed:")
+        assert user.supabase_user_id is not None
 
     @patch("app.api.v1.routes.auth.sign_up", side_effect=_mock_supabase_signup)
     def test_register_duplicate_email(self, mock_signup, client):

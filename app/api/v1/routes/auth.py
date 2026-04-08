@@ -6,7 +6,6 @@ while Supabase handles credentials, sessions, password resets, and email verific
 
 import hashlib
 import logging
-import secrets
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import (
+    _is_token_revoked,
     bearer_scheme,
     ensure_default_project,
     get_current_user,
@@ -50,11 +50,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["auth"])
 
 
-def _legacy_password_placeholder() -> str:
-    """Populate legacy DB schemas that still require a non-null password hash."""
-    return f"supabase-managed:{secrets.token_hex(32)}"
-
-
 def _workspace_for_user(db: Session, user_id: int) -> Workspace | None:
     return db.scalar(select(Workspace).join(Membership).where(Membership.user_id == user_id).order_by(Workspace.id.asc()))
 
@@ -71,25 +66,6 @@ def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> tuple[st
         logger.error("Unexpected error verifying JWT: %s", exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
     return credentials.credentials, payload
-
-
-def _is_token_revoked(user: AccountUser, payload: dict, token: str) -> bool:
-    """Check if the token has been revoked via hash or timestamp."""
-    if user.revoked_access_token_hash and hashlib.sha256(token.encode("utf-8")).hexdigest() == user.revoked_access_token_hash:
-        return True
-    if not user.tokens_invalid_before:
-        return False
-    raw_iat = payload.get("iat")
-    if raw_iat is None:
-        return True
-    from datetime import UTC, datetime
-    try:
-        issued_at = datetime.fromtimestamp(float(raw_iat), tz=UTC)
-    except (TypeError, ValueError, OSError):
-        return True
-    tib = user.tokens_invalid_before
-    tib = tib.astimezone(UTC) if tib.tzinfo else tib.replace(tzinfo=UTC)
-    return issued_at < tib
 
 
 def _provision_workspace(db: Session, user: AccountUser, workspace_name: str) -> Workspace:
@@ -121,10 +97,7 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
 
     existing = db.scalar(select(AccountUser).where(AccountUser.email == email))
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail="Email already registered. Please sign in to link your account.",
-        )
+        raise HTTPException(status_code=409, detail="Email already registered.")
 
     try:
         supabase_data = sign_up(email, payload.password, payload.full_name.strip())
@@ -142,7 +115,6 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
         user = AccountUser(
             supabase_user_id=sb_user.id,
             email=email,
-            password_hash=_legacy_password_placeholder(),
             full_name=payload.full_name.strip(),
         )
         db.add(user)
@@ -173,9 +145,8 @@ def me(
 ) -> AuthResponse:
     """Return the current user's profile and workspace.
 
-    Handles legacy user linking: if the JWT is valid but no user is found by
-    supabase_user_id, attempts to link by email. Returns 404 if the user has
-    no local account (e.g. first-time OAuth user needing workspace setup).
+    Returns 404 if the user has no local account (e.g. first-time OAuth user
+    needing workspace setup).
     """
     raw_token, payload = _verify_bearer(credentials)
     supabase_uid = payload["sub"]
@@ -215,13 +186,13 @@ def oauth_complete(
     Called after a first-time OAuth user (e.g. Google sign-in) authenticates
     with Supabase but has no local AccountUser record yet.
     """
-    raw_token, jwt_payload = _verify_bearer(credentials)
+    _raw_token, jwt_payload = _verify_bearer(credentials)
     supabase_uid = jwt_payload["sub"]
     email = jwt_payload.get("email", "")
     metadata = jwt_payload.get("user_metadata") or {}
     full_name = metadata.get("full_name") or metadata.get("name") or email.split("@")[0]
 
-    # Check if user already exists by Supabase identity
+    # Return existing account if already provisioned
     existing = db.scalar(
         select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
     )
@@ -236,16 +207,14 @@ def oauth_complete(
             workspace=workspace_summary(db, workspace, existing.id),
         )
 
-    # Check for email collision
+    # Reject if email is already taken by a different account
     email_taken = db.scalar(select(AccountUser).where(AccountUser.email == email))
     if email_taken:
         raise HTTPException(status_code=409, detail="Email already registered.")
 
-    # Create new local user + workspace
     user = AccountUser(
         supabase_user_id=supabase_uid,
         email=email,
-        password_hash=_legacy_password_placeholder(),
         full_name=full_name,
     )
     db.add(user)
@@ -267,10 +236,7 @@ def logout(
     current_user: AccountUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Sign out — invalidate the session on Supabase side.
-
-    The frontend should also clear its local storage.
-    """
+    """Sign out — invalidate the session on Supabase side."""
     if not credentials:
         raise HTTPException(status_code=401, detail="Authentication required.")
 

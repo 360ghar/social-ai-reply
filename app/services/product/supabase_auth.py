@@ -72,9 +72,8 @@ def _get_signing_key(kid: str) -> PyJWK:
 def verify_supabase_jwt(token: str) -> dict:
     """Decode and verify a Supabase-issued JWT.
 
-    Fetches the public key from Supabase's JWKS endpoint to verify
-    ES256-signed tokens. Falls back to HS256 with the JWT secret
-    for backwards compatibility.
+    Supports both asymmetric (ES256/RS256 via JWKS) and symmetric (HS256)
+    algorithms depending on the Supabase project configuration.
     Returns the decoded payload dict on success, raises on failure.
     """
     settings = get_settings()
@@ -89,7 +88,7 @@ def verify_supabase_jwt(token: str) -> dict:
     kid = header.get("kid")
 
     if alg == "HS256":
-        # Legacy / simple Supabase setup: symmetric HMAC
+        # Symmetric HMAC — used when Supabase project uses HS256 signing
         secret = settings.supabase_jwt_secret
         if not secret:
             raise ValueError("SUPABASE_JWT_SECRET is not configured.")

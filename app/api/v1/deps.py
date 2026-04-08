@@ -288,14 +288,3 @@ def build_subreddit_analysis(name: str, description: str, rules: list[str]) -> t
     recommendation = "Engage with helpful, specific replies and avoid promotional language."
     posting_risk = [rule for rule in rules[:5]]
     return top_post_types, audience_signals, posting_risk, recommendation
-
-
-# Backwards-compatible aliases used by route files during migration
-_ensure_workspace_membership = ensure_workspace_membership
-_get_project = get_project
-_get_active_project = get_active_project
-_ensure_default_project = ensure_default_project
-_ensure_default_prompts = ensure_default_prompts
-_workspace_summary = workspace_summary
-_subscription_response = subscription_response
-_build_subreddit_analysis = build_subreddit_analysis

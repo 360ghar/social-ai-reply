@@ -229,7 +229,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
   return response.json() as Promise<T>;
 }
 
-// ── Re-export from domain modules (backwards compatibility) ─────
+// ── Re-exports from domain modules ──────────────────────────────
 
 export {
   forgotPassword,
