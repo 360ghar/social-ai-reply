@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
@@ -14,13 +15,26 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from "@/components/ui/dialog";
 
+const AI_MODELS = ["chatgpt", "perplexity", "gemini", "claude"];
+
 export default function VisibilityPage() {
   const { token } = useAuth();
   const { success, error, warning } = useToast();
+  const router = useRouter();
   const selectedProjectId = useSelectedProjectId();
   const [loading, setLoading] = useState(true);
   const [noProject, setNoProject] = useState(false);
@@ -131,7 +145,7 @@ export default function VisibilityPage() {
           <span className="text-2xl mb-2">🏢</span>
           <p className="font-medium">Set up your brand first</p>
           <p className="text-sm text-muted-foreground mt-1">Create a project from the Dashboard, then set up your Brand profile to start tracking AI visibility.</p>
-          <Button className="mt-4" onClick={() => window.location.href = "/app/dashboard"}>Go to Dashboard</Button>
+          <Button className="mt-4" onClick={() => router.push("/app/dashboard")}>Go to Dashboard</Button>
         </div>
       </div>
     );
@@ -252,7 +266,7 @@ export default function VisibilityPage() {
           <Card className="p-4 rounded-xl">
             <div className="text-sm font-semibold mb-3">Model Comparison</div>
             <div className="flex flex-col gap-2 mb-4">
-              {["chatgpt", "perplexity", "gemini", "claude"].map(m => (
+              {AI_MODELS.map(m => (
                 <button
                   key={m}
                   onClick={() => setSelectedModel(m)}
@@ -312,44 +326,43 @@ export default function VisibilityPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Set Name</label>
-              <input
+              <Label>Set Name</Label>
+              <Input
                 type="text"
                 value={newSetName}
                 onChange={e => setNewSetName(e.target.value)}
                 placeholder="e.g., Product Recommendations"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Category</label>
-              <select
-                value={newSetCategory}
-                onChange={e => setNewSetCategory(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-              >
-                <option value="general">General</option>
-                <option value="intent">Buying Intent</option>
-                <option value="persona">Persona-Based</option>
-                <option value="funnel">Funnel Stage</option>
-                <option value="comparison">Comparison</option>
-              </select>
+              <Label>Category</Label>
+              <Select value={newSetCategory} onValueChange={(v) => setNewSetCategory(v ?? "general")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general">General</SelectItem>
+                  <SelectItem value="intent">Buying Intent</SelectItem>
+                  <SelectItem value="persona">Persona-Based</SelectItem>
+                  <SelectItem value="funnel">Funnel Stage</SelectItem>
+                  <SelectItem value="comparison">Comparison</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Prompts (one per line)</label>
-              <textarea
+              <Label>Prompts (one per line)</Label>
+              <Textarea
                 rows={6}
                 value={newSetPrompts}
                 onChange={e => setNewSetPrompts(e.target.value)}
                 placeholder={"What is the best tool for social media management?\nCan you recommend a Reddit marketing platform?\nWhat alternatives to [competitor] should I consider?"}
-                className="w-full rounded-lg border px-3 py-2 text-sm resize-none"
               />
               <p className="text-xs text-muted-foreground">{newSetPrompts.split("\n").filter(Boolean).length} prompt(s)</p>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">AI Models to Track</label>
+              <Label>AI Models to Track</Label>
               <div className="flex flex-wrap gap-3">
-                {["chatgpt", "perplexity", "gemini", "claude"].map(m => (
+                {AI_MODELS.map(m => (
                   <label key={m} className="flex items-center gap-1.5 cursor-pointer">
                     <input type="checkbox" checked={newSetModels.includes(m)} onChange={() => toggleModel(m)} />
                     <span className="capitalize text-sm">{m}</span>

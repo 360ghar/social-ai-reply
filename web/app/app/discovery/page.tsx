@@ -22,6 +22,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -595,29 +602,31 @@ export default function DiscoveryPage() {
             <h3 className="text-base font-medium">Step 3: Conversation Queue ({filteredOpps.length})</h3>
             <div className="flex gap-2">
               {campaigns.length > 0 && (
-                <select
-                  value={campaignFilter}
-                  onChange={(event) => setCampaignFilter(event.target.value)}
-                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  <option value="">All Campaigns</option>
-                  {campaigns.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <Select value={campaignFilter} onValueChange={(v) => setCampaignFilter(v ?? "")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Campaigns" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">All Campaigns</SelectItem>
+                    {campaigns.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <option value="">All Statuses</option>
-                <option value="new">New</option>
-                <option value="saved">Saved</option>
-                <option value="drafting">Drafting</option>
-                <option value="posted">Posted</option>
-                <option value="ignored">Ignored</option>
-              </select>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "")}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Statuses</SelectItem>
+                  <SelectItem value="new">New</SelectItem>
+                  <SelectItem value="saved">Saved</SelectItem>
+                  <SelectItem value="drafting">Drafting</SelectItem>
+                  <SelectItem value="posted">Posted</SelectItem>
+                  <SelectItem value="ignored">Ignored</SelectItem>
+                </SelectContent>
+              </Select>
               <Button onClick={runScan} disabled={scanning || subreddits.length === 0}>
                 {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
                 {scanning ? "Scanning" : "Run Scan"}

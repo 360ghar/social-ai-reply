@@ -16,6 +16,13 @@ import { apiRequest, type Dashboard, type MonitoredSubreddit } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { ScoreBadge } from "@/components/shared/score-badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type SortOption = "fit-score" | "activity-score" | "name";
 
@@ -168,15 +175,16 @@ export default function SubredditsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  <option value="fit-score">Sort by Fit Score</option>
-                  <option value="activity-score">Sort by Activity Score</option>
-                  <option value="name">Sort by Name</option>
-                </select>
+                <Select value={sortBy} onValueChange={(v) => setSortBy((v ?? "fit-score") as SortOption)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fit-score">Sort by Fit Score</SelectItem>
+                    <SelectItem value="activity-score">Sort by Activity Score</SelectItem>
+                    <SelectItem value="name">Sort by Name</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
