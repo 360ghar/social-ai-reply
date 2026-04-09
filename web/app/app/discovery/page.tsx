@@ -311,8 +311,13 @@ export default function DiscoveryPage() {
     }
   }
 
-  function copyAndOpenReddit(text: string, permalink: string) {
-    copyText(text);
+  async function copyAndOpenReddit(text: string, permalink: string) {
+    try {
+      await copyText(text);
+    } catch {
+      error("Failed to copy", "Clipboard access was denied.");
+      return;
+    }
     window.open(redditUrl(permalink), "_blank");
     success("Draft copied. Reddit is opening so you can review and paste.");
   }
