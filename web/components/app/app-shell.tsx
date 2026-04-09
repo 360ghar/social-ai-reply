@@ -10,6 +10,7 @@ import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useUIStore } from "@/stores/ui-store";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -388,11 +389,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 className="relative flex items-center justify-center h-[34px] px-2.5 rounded-lg border border-border bg-transparent hover:bg-muted cursor-pointer text-foreground"
               >
                 <Bell className="h-4 w-4" />
-                {notifCount > 0 && (
-                  <span aria-live="polite" className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-[10px] font-bold">
-                    {notifCount > 9 ? "9+" : notifCount}
-                  </span>
-                )}
+                <span
+                  aria-live="polite"
+                  aria-atomic="true"
+                  className={cn(
+                    "absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-[10px] font-bold",
+                    notifCount === 0 && "hidden"
+                  )}
+                >
+                  {notifCount > 0 ? (notifCount > 9 ? "9+" : notifCount) : ""}
+                </span>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
