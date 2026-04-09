@@ -1,22 +1,47 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
-import { ConfirmModal } from "@/components/modal";
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Button,
-  Drawer,
-  EmptyState,
-  PlatformIcon,
-  ScoreBadge,
-  Spinner,
-  StepIndicator,
-} from "@/components/ui";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 interface Keyword {
   id: number;
@@ -61,9 +86,28 @@ interface Campaign {
   status?: string;
 }
 
+function PlatformIcon({ platform }: { platform: string }) {
+  const icons: Record<string, string> = { reddit: "🟠", quora: "🔴", facebook: "🔵", default: "🌐" };
+  return <span title={platform}>{icons[platform] || icons.default}</span>;
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const colorClass =
+    score >= 70
+      ? "text-emerald-600 border-emerald-300 bg-emerald-50"
+      : score >= 40
+        ? "text-amber-600 border-amber-300 bg-amber-50"
+        : "text-red-600 border-red-300 bg-red-50";
+  return (
+    <span className={cn("inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold", colorClass)}>
+      {score}
+    </span>
+  );
+}
+
 export default function DiscoveryPage() {
   const { token } = useAuth();
-  const toast = useToast();
+  const { success, error, warning } = useToast();
   const selectedProjectId = useSelectedProjectId();
 
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -135,8 +179,8 @@ export default function DiscoveryPage() {
       if (campRes.status === "fulfilled") {
         setCampaigns(campRes.value || []);
       }
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error(err);
     }
     setLoading(false);
   }
@@ -161,10 +205,10 @@ export default function DiscoveryPage() {
         token
       );
       setNewKeyword("");
-      toast.success("Signal added");
+      success("Signal added");
       await loadAll();
-    } catch (error: any) {
-      toast.error("Failed to add keyword", error.message);
+    } catch (err: any) {
+      error("Failed to add keyword", err.message);
     }
     setAddingKeyword(false);
   }
@@ -183,10 +227,10 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Audience signals generated");
+      success("Audience signals generated");
       await loadAll();
-    } catch (error: any) {
-      toast.error("Failed to generate", error.message);
+    } catch (err: any) {
+      error("Failed to generate", err.message);
     }
     setGeneratingKeywords(false);
   }
@@ -205,10 +249,10 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Communities discovered");
+      success("Communities discovered");
       await loadAll();
-    } catch (error: any) {
-      toast.error("Failed to discover", error.message);
+    } catch (err: any) {
+      error("Failed to discover", err.message);
     }
     setDiscoveringCommunities(false);
   }
@@ -231,10 +275,10 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Scan complete", "Check the conversation queue below.");
+      success("Scan complete", "Check the conversation queue below.");
       await loadAll();
-    } catch (error: any) {
-      toast.error("Scan failed", error.message);
+    } catch (err: any) {
+      error("Scan failed", err.message);
     }
     setScanning(false);
   }
@@ -253,9 +297,9 @@ export default function DiscoveryPage() {
       setDraftContent(res.content || "");
       setDraftRationale(res.rationale || "");
       setSelectedOpp(opportunities.find((opp) => opp.id === oppId) || null);
-      toast.success("Response drafted");
-    } catch (error: any) {
-      toast.error("Could not generate response", error.message);
+      success("Response drafted");
+    } catch (err: any) {
+      error("Could not generate response", err.message);
     }
     setGeneratingReply(null);
   }
@@ -266,17 +310,17 @@ export default function DiscoveryPage() {
     }
     try {
       await apiRequest(`/v1/discovery/${deleteTarget.type}/${deleteTarget.id}`, { method: "DELETE" }, token);
-      toast.success(`${deleteTarget.name} deleted`);
+      success(`${deleteTarget.name} deleted`);
       setDeleteTarget(null);
       await loadAll();
-    } catch (error: any) {
-      toast.error("Delete failed", error.message);
+    } catch (err: any) {
+      error("Delete failed", err.message);
     }
   }
 
   function copyToClipboard(text: string) {
     navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard");
+    success("Copied to clipboard");
   }
 
   function redditUrl(permalink: string) {
@@ -289,7 +333,7 @@ export default function DiscoveryPage() {
   function copyAndOpenReddit(text: string, permalink: string) {
     navigator.clipboard.writeText(text);
     window.open(redditUrl(permalink), "_blank");
-    toast.success("Draft copied. Reddit is opening so you can review and paste.");
+    success("Draft copied. Reddit is opening so you can review and paste.");
   }
 
   async function markAsPosted(oppId: number) {
@@ -302,36 +346,40 @@ export default function DiscoveryPage() {
         },
         token
       );
-      toast.success("Marked as posted");
+      success("Marked as posted");
       setSelectedOpp(null);
       await loadAll();
-    } catch (error: any) {
-      toast.error("Could not update status", error.message);
+    } catch (err: any) {
+      error("Could not update status", err.message);
     }
   }
 
   async function createCampaign() {
     if (!project || !newCampaignName.trim()) {
-      toast.warning("Please enter a campaign name");
+      warning("Please enter a campaign name");
       return;
     }
     setCreatingCampaign(true);
     try {
-      const campaign = await apiRequest<Campaign>("/v1/campaigns", {
-        method: "POST",
-        body: JSON.stringify({
-          project_id: project.id,
-          name: newCampaignName.trim(),
-          description: newCampaignDesc.trim() || null,
-        }),
-      }, token);
+      const campaign = await apiRequest<Campaign>(
+        "/v1/campaigns",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            project_id: project.id,
+            name: newCampaignName.trim(),
+            description: newCampaignDesc.trim() || null,
+          }),
+        },
+        token
+      );
       setCampaigns((prev) => [campaign, ...prev]);
       setNewCampaignName("");
       setNewCampaignDesc("");
       setShowCampaignModal(false);
-      toast.success("Campaign created");
-    } catch (error: any) {
-      toast.error("Failed to create campaign", error.message);
+      success("Campaign created");
+    } catch (err: any) {
+      error("Failed to create campaign", err.message);
     }
     setCreatingCampaign(false);
   }
@@ -351,356 +399,428 @@ export default function DiscoveryPage() {
 
   if (loading) {
     return (
-      <div style={{ textAlign: "center", padding: 60 }}>
-        <Spinner size="lg" />
+      <div className="flex items-center justify-center p-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   if (!project) {
     return (
-      <EmptyState
-        icon="PRJ"
-        title="No project selected"
-        description="Go to Command Center first and create a project before building an engagement workflow."
-      />
+      <div className="flex flex-col items-center justify-center p-8 text-center">
+        <div className="text-4xl">PRJ</div>
+        <h3 className="mt-4 text-lg font-medium">No project selected</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Go to Command Center first and create a project before building an engagement workflow.
+        </p>
+      </div>
     );
   }
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
+    <div className="grid gap-6">
       <div>
-        <div className="eyebrow">Engagement Workflow</div>
-        <h2 className="page-title">Engagement Radar</h2>
-        <p className="text-muted">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Engagement Workflow</p>
+        <h2 className="text-2xl font-semibold tracking-tight">Engagement Radar</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Discover live Reddit conversations now using a workflow shaped for broader forum, Q and A, and social comment patterns over time.
         </p>
       </div>
 
       {campaigns.length > 0 && (
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div className="field-label">Active Campaigns</div>
-            <button
-              className="ghost-button"
-              onClick={() => setShowCampaignModal(true)}
-              style={{ fontSize: 12, padding: "4px 8px", color: "var(--accent)" }}
-            >
-              + New Campaign
-            </button>
-          </div>
-          <div className="badge-row">
-            {campaigns.map((campaign) => (
-              <span key={campaign.id} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                {campaign.name}
-                {campaign.status && <span style={{ fontSize: 11, opacity: 0.7 }}>({campaign.status})</span>}
-              </span>
-            ))}
-          </div>
-        </div>
+        <Card>
+          <CardContent>
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-sm font-medium">Active Campaigns</Label>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setShowCampaignModal(true)}
+              >
+                + New Campaign
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {campaigns.map((campaign) => (
+                <Badge key={campaign.id} variant="secondary">
+                  {campaign.name}
+                  {campaign.status && <span className="text-[11px] opacity-70">({campaign.status})</span>}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="section-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-        <div className="card">
-          <div className="eyebrow">Signals</div>
-          <h3 style={{ marginBottom: 8 }}>{keywords.length}</h3>
-          <p>Intent phrases and topic cues that seed community discovery.</p>
-        </div>
-        <div className="card">
-          <div className="eyebrow">Coverage</div>
-          <h3 style={{ marginBottom: 8 }}>{subreddits.length}</h3>
-          <p>Monitored communities with fit, activity, and rule context.</p>
-        </div>
-        <div className="card">
-          <div className="eyebrow">Queue</div>
-          <h3 style={{ marginBottom: 8 }}>{filteredOpps.length}</h3>
-          <p>Reply-ready conversations ranked by quality and contribution fit.</p>
-        </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+        <Card>
+          <CardContent>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Signals</p>
+            <h3 className="mt-1 text-2xl font-semibold">{keywords.length}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Intent phrases and topic cues that seed community discovery.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Coverage</p>
+            <h3 className="mt-1 text-2xl font-semibold">{subreddits.length}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Monitored communities with fit, activity, and rule context.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Queue</p>
+            <h3 className="mt-1 text-2xl font-semibold">{filteredOpps.length}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Reply-ready conversations ranked by quality and contribution fit.</p>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="card">
-        <div className="card-header">
+      <Card>
+        <CardHeader>
           <div>
-            <h3 className="card-title">Pattern Direction</h3>
-            <p className="card-description">
+            <CardTitle>Pattern Direction</CardTitle>
+            <CardDescription>
               The current implementation is Reddit-native, but the workflow should support three reusable patterns: answer a question, join a discussion, and publish an original perspective.
-            </p>
+            </CardDescription>
           </div>
-          <span className="badge badge-info">Reddit live now</span>
-        </div>
-        <div className="badge-row">
-          <span className="badge">Q and A answers</span>
-          <span className="badge">Discussion replies</span>
-          <span className="badge">Original posts</span>
-        </div>
-      </div>
+          <CardAction>
+            <Badge variant="default">Reddit live now</Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">Q and A answers</Badge>
+            <Badge variant="secondary">Discussion replies</Badge>
+            <Badge variant="secondary">Original posts</Badge>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="card" style={{ padding: 20 }}>
-        <StepIndicator steps={steps} currentStep={currentStep >= 0 ? currentStep : 2} />
-      </div>
-
-      <div className="card" style={{ padding: 24 }}>
-        <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
-          <h3 className="card-title">Step 1: Audience Signals ({keywords.length})</h3>
-          <Button variant="secondary" loading={generatingKeywords} onClick={generateKeywords}>
-            Generate Signals
-          </Button>
-        </div>
-        <div className="inline-form" style={{ marginBottom: 16 }}>
-          <input
-            type="text"
-            value={newKeyword}
-            onChange={(event) => setNewKeyword(event.target.value)}
-            placeholder="Add a market phrase or audience signal"
-            onKeyDown={(event) => event.key === "Enter" && void addKeyword()}
-          />
-          <Button loading={addingKeyword} onClick={addKeyword}>
-            Add Signal
-          </Button>
-        </div>
-        {keywords.length > 0 && (
-          <div className="badge-row">
-            {keywords.map((keyword) => (
-              <span key={keyword.id} className="badge" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                {keyword.keyword}
-                <button
-                  onClick={() => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      <Card>
+        <CardContent>
+          {/* Step Indicator */}
+          <div className="flex items-center gap-2">
+            {steps.map((s, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                    s.done
+                      ? "bg-primary text-primary-foreground"
+                      : i === currentStep
+                        ? "bg-primary/10 text-primary ring-2 ring-primary/30"
+                        : "bg-muted text-muted-foreground"
+                  )}
                 >
-                  x
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="card" style={{ padding: 24 }}>
-        <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
-          <h3 className="card-title">Step 2: Community Coverage ({subreddits.length})</h3>
-          <Button
-            variant="secondary"
-            loading={discoveringCommunities}
-            onClick={discoverCommunities}
-            disabled={keywords.length === 0}
-          >
-            Discover Communities
-          </Button>
-        </div>
-        {subreddits.length === 0 ? (
-          <p className="text-muted">Add audience signals first, then discover communities that match those intents.</p>
-        ) : (
-          <div className="badge-row">
-            {subreddits.map((community) => (
-              <span key={community.id} className="badge">
-                r/{community.name}
-                {community.fit_score !== undefined ? ` (${community.fit_score})` : ""}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="card" style={{ padding: 24 }}>
-        <div className="flex justify-between items-center" style={{ marginBottom: 16 }}>
-          <h3 className="card-title">Step 3: Conversation Queue ({filteredOpps.length})</h3>
-          <div className="flex gap-sm">
-            {campaigns.length > 0 && (
-              <select value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)} style={{ minWidth: 120 }}>
-                <option value="">All Campaigns</option>
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            )}
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={{ minWidth: 140 }}>
-              <option value="">All Statuses</option>
-              <option value="new">New</option>
-              <option value="saved">Saved</option>
-              <option value="drafting">Drafting</option>
-              <option value="posted">Posted</option>
-              <option value="ignored">Ignored</option>
-            </select>
-            <Button loading={scanning} onClick={runScan} disabled={subreddits.length === 0}>
-              {scanning ? "Scanning" : "Run Scan"}
-            </Button>
-          </div>
-        </div>
-
-        {filteredOpps.length === 0 ? (
-          <EmptyState
-            icon="Q"
-            title={opportunities.length === 0 ? "No conversations found yet" : "No matches for this filter"}
-            description={
-              opportunities.length === 0
-                ? "Add signals, discover communities, then scan for reply-ready discussions."
-                : "Try changing the status filter."
-            }
-          />
-        ) : (
-          <div className="item-list">
-            {filteredOpps.map((opp) => (
-              <div key={opp.id} className="list-row">
-                <div className="flex justify-between items-center">
-                  <div style={{ flex: 1 }}>
-                    <div className="flex items-center gap-sm">
-                      <PlatformIcon platform="reddit" />
-                      <span className="badge">Live Source</span>
-                      <a
-                        href={redditUrl(opp.permalink)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontWeight: 600, color: "var(--ink)" }}
-                      >
-                        {opp.title}
-                      </a>
-                    </div>
-                    <div className="badge-row" style={{ marginTop: 8 }}>
-                      <span className="badge">r/{opp.subreddit_name}</span>
-                      {(opp.score_reasons || []).slice(0, 2).map((reason) => (
-                        <span key={reason} className="badge">
-                          {reason}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex gap-sm items-center">
-                    <ScoreBadge score={opp.score || 0} />
-                    <Button
-                      variant="primary"
-                      loading={generatingReply === opp.id}
-                      onClick={() => generateReply(opp.id)}
-                    >
-                      Draft Response
-                    </Button>
-                  </div>
+                  {s.done ? "\u2713" : i + 1}
                 </div>
-                {opp.body_excerpt && (
-                  <p className="text-muted" style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5 }}>
-                    {opp.body_excerpt.substring(0, 220)}...
-                  </p>
+                {i < steps.length - 1 && (
+                  <div
+                    className={cn(
+                      "h-0.5 w-8",
+                      s.done ? "bg-primary" : "bg-muted"
+                    )}
+                  />
                 )}
               </div>
             ))}
           </div>
-        )}
-      </div>
+          <div className="mt-2 flex gap-6">
+            {steps.map((s, i) => (
+              <span key={i} className="text-xs text-muted-foreground">{s.label}</span>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-      <Drawer
-        open={!!selectedOpp}
-        onClose={() => setSelectedOpp(null)}
-        title={`Draft Response: ${selectedOpp?.title?.substring(0, 52) || ""}`}
-        footer={
-          <div className="flex gap-md" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-            <a href="/app/content" className="ghost-button" style={{ textDecoration: "none" }}>
-              Review in Studio
-            </a>
-            <button className="secondary-button" onClick={() => copyToClipboard(draftContent)}>
-              Copy
-            </button>
+      <Card>
+        <CardContent>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-medium">Step 1: Audience Signals ({keywords.length})</h3>
+            <Button variant="outline" onClick={generateKeywords} disabled={generatingKeywords}>
+              {generatingKeywords && <Loader2 className="h-4 w-4 animate-spin" />}
+              Generate Signals
+            </Button>
+          </div>
+          <div className="flex gap-2 mb-4">
+            <Input
+              type="text"
+              value={newKeyword}
+              onChange={(event) => setNewKeyword(event.target.value)}
+              placeholder="Add a market phrase or audience signal"
+              onKeyDown={(event) => event.key === "Enter" && void addKeyword()}
+              className="flex-1"
+            />
+            <Button onClick={addKeyword} disabled={addingKeyword}>
+              {addingKeyword && <Loader2 className="h-4 w-4 animate-spin" />}
+              Add Signal
+            </Button>
+          </div>
+          {keywords.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {keywords.map((keyword) => (
+                <Badge key={keyword.id} variant="secondary" className="inline-flex items-center gap-1.5">
+                  {keyword.keyword}
+                  <button
+                    onClick={() => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    x
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-medium">Step 2: Community Coverage ({subreddits.length})</h3>
+            <Button
+              variant="outline"
+              onClick={discoverCommunities}
+              disabled={discoveringCommunities || keywords.length === 0}
+            >
+              {discoveringCommunities && <Loader2 className="h-4 w-4 animate-spin" />}
+              Discover Communities
+            </Button>
+          </div>
+          {subreddits.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Add audience signals first, then discover communities that match those intents.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {subreddits.map((community) => (
+                <Badge key={community.id} variant="secondary">
+                  r/{community.name}
+                  {community.fit_score !== undefined ? ` (${community.fit_score})` : ""}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-medium">Step 3: Conversation Queue ({filteredOpps.length})</h3>
+            <div className="flex gap-2">
+              {campaigns.length > 0 && (
+                <select
+                  value={campaignFilter}
+                  onChange={(event) => setCampaignFilter(event.target.value)}
+                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <option value="">All Campaigns</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <option value="">All Statuses</option>
+                <option value="new">New</option>
+                <option value="saved">Saved</option>
+                <option value="drafting">Drafting</option>
+                <option value="posted">Posted</option>
+                <option value="ignored">Ignored</option>
+              </select>
+              <Button onClick={runScan} disabled={scanning || subreddits.length === 0}>
+                {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
+                {scanning ? "Scanning" : "Run Scan"}
+              </Button>
+            </div>
+          </div>
+
+          {filteredOpps.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="text-4xl">Q</div>
+              <h3 className="mt-4 text-lg font-medium">
+                {opportunities.length === 0 ? "No conversations found yet" : "No matches for this filter"}
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {opportunities.length === 0
+                  ? "Add signals, discover communities, then scan for reply-ready discussions."
+                  : "Try changing the status filter."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredOpps.map((opp) => (
+                <div key={opp.id} className="rounded-lg border bg-card p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <PlatformIcon platform="reddit" />
+                        <Badge variant="secondary">Live Source</Badge>
+                        <a
+                          href={redditUrl(opp.permalink)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-foreground truncate hover:underline"
+                        >
+                          {opp.title}
+                        </a>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge variant="outline">r/{opp.subreddit_name}</Badge>
+                        {(opp.score_reasons || []).slice(0, 2).map((reason) => (
+                          <Badge key={reason} variant="outline">
+                            {reason}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-4">
+                      <ScoreBadge score={opp.score || 0} />
+                      <Button
+                        onClick={() => generateReply(opp.id)}
+                        disabled={generatingReply === opp.id}
+                      >
+                        {generatingReply === opp.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                        Draft Response
+                      </Button>
+                    </div>
+                  </div>
+                  {opp.body_excerpt && (
+                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                      {opp.body_excerpt.substring(0, 220)}...
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Reply Draft Sheet */}
+      <Sheet open={!!selectedOpp} onOpenChange={(open) => !open && setSelectedOpp(null)}>
+        <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Draft Response: {selectedOpp?.title?.substring(0, 52) || ""}</SheetTitle>
+            <SheetDescription>Edit and manage your generated reply draft.</SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-4">
             {selectedOpp?.permalink && (
-              <Button variant="primary" onClick={() => copyAndOpenReddit(draftContent, selectedOpp.permalink)}>
+              <div className="mb-4 rounded-lg bg-muted p-3">
+                <a
+                  href={redditUrl(selectedOpp.permalink)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  View original Reddit thread {"->"}
+                </a>
+                {selectedOpp.body_excerpt && (
+                  <p className="mt-2 text-xs text-muted-foreground leading-snug">
+                    {selectedOpp.body_excerpt.substring(0, 220)}...
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Generated Response</Label>
+              <Textarea
+                rows={10}
+                value={draftContent}
+                onChange={(event) => setDraftContent(event.target.value)}
+                className="text-sm leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground">{draftContent.length} characters</p>
+            </div>
+            {draftRationale && (
+              <div className="mt-4 rounded-lg bg-muted p-4">
+                <h4 className="text-sm font-medium">Why this response works</h4>
+                <p className="mt-1 text-sm text-muted-foreground">{draftRationale}</p>
+              </div>
+            )}
+          </div>
+
+          <SheetFooter className="flex-row flex-wrap justify-end gap-2">
+            <a href="/app/content">
+              <Button variant="ghost">Review in Studio</Button>
+            </a>
+            <Button variant="outline" onClick={() => copyToClipboard(draftContent)}>
+              Copy
+            </Button>
+            {selectedOpp?.permalink && (
+              <Button onClick={() => copyAndOpenReddit(draftContent, selectedOpp.permalink)}>
                 Copy and Open on Reddit
               </Button>
             )}
-            <Button variant="secondary" onClick={() => selectedOpp && markAsPosted(selectedOpp.id)}>
+            <Button variant="outline" onClick={() => selectedOpp && markAsPosted(selectedOpp.id)}>
               Mark as Posted
             </Button>
-          </div>
-        }
-      >
-        {selectedOpp?.permalink && (
-          <div style={{ marginBottom: 16, padding: 12, background: "var(--surface)", borderRadius: 8 }}>
-            <a
-              href={redditUrl(selectedOpp.permalink)}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "var(--accent)", fontWeight: 500, fontSize: 13 }}
-            >
-              View original Reddit thread {"->"}
-            </a>
-            {selectedOpp.body_excerpt && (
-              <p className="text-muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.4 }}>
-                {selectedOpp.body_excerpt.substring(0, 220)}...
-              </p>
-            )}
-          </div>
-        )}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
-        <div className="field">
-          <label className="field-label">Generated Response</label>
-          <textarea
-            rows={10}
-            value={draftContent}
-            onChange={(event) => setDraftContent(event.target.value)}
-            style={{ fontSize: 13, lineHeight: 1.5 }}
-          />
-          <p className="field-help">{draftContent.length} characters</p>
-        </div>
-        {draftRationale && (
-          <div className="card" style={{ backgroundColor: "var(--surface)", marginTop: 12, padding: 16 }}>
-            <h4 className="field-label">Why this response works</h4>
-            <p className="text-muted" style={{ fontSize: 13 }}>{draftRationale}</p>
-          </div>
-        )}
-      </Drawer>
+      {/* Delete Confirm */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleteTarget?.name || ""}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. Are you sure?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteItem} variant="destructive">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <ConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={deleteItem}
-        title={`Delete ${deleteTarget?.name || ""}?`}
-        message="This action cannot be undone. Are you sure?"
-        confirmText="Delete"
-        danger
-      />
-
-      {showCampaignModal && (
-        <div className="modal-overlay" onClick={() => setShowCampaignModal(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Create Campaign</h3>
-              <button className="ghost-button modal-close" onClick={() => setShowCampaignModal(false)}>
-                x
-              </button>
+      {/* Create Campaign Dialog */}
+      <Dialog open={showCampaignModal} onOpenChange={setShowCampaignModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Campaign</DialogTitle>
+            <DialogDescription>Set up a new engagement campaign for your project.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Campaign Name</Label>
+              <Input
+                type="text"
+                value={newCampaignName}
+                onChange={(e) => setNewCampaignName(e.target.value)}
+                placeholder="e.g., Q4 Engagement"
+              />
             </div>
-            <div className="modal-body">
-              <div className="field">
-                <label className="field-label">Campaign Name</label>
-                <input
-                  type="text"
-                  value={newCampaignName}
-                  onChange={(e) => setNewCampaignName(e.target.value)}
-                  placeholder="e.g., Q4 Engagement"
-                />
-              </div>
-              <div className="field" style={{ marginTop: 12 }}>
-                <label className="field-label">Description</label>
-                <textarea
-                  rows={3}
-                  value={newCampaignDesc}
-                  onChange={(e) => setNewCampaignDesc(e.target.value)}
-                  placeholder="What is this campaign focused on?"
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
-                <button className="secondary-button" onClick={() => setShowCampaignModal(false)}>
-                  Cancel
-                </button>
-                <button
-                  className="primary-button"
-                  onClick={() => void createCampaign()}
-                  disabled={creatingCampaign}
-                >
-                  {creatingCampaign ? "Creating..." : "Create Campaign"}
-                </button>
-              </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                rows={3}
+                value={newCampaignDesc}
+                onChange={(e) => setNewCampaignDesc(e.target.value)}
+                placeholder="What is this campaign focused on?"
+              />
             </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCampaignModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void createCampaign()} disabled={creatingCampaign}>
+              {creatingCampaign && <Loader2 className="h-4 w-4 animate-spin" />}
+              {creatingCampaign ? "Creating..." : "Create Campaign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

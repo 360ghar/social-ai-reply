@@ -1,11 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
-import { EmptyState, KpiCard, Skeleton } from "@/components/ui";
+import { Loader2 } from "lucide-react";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
 import { apiRequest } from "@/lib/api";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { withProjectId } from "@/lib/project";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 
 interface AnalyticsOverview {
   visibility_score: number;
@@ -59,7 +62,7 @@ function formatActivityLabel(event: ActivityEvent) {
 
 export default function AnalyticsPage() {
   const { token } = useAuth();
-  const toast = useToast();
+  const { success, error } = useToast();
   const selectedProjectId = useSelectedProjectId();
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
@@ -121,7 +124,7 @@ export default function AnalyticsPage() {
       if (activityRes.status === "fulfilled") setActivity(activityRes.value.items || []);
     } catch (e: any) {
       console.error("Analytics load failed:", e);
-      toast.error("Failed to load analytics", e?.message);
+      error("Failed to load analytics", e?.message);
     }
     setLoading(false);
   }
@@ -129,13 +132,13 @@ export default function AnalyticsPage() {
   if (loading) {
     return (
       <div>
-        <h2 className="page-title" style={{ marginBottom: 24 }}>Analytics</h2>
-        <div className="data-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 32, gap: 16 }}>
+        <h2 className="text-2xl font-semibold mb-6">Analytics</h2>
+        <div className="grid grid-cols-4 gap-4 mb-8">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="card" style={{ padding: 16 }}>
-              <Skeleton height={32} width="60%" style={{ marginBottom: 8 }} />
-              <Skeleton height={12} width="100%" />
-            </div>
+            <Card key={i} className="p-4">
+              <Skeleton className="h-8 w-3/5 mb-2" />
+              <Skeleton className="h-3 w-full" />
+            </Card>
           ))}
         </div>
       </div>
@@ -146,7 +149,7 @@ export default function AnalyticsPage() {
   const lastTrendPoint = trendData[trendData.length - 1]?.visibility_score ?? overview?.visibility_score ?? 0;
   const visibilityTrend = Math.round((lastTrendPoint - firstTrendPoint) * 10) / 10;
   const trendDir = visibilityTrend >= 0 ? "↑" : "↓";
-  const trendColor = visibilityTrend >= 0 ? "var(--success)" : "var(--error)";
+  const trendColor = visibilityTrend >= 0 ? "text-emerald-600" : "text-destructive";
 
   // Max values for bar heights
   const maxTrendScore = Math.max(...trendData.map(d => d.visibility_score), 100);
@@ -165,15 +168,15 @@ export default function AnalyticsPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="page-title">Analytics Dashboard</h2>
-          <p className="text-muted">Track visibility trends, engagement funnel, and performance metrics.</p>
+          <h2 className="text-2xl font-semibold">Analytics Dashboard</h2>
+          <p className="text-muted-foreground">Track visibility trends, engagement funnel, and performance metrics.</p>
         </div>
         <select
           value={dateRange}
           onChange={e => setDateRange(e.target.value as any)}
-          style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 13 }}
+          className="rounded-lg border px-3 py-2 text-[13px]"
         >
           <option value="7d">Last 7 days</option>
           <option value="30d">Last 30 days</option>
@@ -183,38 +186,41 @@ export default function AnalyticsPage() {
       </div>
 
       {/* KPI Row */}
-      <div className="data-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 32, gap: 16 }}>
-        <div className="kpi-card card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 28, fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>
+      <div className="grid grid-cols-4 gap-4 mb-8">
+        <Card className="p-4">
+          <div className="text-[28px] font-bold text-primary mb-1">
             {overview?.visibility_score || 0}%
-            <span style={{ fontSize: 16, color: trendColor, marginLeft: 8 }}>
+            <span className={`text-base ml-2 ${trendColor}`}>
               {trendDir} {Math.abs(visibilityTrend)} pts
             </span>
           </div>
-          <div className="text-muted" style={{ fontSize: 13 }}>Visibility Score</div>
-        </div>
-        <KpiCard label="Opportunities Found" value={overview?.total_opportunities || 0} />
-        <KpiCard label="Drafts Created" value={overview?.total_drafts || 0} />
-        <KpiCard label="Posts Published" value={overview?.total_published || 0} />
+          <div className="text-[13px] text-muted-foreground">Visibility Score</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{overview?.total_opportunities || 0}</div>
+          <div className="text-xs text-muted-foreground">Opportunities Found</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{overview?.total_drafts || 0}</div>
+          <div className="text-xs text-muted-foreground">Drafts Created</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{overview?.total_published || 0}</div>
+          <div className="text-xs text-muted-foreground">Posts Published</div>
+        </Card>
       </div>
 
       {/* Section 1: Visibility Trend Chart (CSS bars) */}
-      <div className="card" style={{ padding: 20, marginBottom: 24 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Visibility Score Trend</h3>
+      <Card className="p-5 mb-6">
+        <h3 className="text-sm font-semibold mb-4">Visibility Score Trend</h3>
         {trendData.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)" }}>
-            <p style={{ fontSize: 13 }}>No trend data available yet</p>
+          <div className="text-center py-10 text-muted-foreground">
+            <p className="text-[13px]">No trend data available yet</p>
           </div>
         ) : (
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "auto 1fr",
-            gap: 16,
-            alignItems: "flex-end",
-            height: 200
-          }}>
+          <div className="grid grid-cols-[auto_1fr] gap-4 items-end h-[200px]">
             {/* Y-axis labels */}
-            <div style={{ display: "flex", flexDirection: "column-reverse", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
+            <div className="flex flex-col-reverse justify-between text-[11px] text-muted-foreground">
               <span>0</span>
               <span>25</span>
               <span>50</span>
@@ -222,41 +228,27 @@ export default function AnalyticsPage() {
               <span>100</span>
             </div>
             {/* Chart bars */}
-            <div style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "flex-end",
-              height: "100%",
-              borderBottom: "1px solid var(--border)",
-              paddingBottom: 8
-            }}>
+            <div className="flex gap-3 items-end h-full border-b pb-2">
               {trendData.slice(-30).map((d, i) => (
                 <div
                   key={i}
                   title={`${d.date || "Unknown date"}: ${d.visibility_score}`}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    height: `${(d.visibility_score / maxTrendScore) * 100}%`,
-                    backgroundColor: "var(--accent)",
-                    borderRadius: "2px 2px 0 0",
-                    opacity: 0.8,
-                    minHeight: 2
-                  }}
+                  className="flex-1 min-w-0 min-h-[2px] bg-primary/80 rounded-t-sm"
+                  style={{ height: `${(d.visibility_score / maxTrendScore) * 100}%` }}
                 />
               ))}
             </div>
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Section 2: Engagement Funnel */}
-      <div className="card" style={{ padding: 20, marginBottom: 24 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Engagement Funnel</h3>
-        <p className="text-muted" style={{ fontSize: 12, marginBottom: 16 }}>
+      <Card className="p-5 mb-6">
+        <h3 className="text-sm font-semibold mb-4">Engagement Funnel</h3>
+        <p className="text-xs text-muted-foreground mb-4">
           Based on opportunity status counts and {engagementData?.total_scans || 0} total scans.
         </p>
-        <div style={{ display: "grid", gap: 16 }}>
+        <div className="space-y-4">
           {[
             { label: "Opportunities", value: funnelOpp, width: 100 },
             { label: "Saved", value: funnelSaved, width: (funnelSaved / funnelOpp) * 100 || 0, conv: conv1 },
@@ -264,76 +256,46 @@ export default function AnalyticsPage() {
             { label: "Published", value: funnelPost, width: (funnelPost / funnelOpp) * 100 || 0, conv: conv3 },
           ].map((stage, i) => (
             <div key={i}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{stage.label}</span>
-                <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-[13px] font-semibold">{stage.label}</span>
+                <div className="flex gap-2 text-xs">
                   <span><strong>{stage.value}</strong></span>
-                  {stage.conv !== undefined && <span className="text-muted">{stage.conv}% conversion</span>}
+                  {stage.conv !== undefined && <span className="text-muted-foreground">{stage.conv}% conversion</span>}
                 </div>
               </div>
-              <div style={{
-                width: "100%",
-                height: 32,
-                backgroundColor: "var(--surface)",
-                borderRadius: 6,
-                overflow: "hidden"
-              }}>
-                <div style={{
-                  width: `${Math.min(stage.width, 100)}%`,
-                  height: "100%",
-                  background: `linear-gradient(90deg, var(--accent), var(--indigo))`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "white",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  transition: "width 0.3s ease"
-                }}>
+              <div className="w-full h-8 bg-muted rounded-md overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-indigo-500 flex items-center justify-center text-white text-xs font-semibold transition-[width] duration-300"
+                  style={{ width: `${Math.min(stage.width, 100)}%` }}
+                >
                   {Math.round(stage.width)}%
                 </div>
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
 
       {/* Section 3: Two columns - Keywords & Subreddits */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+      <div className="grid grid-cols-2 gap-6 mb-6">
         {/* Left: Top Keywords */}
-        <div className="card" style={{ padding: 20 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Top Keywords by Priority Score</h3>
+        <Card className="p-5">
+          <h3 className="text-sm font-semibold mb-4">Top Keywords by Priority Score</h3>
           {keywords.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}>
-              <p style={{ fontSize: 13 }}>No keyword data yet</p>
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-[13px]">No keyword data yet</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="space-y-3">
               {keywords.slice(0, 8).map((k, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
-                  <span style={{ fontWeight: 600, minWidth: 30 }}>{i + 1}</span>
-                  <span style={{ flex: 1 }}>{k.keyword}</span>
-                  <div style={{
-                    width: 60,
-                    height: 24,
-                    backgroundColor: "var(--surface)",
-                    borderRadius: 4,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden"
-                  }}>
-                    <div style={{
-                      width: `${(k.priority_score / maxKeywords) * 100}%`,
-                      height: "100%",
-                      backgroundColor: "var(--accent)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "white",
-                      fontSize: 11,
-                      fontWeight: 600
-                    }}>
+                <div key={i} className="flex items-center gap-3 text-[13px]">
+                  <span className="font-semibold min-w-[30px]">{i + 1}</span>
+                  <span className="flex-1">{k.keyword}</span>
+                  <div className="w-[60px] h-6 bg-muted rounded flex items-center justify-center overflow-hidden">
+                    <div
+                      className="h-full bg-primary flex items-center justify-center text-white text-[11px] font-semibold"
+                      style={{ width: `${(k.priority_score / maxKeywords) * 100}%` }}
+                    >
                       {k.priority_score > 0 ? Math.round(k.priority_score) : ""}
                     </div>
                   </div>
@@ -341,42 +303,26 @@ export default function AnalyticsPage() {
               ))}
             </div>
           )}
-        </div>
+        </Card>
 
         {/* Right: Top Subreddits */}
-        <div className="card" style={{ padding: 20 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Top Subreddits by Fit Score</h3>
+        <Card className="p-5">
+          <h3 className="text-sm font-semibold mb-4">Top Subreddits by Fit Score</h3>
           {subreddits.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}>
-              <p style={{ fontSize: 13 }}>No subreddit data yet</p>
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-[13px]">No subreddit data yet</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="space-y-3">
               {subreddits.slice(0, 8).map((s, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
-                  <span style={{ fontWeight: 600, minWidth: 30 }}>{i + 1}</span>
-                  <span style={{ flex: 1 }}>r/{s.name}</span>
-                  <div style={{
-                    width: 60,
-                    height: 24,
-                    backgroundColor: "var(--surface)",
-                    borderRadius: 4,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden"
-                  }}>
-                    <div style={{
-                      width: `${(s.fit_score / maxSubreddits) * 100}%`,
-                      height: "100%",
-                      backgroundColor: "var(--accent)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "white",
-                      fontSize: 11,
-                      fontWeight: 600
-                    }}>
+                <div key={i} className="flex items-center gap-3 text-[13px]">
+                  <span className="font-semibold min-w-[30px]">{i + 1}</span>
+                  <span className="flex-1">r/{s.name}</span>
+                  <div className="w-[60px] h-6 bg-muted rounded flex items-center justify-center overflow-hidden">
+                    <div
+                      className="h-full bg-primary flex items-center justify-center text-white text-[11px] font-semibold"
+                      style={{ width: `${(s.fit_score / maxSubreddits) * 100}%` }}
+                    >
                       {Math.round(s.fit_score)}
                     </div>
                   </div>
@@ -384,51 +330,37 @@ export default function AnalyticsPage() {
               ))}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Section 4: Recent Activity Timeline */}
-      <div className="card" style={{ padding: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Recent Activity</h3>
+      <Card className="p-5">
+        <h3 className="text-sm font-semibold mb-4">Recent Activity</h3>
         {activity.length === 0 ? (
-          <EmptyState
-            icon="📊"
-            title="No activity yet"
-            description="Analytics data will appear as you use the platform. Run your first scan to get started."
-          />
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <span className="text-2xl mb-2">📊</span>
+            <p className="font-medium">No activity yet</p>
+            <p className="text-sm text-muted-foreground mt-1">Analytics data will appear as you use the platform. Run your first scan to get started.</p>
+          </div>
         ) : (
-          <div style={{ display: "grid", gap: 12 }}>
+          <div className="space-y-3">
             {activity.slice(0, 12).map(evt => (
               <div
                 key={evt.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: 12,
-                  backgroundColor: "var(--surface)",
-                  borderRadius: 8,
-                  fontSize: 13
-                }}
+                className="flex items-center gap-3 p-3 bg-muted rounded-lg text-[13px]"
               >
-                <div style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  backgroundColor: "var(--accent)",
-                  flexShrink: 0
-                }} />
-                <div style={{ flex: 1 }}>
+                <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                <div className="flex-1">
                   <strong>{formatActivityLabel(evt)}</strong>
                 </div>
-                <div className="text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                <div className="text-xs text-muted-foreground whitespace-nowrap">
                   {evt.created_at ? new Date(evt.created_at).toLocaleString() : ""}
                 </div>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

@@ -1,14 +1,18 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
-import { ToastProvider, useToast } from "@/components/toast";
-import { Button } from "@/components/ui";
+import Link from "next/link";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 
 function RegisterForm() {
   const router = useRouter();
   const { register } = useAuth();
-  const toast = useToast();
+  const { success, error, warning } = useToast();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,11 +22,11 @@ function RegisterForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !password || !workspace.trim()) {
-      toast.warning("All fields are required.");
+      warning("All fields are required.");
       return;
     }
     if (password.length < 8) {
-      toast.warning("Password must be at least 8 characters.");
+      warning("Password must be at least 8 characters.");
       return;
     }
     setLoading(true);
@@ -33,30 +37,28 @@ function RegisterForm() {
         password,
         workspaceName: workspace.trim(),
       });
-      toast.success("Account created!", "Let's set up your brand.");
+      success("Account created!", "Let's set up your brand.");
       router.push("/app/dashboard");
     } catch (e: any) {
-      toast.error("Registration failed", e.message || "Could not create account.");
+      error("Registration failed", e.message || "Could not create account.");
     }
     setLoading(false);
   }
 
   return (
-    <div className="auth-shell">
-      <div className="auth-card">
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h2 style={{ color: "var(--accent)", fontWeight: 800, fontSize: 24, marginBottom: 4 }}>
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-sm">
+        <div className="mb-8 text-center">
+          <h2 className="mb-1 text-2xl font-extrabold text-primary">
             RedditFlow
           </h2>
-          <p className="text-muted">Create your free account</p>
+          <p className="text-muted-foreground">Create your free account</p>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="field">
-            <label className="field-label" htmlFor="name">
-              Full Name
-            </label>
-            <input
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Full Name</Label>
+            <Input
               id="name"
               type="text"
               value={fullName}
@@ -65,11 +67,9 @@ function RegisterForm() {
               required
             />
           </div>
-          <div className="field">
-            <label className="field-label" htmlFor="email">
-              Email
-            </label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
               id="email"
               type="email"
               value={email}
@@ -78,11 +78,9 @@ function RegisterForm() {
               required
             />
           </div>
-          <div className="field">
-            <label className="field-label" htmlFor="password">
-              Password
-            </label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
               id="password"
               type="password"
               value={password}
@@ -91,13 +89,13 @@ function RegisterForm() {
               required
               minLength={8}
             />
-            <p className="field-help">Must be at least 8 characters</p>
+            <p className="text-xs text-muted-foreground">
+              Must be at least 8 characters
+            </p>
           </div>
-          <div className="field">
-            <label className="field-label" htmlFor="workspace">
-              Workspace Name
-            </label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="workspace">Workspace Name</Label>
+            <Input
               id="workspace"
               type="text"
               value={workspace}
@@ -105,18 +103,24 @@ function RegisterForm() {
               placeholder="Your company name"
               required
             />
-            <p className="field-help">This is your team's shared workspace</p>
+            <p className="text-xs text-muted-foreground">
+              This is your team&apos;s shared workspace
+            </p>
           </div>
-          <Button type="submit" loading={loading} style={{ width: "100%", marginTop: 8 }}>
+          <Button type="submit" disabled={loading} className="mt-2 w-full">
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Create Account
           </Button>
         </form>
 
-        <p style={{ textAlign: "center", marginTop: 24, fontSize: 13 }}>
+        <p className="mt-6 text-center text-[13px]">
           Already have an account?{" "}
-          <a href="/login" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+          <Link
+            href="/login"
+            className="font-semibold text-primary hover:underline"
+          >
             Sign in
-          </a>
+          </Link>
         </p>
       </div>
     </div>
@@ -124,9 +128,5 @@ function RegisterForm() {
 }
 
 export default function RegisterPage() {
-  return (
-    <ToastProvider>
-      <RegisterForm />
-    </ToastProvider>
-  );
+  return <RegisterForm />;
 }

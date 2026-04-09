@@ -1,11 +1,35 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useToast } from "../../../components/toast";
-import { ConfirmModal } from "../../../components/modal";
-import { Button, EmptyState, Tabs } from "../../../components/ui";
-import { useAuth } from "../../../components/auth-provider";
-import { apiRequest, type SecretRecord, type WebhookEndpoint } from "../../../lib/api";
+import { useToast } from "@/stores/toast";
+import { useAuth } from "@/components/auth/auth-provider";
+import { apiRequest, type SecretRecord, type WebhookEndpoint } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Trash2, ExternalLink } from "lucide-react";
 
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];
@@ -110,7 +134,6 @@ export default function SettingsPage() {
   async function saveGeneralSettings() {
     setLoading(true);
     try {
-      // Mock API call - replace with actual endpoint
       await new Promise((resolve) => setTimeout(resolve, 500));
       toast.success("Settings saved", "Your workspace settings have been updated");
     } catch (err) {
@@ -234,7 +257,6 @@ export default function SettingsPage() {
   async function exportData() {
     setLoading(true);
     try {
-      // Mock export
       await new Promise((resolve) => setTimeout(resolve, 800));
       toast.success("Export started", "Check your email for the data export file");
     } catch (err) {
@@ -264,404 +286,490 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="card">
-      <div className="eyebrow">Settings</div>
-      <h1>Workspace Settings</h1>
+    <Card className="p-6">
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Settings
+      </div>
+      <h1 className="mb-6 text-lg font-semibold text-foreground">Workspace Settings</h1>
 
-      <Tabs
-        tabs={[
-          { key: "general", label: "General" },
-          { key: "reddit", label: "Reddit", count: redditAccounts.length },
-          { key: "api-keys", label: "API Keys", count: secrets.length },
-          { key: "integrations", label: "Integrations", count: webhooks.length },
-          { key: "danger", label: "Danger Zone" },
-        ]}
-        active={activeTab}
-        onChange={setActiveTab}
-      />
-
-      {/* GENERAL TAB */}
-      {activeTab === "general" && (
-        <div style={{ marginTop: 24 }}>
-          <section style={{ marginBottom: 32 }}>
-            <h3 style={{ marginBottom: 16 }}>Workspace</h3>
-            <label className="field">
-              <span>Workspace name</span>
-              <input
-                value={workspaceName}
-                onChange={(e) => setWorkspaceName(e.target.value)}
-                placeholder="My Workspace"
-              />
-            </label>
-          </section>
-
-          <section style={{ marginBottom: 32 }}>
-            <h3 style={{ marginBottom: 16 }}>User Profile</h3>
-            <label className="field">
-              <span>Full name</span>
-              <input
-                value={userProfile.name}
-                onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })}
-                placeholder="Your name"
-              />
-            </label>
-            <label className="field" style={{ marginTop: 12 }}>
-              <span>Email</span>
-              <input
-                type="email"
-                value={userProfile.email}
-                onChange={(e) => setUserProfile({ ...userProfile, email: e.target.value })}
-                placeholder="your@email.com"
-                disabled
-              />
-            </label>
-          </section>
-
-          <section style={{ marginBottom: 32 }}>
-            <h3 style={{ marginBottom: 16 }}>Notifications</h3>
-            <label className="field" style={{ marginBottom: 12 }}>
-              <input
-                type="checkbox"
-                checked={notifications.emailNotifications}
-                onChange={(e) =>
-                  setNotifications({ ...notifications, emailNotifications: e.target.checked })
-                }
-              />
-              <span>Email notifications</span>
-            </label>
-            <label className="field" style={{ marginBottom: 12 }}>
-              <input
-                type="checkbox"
-                checked={notifications.digestEmail}
-                onChange={(e) =>
-                  setNotifications({ ...notifications, digestEmail: e.target.checked })
-                }
-              />
-              <span>Weekly digest email</span>
-            </label>
-            <label className="field">
-              <input
-                type="checkbox"
-                checked={notifications.slackNotifications}
-                onChange={(e) =>
-                  setNotifications({ ...notifications, slackNotifications: e.target.checked })
-                }
-              />
-              <span>Slack notifications</span>
-            </label>
-          </section>
-
-          <div className="action-row" style={{ justifyContent: "flex-start" }}>
-            <Button variant="primary" onClick={saveGeneralSettings} loading={loading}>
-              Save changes
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* REDDIT TAB */}
-      {activeTab === "reddit" && (
-        <div style={{ marginTop: 24 }}>
-          <section style={{ marginBottom: 32 }}>
-            <h3 style={{ marginBottom: 16 }}>Reddit Accounts</h3>
-            {redditAccounts.length === 0 ? (
-              <EmptyState
-                icon="🔗"
-                title="No Reddit accounts connected"
-                description="Connect a Reddit account to enable automated posting and engagement"
-                action={
-                  <Button loading={connectingReddit} onClick={() => void connectReddit()}>
-                    Connect Reddit Account
-                  </Button>
-                }
-              />
-            ) : (
-              <div style={{ display: "grid", gap: 12 }}>
-                {redditAccounts.map((account) => (
-                  <div key={account.id} className="card" style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>@{account.username}</div>
-                      {account.karma !== undefined && <p className="text-muted" style={{ fontSize: 12 }}>Karma: {account.karma}</p>}
-                      {account.connected_at && (
-                        <p className="text-muted" style={{ fontSize: 12 }}>
-                          Connected: {new Date(account.connected_at).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="danger"
-                      onClick={() => void disconnectReddit(account.id)}
-                      loading={disconnectingReddit === account.id}
-                      style={{ padding: "6px 12px", fontSize: 13 }}
-                    >
-                      Disconnect
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  variant="secondary"
-                  onClick={() => void connectReddit()}
-                  loading={connectingReddit}
-                  style={{ marginTop: 12 }}
-                >
-                  Connect Additional Account
-                </Button>
-              </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="reddit">
+            Reddit
+            {redditAccounts.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">{redditAccounts.length}</Badge>
             )}
-          </section>
-        </div>
-      )}
-
-      {/* API KEYS TAB */}
-      {activeTab === "api-keys" && (
-        <div style={{ marginTop: 24 }}>
-          <section style={{ marginBottom: 32 }}>
-            <h3 style={{ marginBottom: 16 }}>Add API Key</h3>
-            <form onSubmit={createSecret}>
-              <label className="field">
-                <span>Provider</span>
-                <select
-                  value={newSecret.provider}
-                  onChange={(e) => setNewSecret({ ...newSecret, provider: e.target.value })}
-                >
-                  {PROVIDERS.map((p) => (
-                    <option key={p} value={p}>
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field" style={{ marginTop: 12 }}>
-                <span>Label</span>
-                <input
-                  value={newSecret.label}
-                  onChange={(e) => setNewSecret({ ...newSecret, label: e.target.value })}
-                  placeholder="e.g., Production key"
-                />
-              </label>
-              <label className="field" style={{ marginTop: 12 }}>
-                <span>Secret value</span>
-                <input
-                  type="password"
-                  value={newSecret.value}
-                  onChange={(e) => setNewSecret({ ...newSecret, value: e.target.value })}
-                  placeholder="Paste your API key here"
-                />
-              </label>
-              <div className="action-row" style={{ marginTop: 16, justifyContent: "flex-start" }}>
-                <Button variant="primary" type="submit" loading={loading}>
-                  Save API key
-                </Button>
-              </div>
-            </form>
-          </section>
-
-          <section>
-            <h3 style={{ marginBottom: 16 }}>Saved Keys</h3>
-            {secrets.length === 0 ? (
-              <EmptyState
-                icon="🔑"
-                title="No API keys saved"
-                description="Add your first API key to get started"
-              />
-            ) : (
-              <div className="item-list">
-                {secrets.map((secret) => (
-                  <div key={secret.id} className="list-row">
-                    <div>
-                      <strong>{secret.provider}</strong>
-                      <p style={{ fontSize: "0.9em", marginTop: 4 }}>{secret.label}</p>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <code style={{ fontSize: "0.85em", color: "var(--muted)" }}>
-                        {maskSecret(secret.id.toString())}
-                      </code>
-                      <button
-                        className="ghost-button"
-                        style={{ marginLeft: 12 }}
-                        onClick={() => setDeleteSecretId(secret.id)}
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          </TabsTrigger>
+          <TabsTrigger value="api-keys">
+            API Keys
+            {secrets.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">{secrets.length}</Badge>
             )}
-          </section>
-        </div>
-      )}
+          </TabsTrigger>
+          <TabsTrigger value="integrations">
+            Integrations
+            {webhooks.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">{webhooks.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="danger">Danger Zone</TabsTrigger>
+        </TabsList>
 
-      {/* INTEGRATIONS TAB */}
-      {activeTab === "integrations" && (
-        <div style={{ marginTop: 24 }}>
-          <section style={{ marginBottom: 32 }}>
-            <h3 style={{ marginBottom: 16 }}>Add Webhook</h3>
-            <form onSubmit={createWebhook}>
-              <label className="field">
-                <span>Webhook URL</span>
-                <input
-                  value={newWebhook.url}
-                  onChange={(e) => setNewWebhook({ ...newWebhook, url: e.target.value })}
-                  placeholder="https://your-app.com/webhook"
-                  type="url"
+        {/* GENERAL TAB */}
+        <TabsContent value="general">
+          <div className="mt-6 grid gap-8">
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Workspace</h3>
+              <div className="grid gap-2">
+                <Label htmlFor="workspace-name">Workspace name</Label>
+                <Input
+                  id="workspace-name"
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                  placeholder="My Workspace"
                 />
-              </label>
-              <label className="field" style={{ marginTop: 12 }}>
-                <span>Events to receive</span>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-                  {EVENT_TYPES.map((event) => (
-                    <label key={event} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={newWebhook.eventTypes.includes(event)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewWebhook({
-                              ...newWebhook,
-                              eventTypes: [...newWebhook.eventTypes, event],
-                            });
-                          } else {
-                            setNewWebhook({
-                              ...newWebhook,
-                              eventTypes: newWebhook.eventTypes.filter((t) => t !== event),
-                            });
-                          }
-                        }}
-                      />
-                      <span>{event}</span>
-                    </label>
-                  ))}
+              </div>
+            </section>
+
+            <Separator />
+
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">User Profile</h3>
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="full-name">Full name</Label>
+                  <Input
+                    id="full-name"
+                    value={userProfile.name}
+                    onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })}
+                    placeholder="Your name"
+                  />
                 </div>
-              </label>
-              <div className="action-row" style={{ marginTop: 16, justifyContent: "flex-start" }}>
-                <Button variant="primary" type="submit" loading={loading}>
-                  Add webhook
-                </Button>
+                <div className="grid gap-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={userProfile.email}
+                    onChange={(e) => setUserProfile({ ...userProfile, email: e.target.value })}
+                    placeholder="your@email.com"
+                    disabled
+                  />
+                </div>
               </div>
-            </form>
-          </section>
+            </section>
 
-          <section>
-            <h3 style={{ marginBottom: 16 }}>Active Webhooks</h3>
-            {webhooks.length === 0 ? (
-              <EmptyState
-                icon="🪝"
-                title="No webhooks configured"
-                description="Add a webhook to receive event notifications"
-              />
-            ) : (
-              <div className="item-list">
-                {webhooks.map((webhook) => (
-                  <div key={webhook.id} className="list-row">
-                    <div style={{ flex: 1 }}>
-                      <strong>{webhook.target_url}</strong>
-                      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                        {webhook.event_types.map((type) => (
-                          <span key={type} className="badge">
-                            {type}
-                          </span>
-                        ))}
-                      </div>
-                      {webhook.last_tested_at && (
-                        <p style={{ fontSize: "0.85em", marginTop: 8, color: "var(--muted)" }}>
-                          Last tested: {new Date(webhook.last_tested_at).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <Button
-                        variant="ghost"
-                        onClick={() => toggleWebhook(webhook.id, webhook.is_active)}
-                        loading={loading}
-                      >
-                        {webhook.is_active ? "Disable" : "Enable"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => testWebhook(webhook.id)}
-                        loading={testingWebhookId === webhook.id}
-                      >
-                        Test
-                      </Button>
-                      <button
-                        className="ghost-button"
-                        onClick={() => setDeleteWebhookId(webhook.id)}
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  </div>
-                ))}
+            <Separator />
+
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Notifications</h3>
+              <div className="grid gap-3">
+                <label className="flex items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-input"
+                    checked={notifications.emailNotifications}
+                    onChange={(e) =>
+                      setNotifications({ ...notifications, emailNotifications: e.target.checked })
+                    }
+                  />
+                  <span>Email notifications</span>
+                </label>
+                <label className="flex items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-input"
+                    checked={notifications.digestEmail}
+                    onChange={(e) =>
+                      setNotifications({ ...notifications, digestEmail: e.target.checked })
+                    }
+                  />
+                  <span>Weekly digest email</span>
+                </label>
+                <label className="flex items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-input"
+                    checked={notifications.slackNotifications}
+                    onChange={(e) =>
+                      setNotifications({ ...notifications, slackNotifications: e.target.checked })
+                    }
+                  />
+                  <span>Slack notifications</span>
+                </label>
               </div>
-            )}
-          </section>
-        </div>
-      )}
+            </section>
 
-      {/* DANGER ZONE TAB */}
-      {activeTab === "danger" && (
-        <div style={{ marginTop: 24 }}>
-          <section style={{ padding: 16, backgroundColor: "#ffe5e5", borderRadius: 8, marginBottom: 32 }}>
-            <h3 style={{ color: "#c41e3a", marginBottom: 16 }}>Export data</h3>
-            <p style={{ marginBottom: 16 }}>
-              Download a copy of all your data in JSON format. This includes your workspace configuration,
-              settings, and history.
-            </p>
-            <Button variant="secondary" onClick={exportData} loading={loading}>
-              Download data export
-            </Button>
-          </section>
-
-          <section style={{ padding: 16, backgroundColor: "#ffe5e5", borderRadius: 8 }}>
-            <h3 style={{ color: "#c41e3a", marginBottom: 16 }}>Delete workspace</h3>
-            <p style={{ marginBottom: 16 }}>
-              Permanently delete this workspace and all associated data. This action cannot be undone.
-            </p>
-            <label className="field">
-              <span>Type "DELETE WORKSPACE" to confirm</span>
-              <input
-                value={deleteWorkspaceConfirm}
-                onChange={(e) => setDeleteWorkspaceConfirm(e.target.value)}
-                placeholder="DELETE WORKSPACE"
-              />
-            </label>
-            <div className="action-row" style={{ marginTop: 16, justifyContent: "flex-start" }}>
-              <Button
-                variant="danger"
-                onClick={() => deleteWorkspace()}
-                disabled={deleteWorkspaceConfirm !== "DELETE WORKSPACE" || loading}
-                loading={loading}
-              >
-                Delete workspace permanently
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={saveGeneralSettings} disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save changes
               </Button>
             </div>
-          </section>
-        </div>
-      )}
+          </div>
+        </TabsContent>
+
+        {/* REDDIT TAB */}
+        <TabsContent value="reddit">
+          <div className="mt-6">
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Reddit Accounts</h3>
+              {redditAccounts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                  <span className="mb-4 text-4xl">🔗</span>
+                  <h3 className="mb-1 text-sm font-semibold text-foreground">No Reddit accounts connected</h3>
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    Connect a Reddit account to enable automated posting and engagement
+                  </p>
+                  <Button onClick={() => void connectReddit()} disabled={connectingReddit}>
+                    {connectingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Connect Reddit Account
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {redditAccounts.map((account) => (
+                    <div
+                      key={account.id}
+                      className="flex items-center justify-between rounded-lg border bg-card p-4"
+                    >
+                      <div>
+                        <div className="mb-1 text-sm font-semibold text-foreground">@{account.username}</div>
+                        {account.karma !== undefined && (
+                          <p className="text-xs text-muted-foreground">Karma: {account.karma}</p>
+                        )}
+                        {account.connected_at && (
+                          <p className="text-xs text-muted-foreground">
+                            Connected: {new Date(account.connected_at).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => void disconnectReddit(account.id)}
+                        disabled={disconnectingReddit === account.id}
+                      >
+                        {disconnectingReddit === account.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                        Disconnect
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    onClick={() => void connectReddit()}
+                    disabled={connectingReddit}
+                    className="mt-3"
+                  >
+                    {connectingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Connect Additional Account
+                  </Button>
+                </div>
+              )}
+            </section>
+          </div>
+        </TabsContent>
+
+        {/* API KEYS TAB */}
+        <TabsContent value="api-keys">
+          <div className="mt-6 grid gap-8">
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Add API Key</h3>
+              <form onSubmit={createSecret} className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="secret-provider">Provider</Label>
+                  <Select
+                    value={newSecret.provider}
+                    onValueChange={(value) => setNewSecret({ ...newSecret, provider: value ?? "openai" })}
+                  >
+                    <SelectTrigger id="secret-provider" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROVIDERS.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p.charAt(0).toUpperCase() + p.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="secret-label">Label</Label>
+                  <Input
+                    id="secret-label"
+                    value={newSecret.label}
+                    onChange={(e) => setNewSecret({ ...newSecret, label: e.target.value })}
+                    placeholder="e.g., Production key"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="secret-value">Secret value</Label>
+                  <Input
+                    id="secret-value"
+                    type="password"
+                    value={newSecret.value}
+                    onChange={(e) => setNewSecret({ ...newSecret, value: e.target.value })}
+                    placeholder="Paste your API key here"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" disabled={loading}>
+                    {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Save API key
+                  </Button>
+                </div>
+              </form>
+            </section>
+
+            <Separator />
+
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Saved Keys</h3>
+              {secrets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                  <span className="mb-4 text-4xl">🔑</span>
+                  <h3 className="mb-1 text-sm font-semibold text-foreground">No API keys saved</h3>
+                  <p className="text-xs text-muted-foreground">Add your first API key to get started</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {secrets.map((secret) => (
+                    <div key={secret.id} className="flex items-center justify-between rounded-lg border bg-card p-4">
+                      <div>
+                        <strong className="text-sm font-medium text-foreground">{secret.provider}</strong>
+                        <p className="mt-1 text-sm text-muted-foreground">{secret.label}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <code className="text-xs text-muted-foreground">
+                          {maskSecret(secret.id.toString())}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => setDeleteSecretId(secret.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </TabsContent>
+
+        {/* INTEGRATIONS TAB */}
+        <TabsContent value="integrations">
+          <div className="mt-6 grid gap-8">
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Add Webhook</h3>
+              <form onSubmit={createWebhook} className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="webhook-url">Webhook URL</Label>
+                  <Input
+                    id="webhook-url"
+                    type="url"
+                    value={newWebhook.url}
+                    onChange={(e) => setNewWebhook({ ...newWebhook, url: e.target.value })}
+                    placeholder="https://your-app.com/webhook"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Events to receive</Label>
+                  <div className="mt-1 grid gap-2">
+                    {EVENT_TYPES.map((event) => (
+                      <label key={event} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-input"
+                          checked={newWebhook.eventTypes.includes(event)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewWebhook({
+                                ...newWebhook,
+                                eventTypes: [...newWebhook.eventTypes, event],
+                              });
+                            } else {
+                              setNewWebhook({
+                                ...newWebhook,
+                                eventTypes: newWebhook.eventTypes.filter((t) => t !== event),
+                              });
+                            }
+                          }}
+                        />
+                        <span>{event}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" disabled={loading}>
+                    {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Add webhook
+                  </Button>
+                </div>
+              </form>
+            </section>
+
+            <Separator />
+
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Active Webhooks</h3>
+              {webhooks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                  <span className="mb-4 text-4xl">🪝</span>
+                  <h3 className="mb-1 text-sm font-semibold text-foreground">No webhooks configured</h3>
+                  <p className="text-xs text-muted-foreground">Add a webhook to receive event notifications</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {webhooks.map((webhook) => (
+                    <div key={webhook.id} className="rounded-lg border bg-card p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <strong className="text-sm font-medium text-foreground break-all">
+                            {webhook.target_url}
+                          </strong>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {webhook.event_types.map((type) => (
+                              <Badge key={type} variant="secondary" className="text-xs">
+                                {type}
+                              </Badge>
+                            ))}
+                          </div>
+                          {webhook.last_tested_at && (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Last tested: {new Date(webhook.last_tested_at).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleWebhook(webhook.id, webhook.is_active)}
+                            disabled={loading}
+                          >
+                            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                            {webhook.is_active ? "Disable" : "Enable"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => testWebhook(webhook.id)}
+                            disabled={testingWebhookId === webhook.id}
+                          >
+                            {testingWebhookId === webhook.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                            Test
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setDeleteWebhookId(webhook.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </TabsContent>
+
+        {/* DANGER ZONE TAB */}
+        <TabsContent value="danger">
+          <div className="mt-6 grid gap-6">
+            <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <h3 className="mb-4 text-sm font-semibold text-destructive">Export data</h3>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Download a copy of all your data in JSON format. This includes your workspace configuration,
+                settings, and history.
+              </p>
+              <Button variant="outline" onClick={exportData} disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Download data export
+              </Button>
+            </section>
+
+            <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <h3 className="mb-4 text-sm font-semibold text-destructive">Delete workspace</h3>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Permanently delete this workspace and all associated data. This action cannot be undone.
+              </p>
+              <div className="grid gap-2">
+                <Label htmlFor="delete-confirm">Type &quot;DELETE WORKSPACE&quot; to confirm</Label>
+                <Input
+                  id="delete-confirm"
+                  value={deleteWorkspaceConfirm}
+                  onChange={(e) => setDeleteWorkspaceConfirm(e.target.value)}
+                  placeholder="DELETE WORKSPACE"
+                />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  variant="destructive"
+                  onClick={() => deleteWorkspace()}
+                  disabled={deleteWorkspaceConfirm !== "DELETE WORKSPACE" || loading}
+                >
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Delete workspace permanently
+                </Button>
+              </div>
+            </section>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Confirm modals */}
-      <ConfirmModal
-        open={deleteSecretId !== null}
-        onClose={() => setDeleteSecretId(null)}
-        onConfirm={() => deleteSecret(deleteSecretId!)}
-        title="Delete API key"
-        message="Are you sure you want to delete this API key? This action cannot be undone."
-        confirmText="Delete"
-        danger
-        loading={loading}
-      />
+      <AlertDialog open={deleteSecretId !== null} onOpenChange={(open) => { if (!open) setDeleteSecretId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete API key</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this API key? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => deleteSecret(deleteSecretId!)}
+              disabled={loading}
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <ConfirmModal
-        open={deleteWebhookId !== null}
-        onClose={() => setDeleteWebhookId(null)}
-        onConfirm={() => deleteWebhook(deleteWebhookId!)}
-        title="Delete webhook"
-        message="Are you sure you want to delete this webhook? Your integrations will no longer receive events."
-        confirmText="Delete"
-        danger
-        loading={loading}
-      />
-    </div>
+      <AlertDialog open={deleteWebhookId !== null} onOpenChange={(open) => { if (!open) setDeleteWebhookId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete webhook</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this webhook? Your integrations will no longer receive events.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => deleteWebhook(deleteWebhookId!)}
+              disabled={loading}
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }

@@ -1,14 +1,18 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
-import { ToastProvider, useToast } from "@/components/toast";
-import { Button } from "@/components/ui";
+import Link from "next/link";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
   const { login } = useAuth();
-  const toast = useToast();
+  const { success, error, warning } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,36 +20,34 @@ function LoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password) {
-      toast.warning("Please enter your email and password.");
+      warning("Please enter your email and password.");
       return;
     }
     setLoading(true);
     try {
       await login(email.trim().toLowerCase(), password);
-      toast.success("Welcome back!");
+      success("Welcome back!");
       router.push("/app/dashboard");
     } catch (e: any) {
-      toast.error("Login failed", e.message || "Invalid email or password.");
+      error("Login failed", e.message || "Invalid email or password.");
     }
     setLoading(false);
   }
 
   return (
-    <div className="auth-shell">
-      <div className="auth-card">
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h2 style={{ color: "var(--accent)", fontWeight: 800, fontSize: 24, marginBottom: 4 }}>
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-sm">
+        <div className="mb-8 text-center">
+          <h2 className="mb-1 text-2xl font-extrabold text-primary">
             RedditFlow
           </h2>
-          <p className="text-muted">Sign in to your account</p>
+          <p className="text-muted-foreground">Sign in to your account</p>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="field">
-            <label className="field-label" htmlFor="email">
-              Email
-            </label>
-            <input
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
               id="email"
               type="email"
               value={email}
@@ -55,16 +57,17 @@ function LoginForm() {
               required
             />
           </div>
-          <div className="field">
-            <div className="flex justify-between items-center">
-              <label className="field-label" htmlFor="password">
-                Password
-              </label>
-              <a href="/reset-password" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <Link
+                href="/reset-password"
+                className="text-xs text-primary hover:underline"
+              >
                 Forgot password?
-              </a>
+              </Link>
             </div>
-            <input
+            <Input
               id="password"
               type="password"
               value={password}
@@ -74,16 +77,20 @@ function LoginForm() {
               required
             />
           </div>
-          <Button type="submit" loading={loading} style={{ width: "100%", marginTop: 8 }}>
+          <Button type="submit" disabled={loading} className="mt-2 w-full">
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             Sign In
           </Button>
         </form>
 
-        <p style={{ textAlign: "center", marginTop: 24, fontSize: 13 }}>
+        <p className="mt-6 text-center text-[13px]">
           Need an account?{" "}
-          <a href="/register" style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "none" }}>
+          <Link
+            href="/register"
+            className="font-semibold text-primary hover:underline"
+          >
             Sign up free
-          </a>
+          </Link>
         </p>
       </div>
     </div>
@@ -91,9 +98,5 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  return (
-    <ToastProvider>
-      <LoginForm />
-    </ToastProvider>
-  );
+  return <LoginForm />;
 }

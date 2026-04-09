@@ -2,13 +2,38 @@
 
 import { useEffect, useState } from "react";
 
-import { Modal, ConfirmModal } from "@/components/modal";
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
-import { Button, EmptyState, Spinner, Tabs } from "@/components/ui";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, X } from "lucide-react";
 import { type PromptTemplate, apiRequest } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 type PromptType = "reply" | "post" | "analysis";
 
@@ -198,234 +223,282 @@ export default function PromptsPage() {
   const activeCopy = PROMPT_TYPE_COPY[activeTab];
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
-      <section className="card">
-        <div className="eyebrow">Template Systems</div>
-        <h2 style={{ marginBottom: 8 }}>{activeCopy.label}</h2>
-        <p>{activeCopy.description}</p>
-        <div className="action-row" style={{ marginTop: 20 }}>
+    <div className="grid gap-6">
+      <Card className="p-6">
+        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Template Systems
+        </div>
+        <h2 className="mb-2 text-lg font-semibold text-foreground">{activeCopy.label}</h2>
+        <p className="text-sm text-muted-foreground">{activeCopy.description}</p>
+        <div className="mt-5 flex flex-wrap gap-2">
           <Button
             onClick={() => {
               setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
               setShowCreateModal(true);
             }}
-            variant="primary"
           >
             Create Template
           </Button>
         </div>
-      </section>
+      </Card>
 
-      <Tabs
-        tabs={[
-          { key: "reply", label: "Reply", count: templates.filter((item) => item.prompt_type === "reply").length },
-          { key: "post", label: "Post", count: templates.filter((item) => item.prompt_type === "post").length },
-          { key: "analysis", label: "Analysis", count: templates.filter((item) => item.prompt_type === "analysis").length },
-        ]}
-        active={activeTab}
-        onChange={(key) => setActiveTab(key as PromptType)}
-      />
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptType)}>
+        <TabsList>
+          <TabsTrigger value="reply">
+            Reply
+            {templates.filter((item) => item.prompt_type === "reply").length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">
+                {templates.filter((item) => item.prompt_type === "reply").length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="post">
+            Post
+            {templates.filter((item) => item.prompt_type === "post").length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">
+                {templates.filter((item) => item.prompt_type === "post").length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="analysis">
+            Analysis
+            {templates.filter((item) => item.prompt_type === "analysis").length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">
+                {templates.filter((item) => item.prompt_type === "analysis").length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {loading && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "2rem" }}>
-          <Spinner />
-        </div>
-      )}
+        <TabsContent value={activeTab}>
+          {loading && (
+            <div className="flex justify-center p-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
 
-      {!loading && filteredTemplates.length > 0 && (
-        <div className="section-grid">
-          {filteredTemplates.map((template) => (
-            <div
-              key={template.id}
-              className="card"
-              style={{ cursor: "pointer" }}
-              onClick={() => {
-                setEditingTemplate(template);
-                setShowDrawer(true);
-              }}
-            >
-              <div style={{ marginBottom: "1rem" }}>
-                <h3 style={{ margin: "0 0 0.5rem 0", fontSize: "1.1rem" }}>{template.name}</h3>
-                <div className="badge-row">
-                  {template.is_default && <span className="badge">Default</span>}
-                  <span className="badge">{template.prompt_type}</span>
+          {!loading && filteredTemplates.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              {filteredTemplates.map((template) => (
+                <div
+                  key={template.id}
+                  className="cursor-pointer rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50"
+                  onClick={() => {
+                    setEditingTemplate(template);
+                    setShowDrawer(true);
+                  }}
+                >
+                  <div className="mb-4">
+                    <h3 className="mb-2 text-base font-semibold text-foreground">{template.name}</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {template.is_default && <Badge variant="secondary">Default</Badge>}
+                      <Badge variant="outline">{template.prompt_type}</Badge>
+                    </div>
+                  </div>
+
+                  <p className="line-clamp-4 text-sm leading-relaxed text-muted-foreground">
+                    {template.system_prompt}
+                  </p>
                 </div>
-              </div>
+              ))}
+            </div>
+          )}
 
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.9rem",
-                  lineHeight: "1.5",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 4,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {template.system_prompt}
+          {!loading && filteredTemplates.length === 0 && (
+            <div className="mt-4 flex flex-col items-center justify-center p-8 text-center">
+              <span className="mb-4 text-4xl">📝</span>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">No {activeTab} templates yet</h3>
+              <p className="text-xs text-muted-foreground">
+                Create your first {activeTab} template so the workflow can support more than a single reply mode.
               </p>
             </div>
-          ))}
-        </div>
-      )}
+          )}
+        </TabsContent>
+      </Tabs>
 
-      {!loading && filteredTemplates.length === 0 && (
-        <EmptyState
-          title={`No ${activeTab} templates yet`}
-          description={`Create your first ${activeTab} template so the workflow can support more than a single reply mode.`}
-        />
-      )}
-
-      {showCreateModal && (
-        <Modal
-          open={showCreateModal}
-          title="Create Template"
-          onClose={() => {
-            setShowCreateModal(false);
-            setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-            <div className="field">
-              <label className="field-label">Template Type</label>
-              <select
+      {/* Create Template Dialog */}
+      <Dialog open={showCreateModal} onOpenChange={(open) => {
+        if (!open) {
+          setShowCreateModal(false);
+          setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Template</DialogTitle>
+            <DialogDescription>
+              Define a new prompt template for {activeTab} generation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-5">
+            <div className="grid gap-2">
+              <Label>Template Type</Label>
+              <Select
                 value={newTemplate.prompt_type}
-                onChange={(event) => setNewTemplate({ ...newTemplate, prompt_type: event.target.value as PromptType })}
+                onValueChange={(value) => setNewTemplate({ ...newTemplate, prompt_type: value as PromptType })}
               >
-                <option value="reply">Reply</option>
-                <option value="post">Post</option>
-                <option value="analysis">Analysis</option>
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="reply">Reply</SelectItem>
+                  <SelectItem value="post">Post</SelectItem>
+                  <SelectItem value="analysis">Analysis</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div className="field">
-              <label className="field-label">Template Name</label>
-              <input
+            <div className="grid gap-2">
+              <Label htmlFor="new-template-name">Template Name</Label>
+              <Input
+                id="new-template-name"
                 type="text"
                 value={newTemplate.name}
-                onChange={(event) => setNewTemplate({ ...newTemplate, name: event.target.value })}
+                onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
                 placeholder="Example: High-signal expert reply"
               />
             </div>
 
-            <div className="field">
-              <label className="field-label">System Prompt</label>
-              <textarea
+            <div className="grid gap-2">
+              <Label htmlFor="new-system-prompt">System Prompt</Label>
+              <Textarea
+                id="new-system-prompt"
                 value={newTemplate.system_prompt}
-                onChange={(event) => setNewTemplate({ ...newTemplate, system_prompt: event.target.value })}
+                onChange={(e) => setNewTemplate({ ...newTemplate, system_prompt: e.target.value })}
                 placeholder="Define the core writing rules, structure, and quality bar..."
                 rows={7}
               />
             </div>
 
-            <div className="field">
-              <label className="field-label">Extra Instructions</label>
-              <textarea
+            <div className="grid gap-2">
+              <Label htmlFor="new-instructions">Extra Instructions</Label>
+              <Textarea
+                id="new-instructions"
                 value={newTemplate.instructions}
-                onChange={(event) => setNewTemplate({ ...newTemplate, instructions: event.target.value })}
+                onChange={(e) => setNewTemplate({ ...newTemplate, instructions: e.target.value })}
                 placeholder="Add project-specific constraints, phrasing guidance, or review rules..."
                 rows={4}
               />
             </div>
-
-            <div className="action-row">
-              <Button onClick={() => void createTemplate()} disabled={saving} variant="primary">
-                {saving ? "Creating..." : "Create Template"}
-              </Button>
-              <Button onClick={() => setShowCreateModal(false)} variant="secondary">
-                Cancel
-              </Button>
-            </div>
           </div>
-        </Modal>
-      )}
+          <DialogFooter>
+            <Button onClick={() => void createTemplate()} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving ? "Creating..." : "Create Template"}
+            </Button>
+            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {showDrawer && editingTemplate && (
-        <div className="drawer-overlay" onClick={() => setShowDrawer(false)}>
-          <div className="drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <h2 style={{ margin: 0 }}>Edit Template</h2>
-              <button className="modal-close" onClick={() => setShowDrawer(false)}>
-                x
-              </button>
-            </div>
+      {/* Edit Template Dialog (replaces drawer) */}
+      <Dialog open={showDrawer} onOpenChange={setShowDrawer}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Template</DialogTitle>
+            <DialogDescription>
+              Modify the prompt template configuration.
+            </DialogDescription>
+          </DialogHeader>
+          {editingTemplate && (
+            <div className="grid gap-5">
+              <div className="grid gap-2">
+                <Label>Template Type</Label>
+                <Select
+                  value={editingTemplate.prompt_type || "reply"}
+                  onValueChange={(value) => setEditingTemplate({ ...editingTemplate, prompt_type: value as PromptType })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="reply">Reply</SelectItem>
+                    <SelectItem value="post">Post</SelectItem>
+                    <SelectItem value="analysis">Analysis</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="drawer-body">
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-                <div className="field">
-                  <label className="field-label">Template Type</label>
-                  <select
-                    value={editingTemplate.prompt_type || "reply"}
-                    onChange={(event) => setEditingTemplate({ ...editingTemplate, prompt_type: event.target.value as PromptType })}
-                  >
-                    <option value="reply">Reply</option>
-                    <option value="post">Post</option>
-                    <option value="analysis">Analysis</option>
-                  </select>
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-template-name">Template Name</Label>
+                <Input
+                  id="edit-template-name"
+                  type="text"
+                  value={editingTemplate.name || ""}
+                  onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                />
+              </div>
 
-                <div className="field">
-                  <label className="field-label">Template Name</label>
-                  <input
-                    type="text"
-                    value={editingTemplate.name || ""}
-                    onChange={(event) => setEditingTemplate({ ...editingTemplate, name: event.target.value })}
-                  />
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-system-prompt">System Prompt</Label>
+                <Textarea
+                  id="edit-system-prompt"
+                  value={editingTemplate.system_prompt || ""}
+                  onChange={(e) => setEditingTemplate({ ...editingTemplate, system_prompt: e.target.value })}
+                  rows={8}
+                />
+              </div>
 
-                <div className="field">
-                  <label className="field-label">System Prompt</label>
-                  <textarea
-                    value={editingTemplate.system_prompt || ""}
-                    onChange={(event) => setEditingTemplate({ ...editingTemplate, system_prompt: event.target.value })}
-                    rows={8}
-                  />
-                </div>
-
-                <div className="field">
-                  <label className="field-label">Extra Instructions</label>
-                  <textarea
-                    value={editingTemplate.instructions || ""}
-                    onChange={(event) => setEditingTemplate({ ...editingTemplate, instructions: event.target.value })}
-                    rows={6}
-                  />
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-instructions">Extra Instructions</Label>
+                <Textarea
+                  id="edit-instructions"
+                  value={editingTemplate.instructions || ""}
+                  onChange={(e) => setEditingTemplate({ ...editingTemplate, instructions: e.target.value })}
+                  rows={6}
+                />
               </div>
             </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => void saveTemplate(editingTemplate!)} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving ? "Saving..." : "Save Template"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void duplicateTemplate(editingTemplate as PromptTemplate)}
+              disabled={saving}
+            >
+              Duplicate
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => setShowDeleteModal(editingTemplate!.id)}
+            >
+              Delete
+            </Button>
+            <Button variant="ghost" onClick={() => setShowDrawer(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-            <div className="drawer-footer">
-              <div className="action-row">
-                <Button onClick={() => void saveTemplate(editingTemplate)} disabled={saving} variant="primary">
-                  {saving ? "Saving..." : "Save Template"}
-                </Button>
-                <Button onClick={() => void duplicateTemplate(editingTemplate as PromptTemplate)} disabled={saving} variant="secondary">
-                  Duplicate
-                </Button>
-                <Button onClick={() => setShowDeleteModal(editingTemplate.id)} variant="danger">
-                  Delete
-                </Button>
-                <Button onClick={() => setShowDrawer(false)} variant="ghost">
-                  Close
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteModal !== null && (
-        <ConfirmModal
-          open={showDeleteModal !== null}
-          title="Delete Template"
-          message="Are you sure you want to delete this template? This action cannot be undone."
-          onConfirm={() => deleteTemplate(showDeleteModal)}
-          onClose={() => setShowDeleteModal(null)}
-          loading={deleting === showDeleteModal}
-          confirmText="Delete"
-          danger
-        />
-      )}
+      {/* Delete Confirm Dialog */}
+      <AlertDialog open={showDeleteModal !== null} onOpenChange={(open) => { if (!open) setShowDeleteModal(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Template</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this template? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void deleteTemplate(showDeleteModal!)}
+              disabled={deleting === showDeleteModal}
+            >
+              {deleting === showDeleteModal && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

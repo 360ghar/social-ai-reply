@@ -1,13 +1,37 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
-import { useAuth } from "../../../components/auth-provider";
-import { useToast } from "../../../components/toast";
-import { Button, EmptyState, KpiCard, ConfirmModal, Drawer, SkeletonCard } from "../../../components/ui";
-import { apiRequest, type Dashboard, type Persona } from "../../../lib/api";
-import { fetchDashboard, getCurrentProject } from "../../../lib/workspace-data";
-import { useSelectedProjectId } from "../../../lib/use-selected-project";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { apiRequest, type Dashboard, type Persona } from "@/lib/api";
+import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 const emptyPersona = {
   name: "",
@@ -23,7 +47,7 @@ const emptyPersona = {
 
 export default function PersonaPage() {
   const { token } = useAuth();
-  const toast = useToast();
+  const { success, error, warning } = useToast();
   const selectedProjectId = useSelectedProjectId();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -45,9 +69,9 @@ export default function PersonaPage() {
     fetchDashboard(token, selectedProjectId)
       .then(setDashboard)
       .catch((err) => {
-        toast.error("Failed to load", err.message);
+        error("Failed to load", err.message);
       });
-  }, [token, toast, selectedProjectId]);
+  }, [token, error, selectedProjectId]);
 
   useEffect(() => {
     if (!token || !project) {
@@ -60,10 +84,10 @@ export default function PersonaPage() {
         setIsLoading(false);
       })
       .catch((err) => {
-        toast.error("Failed to load personas", err.message);
+        error("Failed to load personas", err.message);
         setIsLoading(false);
       });
-  }, [project, token, toast]);
+  }, [project, token, error]);
 
   async function createPersona(event: FormEvent) {
     event.preventDefault();
@@ -71,7 +95,7 @@ export default function PersonaPage() {
       return;
     }
     if (!draft.name.trim()) {
-      toast.warning("Required field", "Please enter a customer type name.");
+      warning("Required field", "Please enter a customer type name.");
       return;
     }
     setIsCreating(true);
@@ -82,9 +106,9 @@ export default function PersonaPage() {
       }, token);
       setPersonas((rows) => [created, ...rows]);
       setDraft(emptyPersona);
-      toast.success("Saved", "Customer type has been created.");
+      success("Saved", "Customer type has been created.");
     } catch (err) {
-      toast.error("Save failed", err instanceof Error ? err.message : "Could not save the customer type.");
+      error("Save failed", err instanceof Error ? err.message : "Could not save the customer type.");
     } finally {
       setIsCreating(false);
     }
@@ -108,9 +132,9 @@ export default function PersonaPage() {
       setPersonas((rows) => rows.map((p) => (p.id === isEditingId ? updated : p)));
       setDraft(emptyPersona);
       setIsEditingId(null);
-      toast.success("Saved", "Customer type has been updated.");
+      success("Saved", "Customer type has been updated.");
     } catch (err) {
-      toast.error("Update failed", err instanceof Error ? err.message : "Could not update the customer type.");
+      error("Update failed", err instanceof Error ? err.message : "Could not update the customer type.");
     } finally {
       setIsUpdating(false);
     }
@@ -126,12 +150,12 @@ export default function PersonaPage() {
         body: JSON.stringify({ ...persona, is_active: !currentActive })
       }, token);
       setPersonas((rows) => rows.map((p) => (p.id === personaId ? updated : p)));
-      toast.success(
+      success(
         !currentActive ? "Activated" : "Deactivated",
         `Customer type "${persona.name}" is now ${!currentActive ? "active" : "inactive"}.`
       );
     } catch (err) {
-      toast.error("Failed", err instanceof Error ? err.message : "Could not update status.");
+      error("Failed", err instanceof Error ? err.message : "Could not update status.");
     }
   }
 
@@ -145,9 +169,9 @@ export default function PersonaPage() {
       }, token);
       setPersonas((rows) => rows.filter((p) => p.id !== deleteId));
       setDeleteId(null);
-      toast.success("Deleted", `Customer type "${persona?.name}" has been removed.`);
+      success("Deleted", `Customer type "${persona?.name}" has been removed.`);
     } catch (err) {
-      toast.error("Delete failed", err instanceof Error ? err.message : "Could not delete the customer type.");
+      error("Delete failed", err instanceof Error ? err.message : "Could not delete the customer type.");
     } finally {
       setIsDeleting(false);
     }
@@ -163,9 +187,9 @@ export default function PersonaPage() {
         method: "POST"
       }, token);
       setPersonas((rows) => [...created, ...rows.filter((row) => !created.some((item) => item.id === row.id))]);
-      toast.success("Created", "Example customer types have been generated.");
+      success("Created", "Example customer types have been generated.");
     } catch (err) {
-      toast.error("Generation failed", err instanceof Error ? err.message : "Could not create example customer types.");
+      error("Generation failed", err instanceof Error ? err.message : "Could not create example customer types.");
     } finally {
       setIsGenerating(false);
     }
@@ -176,222 +200,265 @@ export default function PersonaPage() {
 
   if (isLoading) {
     return (
-      <div>
-        <div className="section-grid" style={{ marginBottom: "var(--space-lg)" }}>
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card><CardContent><Skeleton className="h-20 w-full rounded-lg" /></CardContent></Card>
+          <Card><CardContent><Skeleton className="h-20 w-full rounded-lg" /></CardContent></Card>
+          <Card><CardContent><Skeleton className="h-20 w-full rounded-lg" /></CardContent></Card>
         </div>
-        <SkeletonCard />
+        <Card><CardContent><Skeleton className="h-40 w-full rounded-lg" /></CardContent></Card>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="section-grid" style={{ marginBottom: "var(--space-lg)" }}>
-        <KpiCard label="Total Personas" value={personas.length} />
-        <KpiCard label="Active" value={activeCount} />
-        <KpiCard label="AI-Generated" value={aiCount} />
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="text-center">
+            <div className="text-2xl font-semibold">{personas.length}</div>
+            <div className="text-xs text-muted-foreground">Total Personas</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="text-center">
+            <div className="text-2xl font-semibold">{activeCount}</div>
+            <div className="text-xs text-muted-foreground">Active</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="text-center">
+            <div className="text-2xl font-semibold">{aiCount}</div>
+            <div className="text-xs text-muted-foreground">AI-Generated</div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="split-grid">
-        <form className="card" onSubmit={isEditingId ? updatePersona : createPersona}>
-          <div className="eyebrow">Customers</div>
-          <h2>{isEditingId ? "Edit customer type" : "Who do you want to help on Reddit?"}</h2>
-          <p>
-            {isEditingId
-              ? "Update this customer type."
-              : "Write 2 or 3 customer types in simple language. Example: Small business owner looking for a better CRM."}
-          </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card>
+          <CardContent>
+            <form onSubmit={isEditingId ? updatePersona : createPersona}>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Customers</p>
+              <h2 className="text-lg font-semibold mt-1">{isEditingId ? "Edit customer type" : "Who do you want to help on Reddit?"}</h2>
+              <p className="text-sm text-muted-foreground mb-6">
+                {isEditingId
+                  ? "Update this customer type."
+                  : "Write 2 or 3 customer types in simple language. Example: Small business owner looking for a better CRM."}
+              </p>
 
-          <label className="field">
-            <span>Customer type</span>
-            <input
-              value={draft.name}
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              placeholder="e.g., 'Small business owner'"
-            />
-          </label>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="persona-name">Customer type</Label>
+                  <Input
+                    id="persona-name"
+                    value={draft.name}
+                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                    placeholder="e.g., 'Small business owner'"
+                  />
+                </div>
 
-          <label className="field">
-            <span>Job title or role</span>
-            <input
-              value={draft.role}
-              onChange={(event) => setDraft({ ...draft, role: event.target.value })}
-              placeholder="e.g., 'Marketing Manager'"
-            />
-          </label>
+                <div className="space-y-2">
+                  <Label htmlFor="persona-role">Job title or role</Label>
+                  <Input
+                    id="persona-role"
+                    value={draft.role}
+                    onChange={(event) => setDraft({ ...draft, role: event.target.value })}
+                    placeholder="e.g., 'Marketing Manager'"
+                  />
+                </div>
 
-          <label className="field">
-            <span>What do they want?</span>
-            <textarea
-              value={draft.summary}
-              onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
-              placeholder="Describe what this customer type needs or wants..."
-              rows={3}
-            />
-          </label>
+                <div className="space-y-2">
+                  <Label htmlFor="persona-summary">What do they want?</Label>
+                  <Textarea
+                    id="persona-summary"
+                    value={draft.summary}
+                    onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
+                    placeholder="Describe what this customer type needs or wants..."
+                    rows={3}
+                  />
+                </div>
+              </div>
 
-          <div className="action-row" style={{ marginTop: "var(--space-lg)" }}>
-            <Button variant="secondary" type="submit" loading={isCreating || isUpdating}>
-              {isEditingId ? "Update" : "Save customer type"}
-            </Button>
-            {!isEditingId && (
-              <Button
-                variant="primary"
-                type="button"
-                onClick={generateSeedPersonas}
-                loading={isGenerating}
-              >
-                Create examples
-              </Button>
-            )}
-            {isEditingId && (
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={() => {
-                  setIsEditingId(null);
-                  setDraft(emptyPersona);
-                }}
-              >
-                Cancel
-              </Button>
-            )}
-          </div>
-        </form>
+              <div className="flex flex-wrap gap-2 mt-6">
+                <Button variant="secondary" type="submit" disabled={isCreating || isUpdating}>
+                  {(isCreating || isUpdating) && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isEditingId ? "Update" : "Save customer type"}
+                </Button>
+                {!isEditingId && (
+                  <Button
+                    type="button"
+                    onClick={generateSeedPersonas}
+                    disabled={isGenerating}
+                  >
+                    {isGenerating && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Create examples
+                  </Button>
+                )}
+                {isEditingId && (
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => {
+                      setIsEditingId(null);
+                      setDraft(emptyPersona);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
-        <section className="card">
-          <div className="eyebrow">Saved customers</div>
-          <h2>People you want to reach</h2>
-          {personas.length === 0 ? (
-            <EmptyState
-              icon="👥"
-              title="No customer types yet"
-              description="Add one yourself or create examples to get started."
-              action={
-                <Button variant="primary" onClick={generateSeedPersonas} loading={isGenerating}>
+        <Card>
+          <CardContent>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Saved customers</p>
+            <h2 className="text-lg font-semibold mt-1">People you want to reach</h2>
+            {personas.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <span className="text-4xl mb-4">👥</span>
+                <h3 className="text-base font-semibold mb-1">No customer types yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">Add one yourself or create examples to get started.</p>
+                <Button onClick={generateSeedPersonas} disabled={isGenerating}>
+                  {isGenerating && <Loader2 className="h-4 w-4 animate-spin" />}
                   Create example personas
                 </Button>
-              }
-            />
-          ) : (
-            <div className="section-grid" style={{ marginTop: "var(--space-lg)" }}>
-              {personas.map((persona) => (
-                <div key={persona.id} className="card" style={{ display: "flex", flexDirection: "column" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "var(--space-md)" }}>
-                      <h4 style={{ margin: 0 }}>{persona.name}</h4>
-                      <input
-                        type="checkbox"
-                        checked={persona.is_active}
-                        onChange={() => togglePersona(persona.id, persona.is_active)}
-                        style={{ cursor: "pointer", width: 18, height: 18 }}
-                        title={persona.is_active ? "Click to deactivate" : "Click to activate"}
-                      />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 mt-6">
+                {personas.map((persona) => (
+                  <div key={persona.id} className="rounded-lg border bg-card p-4 flex flex-col">
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-3">
+                        <h4 className="text-sm font-semibold">{persona.name}</h4>
+                        <input
+                          type="checkbox"
+                          checked={persona.is_active}
+                          onChange={() => togglePersona(persona.id, persona.is_active)}
+                          className="h-[18px] w-[18px] cursor-pointer"
+                          title={persona.is_active ? "Click to deactivate" : "Click to activate"}
+                        />
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-3">{persona.summary}</p>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {persona.role && <Badge variant="secondary">{persona.role}</Badge>}
+                        <Badge variant={persona.source === "generated" ? "default" : "outline"}>
+                          {persona.source === "generated" ? "AI-Generated" : "Manual"}
+                        </Badge>
+                        {!persona.is_active && <Badge variant="outline">Inactive</Badge>}
+                      </div>
                     </div>
-                    <p style={{ color: "var(--muted)", marginBottom: "var(--space-md)" }}>{persona.summary}</p>
-                    <div className="badge-row" style={{ marginBottom: "var(--space-md)" }}>
-                      {persona.role && <span className="badge">{persona.role}</span>}
-                      <span className={`badge ${persona.source === "generated" ? "badge-success" : ""}`}>
-                        {persona.source === "generated" ? "✨ AI-Generated" : "👤 Manual"}
-                      </span>
-                      {!persona.is_active && <span className="badge">Inactive</span>}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <Button
+                        variant="secondary"
+                        className="flex-1"
+                        onClick={() => {
+                          setDraft({
+                            name: persona.name,
+                            role: persona.role ?? "",
+                            summary: persona.summary,
+                            pain_points: persona.pain_points,
+                            goals: persona.goals,
+                            triggers: persona.triggers,
+                            preferred_subreddits: persona.preferred_subreddits,
+                            source: persona.source,
+                            is_active: persona.is_active,
+                          });
+                          setIsEditingId(persona.id);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        className="flex-1"
+                        onClick={() => setDeleteId(persona.id)}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </div>
-                  <div className="action-row" style={{ marginTop: "var(--space-md)" }}>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setDraft({
-                          name: persona.name,
-                          role: persona.role ?? "",
-                          summary: persona.summary,
-                          pain_points: persona.pain_points,
-                          goals: persona.goals,
-                          triggers: persona.triggers,
-                          preferred_subreddits: persona.preferred_subreddits,
-                          source: persona.source,
-                          is_active: persona.is_active,
-                        });
-                        setIsEditingId(persona.id);
-                      }}
-                      style={{ flex: 1 }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onClick={() => setDeleteId(persona.id)}
-                      style={{ flex: 1 }}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      <ConfirmModal
-        open={deleteId !== null}
-        onClose={() => setDeleteId(null)}
-        onConfirm={deletePersona}
-        title="Delete customer type"
-        message={`Are you sure you want to delete "${personas.find((p) => p.id === deleteId)?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
-        danger
-        loading={isDeleting}
-      />
+      <AlertDialog open={deleteId !== null} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete customer type</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{personas.find((p) => p.id === deleteId)?.name}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={deletePersona} disabled={isDeleting}>
+              {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      <Drawer
+      <Sheet
         open={isEditingId !== null}
-        onClose={() => {
-          setIsEditingId(null);
-          setDraft(emptyPersona);
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsEditingId(null);
+            setDraft(emptyPersona);
+          }
         }}
-        title="Edit Customer Type"
-        footer={
-          <div className="action-row" style={{ justifyContent: "flex-end" }}>
-            <Button variant="secondary" onClick={() => setIsEditingId(null)}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={() => void submitPersonaUpdate()} loading={isUpdating}>
-              Save Changes
-            </Button>
-          </div>
-        }
       >
-        <form onSubmit={(e) => { void updatePersona(e); }}>
-          <label className="field">
-            <span>Customer type</span>
-            <input
-              value={draft.name}
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            />
-          </label>
+        <SheetContent side="right">
+          <SheetHeader>
+            <SheetTitle>Edit Customer Type</SheetTitle>
+          </SheetHeader>
+          <form onSubmit={(e) => { void updatePersona(e); }} className="space-y-4 p-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Customer type</Label>
+              <Input
+                id="edit-name"
+                value={draft.name}
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              />
+            </div>
 
-          <label className="field">
-            <span>Job title or role</span>
-            <input
-              value={draft.role}
-              onChange={(event) => setDraft({ ...draft, role: event.target.value })}
-            />
-          </label>
+            <div className="space-y-2">
+              <Label htmlFor="edit-role">Job title or role</Label>
+              <Input
+                id="edit-role"
+                value={draft.role}
+                onChange={(event) => setDraft({ ...draft, role: event.target.value })}
+              />
+            </div>
 
-          <label className="field">
-            <span>What do they want?</span>
-            <textarea
-              value={draft.summary}
-              onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
-              rows={4}
-            />
-          </label>
-        </form>
-      </Drawer>
+            <div className="space-y-2">
+              <Label htmlFor="edit-summary">What do they want?</Label>
+              <Textarea
+                id="edit-summary"
+                value={draft.summary}
+                onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
+                rows={4}
+              />
+            </div>
+          </form>
+          <SheetFooter>
+            <div className="flex justify-end gap-2 w-full">
+              <Button variant="secondary" onClick={() => { setIsEditingId(null); setDraft(emptyPersona); }}>
+                Cancel
+              </Button>
+              <Button onClick={() => void submitPersonaUpdate()} disabled={isUpdating}>
+                {isUpdating && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save Changes
+              </Button>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

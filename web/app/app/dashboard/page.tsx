@@ -3,21 +3,21 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
-import {
-  Button,
-  EmptyState,
-  KpiCard,
-  SkeletonCard,
-  StepIndicator,
-  UsageMeter,
-  ScoreBadge,
-  PlatformIcon,
-} from "@/components/ui";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 import { apiRequest, type Project } from "@/lib/api";
 import { setStoredProjectId, withProjectId } from "@/lib/project";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 interface SetupStatus {
   brand_configured: boolean;
@@ -244,15 +244,15 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div>
-        <div className="section-grid" style={{ marginBottom: 24 }}>
+      <div className="grid gap-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {[1, 2, 3].map((item) => (
-            <SkeletonCard key={item} />
+            <Skeleton key={item} className="h-24 w-full rounded-lg" />
           ))}
         </div>
-        <div className="data-grid" style={{ gap: 24 }}>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {[1, 2, 3, 4].map((item) => (
-            <SkeletonCard key={item} />
+            <Skeleton key={item} className="h-24 w-full rounded-lg" />
           ))}
         </div>
       </div>
@@ -260,55 +260,52 @@ export default function DashboardPage() {
   }
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
+    <div className="grid gap-6">
+      {/* Auto-Pipeline Banner */}
       <div
-        className="card"
+        className="rounded-xl p-6"
         style={{
           background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
           color: "white",
-          padding: 24,
-          borderRadius: 12,
         }}
       >
-        <div style={{ marginBottom: 16 }}>
-          <h3 style={{ marginBottom: 8, color: "white" }}>Launch Auto-Pipeline</h3>
-          <p style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: 14, lineHeight: 1.5 }}>
+        <div className="mb-4">
+          <h3 className="mb-2 text-base font-semibold text-white">Launch Auto-Pipeline</h3>
+          <p className="text-sm leading-relaxed" style={{ color: "rgba(255, 255, 255, 0.9)" }}>
             Enter any website URL and get a complete engagement strategy in minutes
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input
+        <div className="flex items-center gap-2">
+          <Input
             type="url"
             value={autoPipelineUrl}
             onChange={(e) => setAutoPipelineUrl(e.target.value)}
             placeholder="https://example.com"
-            style={{
-              flex: 1,
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: "none",
-              fontSize: 13,
-            }}
+            className="h-8 flex-1 border-none text-sm"
             onKeyDown={(e) => e.key === "Enter" && handleAutoPipeline()}
           />
-          <button
-            className="primary-button"
+          <Button
             onClick={handleAutoPipeline}
-            style={{ backgroundColor: "white", color: "#6366F1", fontWeight: 600 }}
+            className="bg-white font-semibold text-indigo-500 hover:bg-white/90"
           >
             Go
-          </button>
+          </Button>
         </div>
       </div>
 
-      <section className="card dashboard-hero-card">
-        <div className="dashboard-hero-head">
+      {/* Hero Card */}
+      <Card className="p-6">
+        <div className="mb-6 flex items-start justify-between border-b pb-6">
           <div>
-            <div className="eyebrow">Product Overview</div>
-            <h2 style={{ marginBottom: 10 }}>Build a complete visibility-to-engagement workflow</h2>
-            <p className="kicker">
-              The platform already does two things well: AI visibility tracking and guided community engagement.
-              The next step is making those two motions feel like one coordinated system.
+            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Product Overview
+            </div>
+            <h2 className="mb-2.5 text-lg font-semibold text-foreground">
+              Build a complete visibility-to-engagement workflow
+            </h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              The platform already does two things well: AI visibility tracking and guided community
+              engagement. The next step is making those two motions feel like one coordinated system.
             </p>
           </div>
           <Button onClick={() => setShowCreate(true)}>New Project</Button>
@@ -316,262 +313,330 @@ export default function DashboardPage() {
 
         {focusProject ? (
           !dismissedWizard ? (
-            <div className="dashboard-focus-grid">
-              <div className="dashboard-focus-card">
-                <span className="badge badge-info">Focused Project</span>
-                <h3 style={{ marginTop: 12, marginBottom: 10 }}>{focusProject.name}</h3>
-                <p>
-                  {focusProject.description || "Use this project as the active scope for communities, drafts, prompt sets, and source analysis."}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Focus Project Card */}
+              <Card className="p-5">
+                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                  Focused Project
+                </Badge>
+                <h3 className="mt-3 mb-2.5 text-base font-semibold text-foreground">
+                  {focusProject.name}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {focusProject.description ||
+                    "Use this project as the active scope for communities, drafts, prompt sets, and source analysis."}
                 </p>
-              </div>
-              <div className="dashboard-focus-card">
-                <span className="badge">Workflow Status</span>
-                <div style={{ marginTop: 14 }}>
-                  <StepIndicator
-                    steps={steps}
-                    currentStep={currentStep >= 0 ? currentStep : steps.length - 1}
-                  />
+              </Card>
+
+              {/* Workflow Status Card */}
+              <Card className="p-5">
+                <Badge variant="outline">Workflow Status</Badge>
+
+                {/* Step Indicator */}
+                <div className="mt-3.5 flex items-center gap-1">
+                  {steps.map((step, idx) => (
+                    <div key={step.label} className="flex items-center gap-1">
+                      <div
+                        className={`h-2 flex-1 rounded-full transition-colors ${
+                          step.done
+                            ? "bg-primary"
+                            : idx === currentStep
+                              ? "bg-primary/40"
+                              : "bg-muted"
+                        }`}
+                        style={{ minWidth: 28 }}
+                      />
+                    </div>
+                  ))}
                 </div>
-                <p style={{ marginTop: 14 }}>
+
+                <p className="mt-3.5 text-sm text-muted-foreground">
                   {completedCount} of {steps.length} foundations are in place.
                 </p>
-                <div
-                  style={{
-                    marginTop: 16,
-                    padding: 16,
-                    borderRadius: 16,
-                    border: "1px solid var(--border)",
-                    background: "var(--surface)",
-                    display: "grid",
-                    gap: 10,
-                  }}
-                >
-                  <div className="eyebrow" style={{ marginBottom: 0 }}>
-                    {nextStep ? "Next Step" : "Workflow Ready"}
-                  </div>
-                  <h3 style={{ marginBottom: 0 }}>
-                    {nextStep ? nextStep.title : "All setup steps are complete"}
-                  </h3>
-                  <p>
-                    {nextStep
-                      ? nextStep.description
-                      : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
-                  </p>
-                  <div className="action-row" style={{ marginTop: 4 }}>
-                    {nextStep ? (
-                      nextStep.actionKind === "modal" ? (
-                        <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
+
+                <div className="mt-4 rounded-2xl border bg-muted/50 p-4">
+                  <div className="grid gap-2.5">
+                    <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      {nextStep ? "Next Step" : "Workflow Ready"}
+                    </div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {nextStep ? nextStep.title : "All setup steps are complete"}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {nextStep
+                        ? nextStep.description
+                        : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {nextStep ? (
+                        nextStep.actionKind === "modal" ? (
+                          <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
+                        ) : (
+                          <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
+                            {nextStep.actionLabel}
+                          </Button>
+                        )
                       ) : (
-                        <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
-                          {nextStep.actionLabel}
-                        </Button>
-                      )
-                    ) : (
-                      <>
-                        <Button onClick={() => router.push("/app/visibility")}>Open AI Visibility</Button>
-                        <Button variant="secondary" onClick={() => router.push("/app/discovery")}>
-                          Open Radar
-                        </Button>
-                      </>
+                        <>
+                          <Button onClick={() => router.push("/app/visibility")}>
+                            Open AI Visibility
+                          </Button>
+                          <Button variant="outline" onClick={() => router.push("/app/discovery")}>
+                            Open Radar
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {completedCount === steps.length && (
+                      <Button
+                        variant="ghost"
+                        onClick={dismissWizard}
+                        className="mt-2 justify-start text-muted-foreground"
+                      >
+                        Dismiss setup wizard
+                      </Button>
                     )}
                   </div>
-                  {completedCount === steps.length && (
-                    <button
-                      className="ghost-button"
-                      onClick={dismissWizard}
-                      style={{ marginTop: 8, textAlign: "left", color: "var(--muted)" }}
-                    >
-                      Dismiss setup wizard
-                    </button>
-                  )}
                 </div>
-              </div>
+              </Card>
             </div>
           ) : (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
-              <p>{focusProject.name} • Ready for engagement workflows</p>
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              <p>{focusProject.name} &bull; Ready for engagement workflows</p>
             </div>
           )
         ) : (
-          <EmptyState
-            title="No projects yet"
-            description="Create a project to connect brand setup, AI visibility, communities, and draft generation."
-            action={<Button onClick={() => setShowCreate(true)}>Create Your First Project</Button>}
-          />
+          /* Empty State - No Projects */
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <span className="mb-4 text-4xl">📋</span>
+            <h3 className="mb-1 text-sm font-semibold text-foreground">No projects yet</h3>
+            <p className="mb-4 text-xs text-muted-foreground">
+              Create a project to connect brand setup, AI visibility, communities, and draft
+              generation.
+            </p>
+            <Button onClick={() => setShowCreate(true)}>Create Your First Project</Button>
+          </div>
         )}
-      </section>
+      </Card>
 
-      <div className="data-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <KpiCard label="Visibility Score" value={`${visibility?.share_of_voice || 0}%`} />
-        <KpiCard label="Opportunities" value={topOpps.length} />
-        <KpiCard label="Drafts Ready" value={0} />
-        <KpiCard label="Published" value={0} />
+      {/* KPI Grid */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Card className="p-4">
+          <div className="text-2xl font-bold text-foreground">{visibility?.share_of_voice || 0}%</div>
+          <div className="text-xs text-muted-foreground">Visibility Score</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold text-foreground">{topOpps.length}</div>
+          <div className="text-xs text-muted-foreground">Opportunities</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold text-foreground">0</div>
+          <div className="text-xs text-muted-foreground">Drafts Ready</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold text-foreground">0</div>
+          <div className="text-xs text-muted-foreground">Published</div>
+        </Card>
       </div>
 
-      <div className="section-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+      {/* Lane Cards */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {LANE_COPY.map((lane) => (
-          <div key={lane.title} className="card dashboard-lane-card">
-            <div className="eyebrow">{lane.title}</div>
-            <p style={{ marginBottom: 20 }}>{lane.body}</p>
-            <a href={lane.href} className="secondary-button" style={{ width: "100%", textDecoration: "none" }}>
-              {lane.action}
-            </a>
-          </div>
+          <Card key={lane.title} className="p-5">
+            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              {lane.title}
+            </div>
+            <p className="mb-5 mt-2 text-sm text-muted-foreground">{lane.body}</p>
+            <Button variant="outline" className="w-full">
+              <a href={lane.href}>{lane.action}</a>
+            </Button>
+          </Card>
         ))}
       </div>
 
-      <div className="layout-two">
-        <section className="card">
-          <div className="card-header">
+      {/* Main Content: Priority Queue + Sidebar */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        {/* Priority Queue */}
+        <Card>
+          <CardHeader>
             <div>
-              <h3 className="card-title">Priority Queue</h3>
-              <p className="card-description">
-                High-fit conversations surfaced from the current community workflow. Reddit is live today, but the queue is being shaped for broader Q&A and social patterns.
-              </p>
+              <CardTitle>Priority Queue</CardTitle>
+              <CardDescription>
+                High-fit conversations surfaced from the current community workflow. Reddit is live
+                today, but the queue is being shaped for broader Q&A and social patterns.
+              </CardDescription>
             </div>
-            <a href="/app/discovery" className="ghost-button" style={{ textDecoration: "none" }}>
-              Open Radar
-            </a>
-          </div>
+            <Button variant="ghost" className="w-full">
+              <a href="/app/discovery">Open Radar</a>
+            </Button>
+          </CardHeader>
 
           {topOpps.length === 0 ? (
-            <EmptyState
-              icon="Q"
-              title="No opportunities yet"
-              description="Run your first community scan after adding audience signals and monitored communities."
-            />
+            <CardContent>
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <span className="mb-4 text-4xl">Q</span>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">No opportunities yet</h3>
+                <p className="text-xs text-muted-foreground">
+                  Run your first community scan after adding audience signals and monitored
+                  communities.
+                </p>
+              </div>
+            </CardContent>
           ) : (
-            <div className="item-list">
-              {topOpps.slice(0, 6).map((opp: any) => (
-                <div key={opp.id} className="list-row dashboard-opp-row">
-                  <div className="dashboard-opp-head">
-                    <div>
-                      <div className="flex items-center gap-sm">
-                        <PlatformIcon platform="reddit" />
-                        <span className="badge">Live Source</span>
-                        <span className="text-muted text-sm">Reply opportunity</span>
+            <CardContent>
+              <div className="space-y-3">
+                {topOpps.slice(0, 6).map((opp: any) => (
+                  <div
+                    key={opp.id}
+                    className="rounded-lg border bg-card p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-xs font-bold text-orange-500">
+                            R
+                          </span>
+                          <Badge variant="outline">Live Source</Badge>
+                          <span className="text-xs text-muted-foreground">Reply opportunity</span>
+                        </div>
+                        <a
+                          href={opp.permalink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2.5 inline-block text-sm font-semibold text-foreground hover:underline"
+                        >
+                          {opp.title}
+                        </a>
                       </div>
-                      <a
-                        href={opp.permalink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ display: "inline-block", fontWeight: 600, marginTop: 10 }}
+                      {/* Score Badge */}
+                      <Badge
+                        variant="outline"
+                        className={
+                          (opp.score || 0) >= 70
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : (opp.score || 0) >= 40
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                        }
                       >
-                        {opp.title}
-                      </a>
+                        {opp.score || 0}
+                      </Badge>
                     </div>
-                    <ScoreBadge score={opp.score || 0} />
-                  </div>
-                  <div className="badge-row">
-                    <span className="badge">r/{opp.subreddit_name}</span>
-                    {(opp.score_reasons || []).slice(0, 2).map((reason: string) => (
-                      <span key={reason} className="badge">
-                        {reason}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <div style={{ display: "grid", gap: 24 }}>
-          <section className="card">
-            <div className="card-header">
-              <div>
-                <h3 className="card-title">Project Footprint</h3>
-                <p className="card-description">Current selected project usage inside the unlocked workspace.</p>
-              </div>
-            </div>
-            <div style={{ display: "grid", gap: 14 }}>
-              <UsageMeter
-                label="Projects"
-                used={usage?.metrics?.projects?.used || 0}
-                limit={usage?.metrics?.projects?.limit || 1}
-              />
-              <UsageMeter
-                label="Keywords"
-                used={usage?.metrics?.keywords?.used || 0}
-                limit={usage?.metrics?.keywords?.limit || 10}
-              />
-              <UsageMeter
-                label="Communities"
-                used={usage?.metrics?.subreddits?.used || 0}
-                limit={usage?.metrics?.subreddits?.limit || 5}
-              />
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-header">
-              <div>
-                <h3 className="card-title">Recent Activity</h3>
-                <p className="card-description">Workspace actions and system events.</p>
-              </div>
-            </div>
-            {activity.length === 0 ? (
-              <p className="text-muted">No activity yet. Start with brand setup or a visibility run.</p>
-            ) : (
-              <div className="item-list">
-                {activity.slice(0, 6).map((item) => (
-                  <div key={item.id} className="list-row" style={{ gap: 6 }}>
-                    <strong style={{ fontSize: 14 }}>
-                      {item.action.replace(/_/g, " ").replace(/\./g, " -> ")}
-                    </strong>
-                    <span className="text-muted text-sm">
-                      {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
-                    </span>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary">r/{opp.subreddit_name}</Badge>
+                      {(opp.score_reasons || []).slice(0, 2).map((reason: string) => (
+                        <Badge key={reason} variant="secondary">
+                          {reason}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
-            )}
-          </section>
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Sidebar */}
+        <div className="grid gap-6">
+          {/* Usage Section */}
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Project Footprint</CardTitle>
+                <CardDescription>
+                  Current selected project usage inside the unlocked workspace.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {[
+                  { label: "Projects", used: usage?.metrics?.projects?.used || 0, limit: usage?.metrics?.projects?.limit || 1 },
+                  { label: "Keywords", used: usage?.metrics?.keywords?.used || 0, limit: usage?.metrics?.keywords?.limit || 10 },
+                  { label: "Communities", used: usage?.metrics?.subreddits?.used || 0, limit: usage?.metrics?.subreddits?.limit || 5 },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className="tabular-nums">{item.used}/{item.limit}</span>
+                    <Progress value={(item.used / item.limit) * 100} className="flex-1 mx-3" />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Activity Section */}
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Recent Activity</CardTitle>
+                <CardDescription>Workspace actions and system events.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {activity.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No activity yet. Start with brand setup or a visibility run.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {activity.slice(0, 6).map((item) => (
+                    <div key={item.id} className="flex items-center gap-1.5 rounded-lg border bg-card p-4">
+                      <strong className="text-sm font-medium text-foreground">
+                        {item.action.replace(/_/g, " ").replace(/\./g, " -> ")}
+                      </strong>
+                      <span className="text-xs text-muted-foreground">
+                        {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {showCreate && (
-        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Create New Project</h3>
-              <button className="ghost-button modal-close" onClick={() => setShowCreate(false)}>
-                x
-              </button>
+      {/* Create Project Dialog */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Project</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="biz-name">Business Name</Label>
+              <Input
+                id="biz-name"
+                type="text"
+                value={bizName}
+                onChange={(e) => setBizName(e.target.value)}
+                placeholder="Your company or product name"
+              />
             </div>
-            <div className="modal-body">
-              <div className="field">
-                <label className="field-label">Business Name</label>
-                <input
-                  type="text"
-                  value={bizName}
-                  onChange={(event) => setBizName(event.target.value)}
-                  placeholder="Your company or product name"
-                />
-              </div>
-              <div className="field">
-                <label className="field-label">Description</label>
-                <textarea
-                  rows={3}
-                  value={bizDesc}
-                  onChange={(event) => setBizDesc(event.target.value)}
-                  placeholder="What category, workflow, or audience does this project represent?"
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
-                <button className="secondary-button" onClick={() => setShowCreate(false)}>
-                  Cancel
-                </button>
-                <Button loading={creating} onClick={handleCreate}>
-                  Create Project
-                </Button>
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="biz-desc">Description</Label>
+              <Textarea
+                id="biz-desc"
+                rows={3}
+                value={bizDesc}
+                onChange={(e) => setBizDesc(e.target.value)}
+                placeholder="What category, workflow, or audience does this project represent?"
+              />
             </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} disabled={creating}>
+              {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+              Create Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
