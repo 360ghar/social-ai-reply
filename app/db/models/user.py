@@ -13,9 +13,8 @@ class AccountUser(Base):
     __tablename__ = "account_users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    supabase_user_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
+    supabase_user_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     tokens_invalid_before: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

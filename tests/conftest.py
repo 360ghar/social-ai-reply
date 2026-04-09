@@ -120,6 +120,7 @@ def mock_supabase_auth():
     """Keep the test suite offline by mocking auth verification + signup."""
     with (
         patch("app.api.v1.deps.verify_supabase_jwt", side_effect=_mock_verify_supabase_jwt),
+        patch("app.api.v1.routes.auth.verify_supabase_jwt", side_effect=_mock_verify_supabase_jwt),
         patch("app.api.v1.routes.auth.sign_up", side_effect=_make_mock_supabase_signup()),
     ):
         yield

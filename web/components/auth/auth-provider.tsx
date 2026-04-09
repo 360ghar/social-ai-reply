@@ -2,8 +2,17 @@
 
 import { useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { apiRequest, isAuthError, type AuthPayload } from "@/lib/api";
-import { useAuthStore, STORAGE_KEY, LEGACY_STORAGE_KEY } from "@/stores/auth-store";
+import {
+  apiRequest,
+  isAuthError,
+  isSetupRequired,
+  type AuthPayload,
+} from "@/lib/api";
+import {
+  useAuthStore,
+  STORAGE_KEY,
+  LEGACY_STORAGE_KEY,
+} from "@/stores/auth-store";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { persist, clearAuth, setLoading, setError, setToken } = useAuthStore();
@@ -23,6 +32,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } catch (err) {
             if (isAuthError(err)) {
               await supabase.auth.signOut();
+              clearAuth();
+            } else if (isSetupRequired(err)) {
+              // User is authenticated with Supabase but has no local
+              // account yet (first-time OAuth user). Do NOT sign them
+              // out of Supabase — /auth/setup needs the live session
+              // to complete workspace provisioning.
+              clearAuth();
+            } else {
               clearAuth();
             }
           }
@@ -83,11 +100,48 @@ export function useAuth() {
         if (sbError || !data.session) {
           throw new Error(sbError?.message ?? "Invalid email or password.");
         }
-        const payload = await apiRequest<AuthPayload>("/v1/auth/login", {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        });
+        // The backend /v1/auth/login route was removed; /v1/auth/me
+        // returns the same user + workspace payload and validates the
+        // Supabase JWT directly.
+        const payload = await apiRequest<AuthPayload>(
+          "/v1/auth/me",
+          {},
+          data.session.access_token,
+        );
         storePersist({ ...payload, access_token: data.session.access_token });
+      },
+      loginWithGoogle: async () => {
+        storeSetError(null);
+        const { error: sbError } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+        if (sbError) {
+          throw new Error(sbError.message ?? "Could not start Google sign-in.");
+        }
+        // Browser redirects to Google — no further action here.
+      },
+      completeOAuthSetup: async (
+        workspaceName: string,
+      ): Promise<AuthPayload> => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          throw new Error("No active session. Please sign in again.");
+        }
+        const payload = await apiRequest<AuthPayload>(
+          "/v1/auth/oauth-complete",
+          {
+            method: "POST",
+            body: JSON.stringify({ workspace_name: workspaceName }),
+          },
+          session.access_token,
+        );
+        storePersist({ ...payload, access_token: session.access_token });
+        return payload;
       },
       register: async (input: {
         email: string;

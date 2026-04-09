@@ -1,4 +1,11 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+
+def _strip_nonempty(value: str, field_name: str, min_len: int = 2) -> str:
+    value = value.strip()
+    if len(value) < min_len:
+        raise ValueError(f"{field_name} must be at least {min_len} characters after trimming whitespace.")
+    return value
 
 
 class AuthRegisterRequest(BaseModel):
@@ -7,10 +14,24 @@ class AuthRegisterRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=255)
     workspace_name: str = Field(min_length=2, max_length=255)
 
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def strip_full_name(cls, v: str) -> str:
+        return _strip_nonempty(v, "full_name")
 
-class AuthLoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    @field_validator("workspace_name", mode="before")
+    @classmethod
+    def strip_workspace_name(cls, v: str) -> str:
+        return _strip_nonempty(v, "workspace_name")
+
+
+class OAuthCompleteRequest(BaseModel):
+    workspace_name: str = Field(min_length=2, max_length=255)
+
+    @field_validator("workspace_name", mode="before")
+    @classmethod
+    def strip_workspace_name(cls, v: str) -> str:
+        return _strip_nonempty(v, "workspace_name")
 
 
 class UserResponse(BaseModel):
@@ -36,16 +57,3 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
     workspace: WorkspaceSummary
-
-
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
-
-
-class ResetPasswordRequest(BaseModel):
-    access_token: str
-    password: str = Field(min_length=8, max_length=128)
-
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str

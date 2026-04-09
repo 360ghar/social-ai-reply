@@ -14,17 +14,17 @@ function getSupabaseClient(): SupabaseClient {
   if (_client) return _client;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabasePublishableKey) {
     if (typeof window !== "undefined") {
       throw new Error(
-        "Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are not set. Auth will not work."
+        "Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) are not set. Auth will not work."
       );
     }
   }
 
-  _client = createClient(supabaseUrl, supabaseAnonKey, {
+  _client = createClient(supabaseUrl, supabasePublishableKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,

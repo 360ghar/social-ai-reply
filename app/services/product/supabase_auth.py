@@ -44,7 +44,7 @@ def _fetch_jwks() -> dict[str, PyJWK]:
     settings = get_settings()
     resp = httpx.get(
         f"{settings.supabase_url}/auth/v1/.well-known/jwks.json",
-        headers={"apikey": settings.supabase_anon_key},
+        headers={"apikey": settings.supabase_publishable_key},
         timeout=10,
     )
     resp.raise_for_status()
@@ -72,9 +72,8 @@ def _get_signing_key(kid: str) -> PyJWK:
 def verify_supabase_jwt(token: str) -> dict:
     """Decode and verify a Supabase-issued JWT.
 
-    Fetches the public key from Supabase's JWKS endpoint to verify
-    ES256-signed tokens. Falls back to HS256 with the JWT secret
-    for backwards compatibility.
+    Supports both asymmetric (ES256/RS256 via JWKS) and symmetric (HS256)
+    algorithms depending on the Supabase project configuration.
     Returns the decoded payload dict on success, raises on failure.
     """
     settings = get_settings()
@@ -89,7 +88,7 @@ def verify_supabase_jwt(token: str) -> dict:
     kid = header.get("kid")
 
     if alg == "HS256":
-        # Legacy / simple Supabase setup: symmetric HMAC
+        # Symmetric HMAC — used when Supabase project uses HS256 signing
         secret = settings.supabase_jwt_secret
         if not secret:
             raise ValueError("SUPABASE_JWT_SECRET is not configured.")
@@ -117,14 +116,14 @@ def verify_supabase_jwt(token: str) -> dict:
     )
 
 
-# ── Supabase Admin API helpers (server-side, uses service role key) ──
+# ── Supabase Admin API helpers (server-side, uses secret key) ──
 
 
 def _admin_headers() -> dict[str, str]:
     settings = get_settings()
     return {
-        "apikey": settings.supabase_anon_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
+        "apikey": settings.supabase_publishable_key,
+        "Authorization": f"Bearer {settings.supabase_secret_key}",
         "Content-Type": "application/json",
     }
 
@@ -132,6 +131,28 @@ def _admin_headers() -> dict[str, str]:
 def _auth_url(path: str) -> str:
     settings = get_settings()
     return f"{settings.supabase_url}/auth/v1{path}"
+
+
+def _sign_in_with_password(email: str, password: str) -> dict:
+    """Authenticate an existing user via email + password.
+
+    Used internally during sign_up to get session tokens after admin user creation.
+    """
+    settings = get_settings()
+    resp = httpx.post(
+        _auth_url("/token?grant_type=password"),
+        headers={
+            "apikey": settings.supabase_publishable_key,
+            "Content-Type": "application/json",
+        },
+        json={"email": email, "password": password},
+        timeout=15,
+    )
+    data = resp.json()
+    if resp.status_code >= 400:
+        msg = data.get("error_description") or data.get("msg") or data.get("message") or str(data)
+        raise SupabaseAuthError(resp.status_code, msg)
+    return data
 
 
 def sign_up(email: str, password: str, full_name: str) -> dict:
@@ -162,38 +183,14 @@ def sign_up(email: str, password: str, full_name: str) -> dict:
 
     # Step 2: Sign in to get access + refresh tokens
     try:
-        session_data = sign_in_with_password(email, password)
+        session_data = _sign_in_with_password(email, password)
     except SupabaseAuthError as exc:
-        # Avoid leaving behind a half-created Supabase account that the app
-        # cannot establish a usable session for.
         admin_delete_user(user_data["id"])
         raise SupabaseAuthError(exc.status_code, exc.message) from exc
 
     # Merge user info into session response
     session_data["user"] = user_data
     return session_data
-
-
-def sign_in_with_password(email: str, password: str) -> dict:
-    """Authenticate an existing user via email + password.
-
-    Returns session with access_token, refresh_token, user, etc.
-    """
-    settings = get_settings()
-    resp = httpx.post(
-        _auth_url("/token?grant_type=password"),
-        headers={
-            "apikey": settings.supabase_anon_key,
-            "Content-Type": "application/json",
-        },
-        json={"email": email, "password": password},
-        timeout=15,
-    )
-    data = resp.json()
-    if resp.status_code >= 400:
-        msg = data.get("error_description") or data.get("msg") or data.get("message") or str(data)
-        raise SupabaseAuthError(resp.status_code, msg)
-    return data
 
 
 def sign_out(access_token: str) -> None:
@@ -206,7 +203,7 @@ def sign_out(access_token: str) -> None:
     resp = httpx.post(
         _auth_url("/logout"),
         headers={
-            "apikey": settings.supabase_anon_key,
+            "apikey": settings.supabase_publishable_key,
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         },
@@ -217,68 +214,6 @@ def sign_out(access_token: str) -> None:
         msg = data.get("error_description") or data.get("msg") or data.get("message") or f"Logout failed ({resp.status_code})"
         logger.warning("Supabase sign_out failed: %s %s", resp.status_code, msg)
         raise SupabaseAuthError(resp.status_code, msg)
-
-
-def reset_password_for_email(email: str) -> None:
-    """Send a password reset email via Supabase.
-
-    Supabase handles token generation, email delivery, and the reset flow.
-    """
-    settings = get_settings()
-    redirect_url = f"{settings.frontend_url}/reset-password"
-    resp = httpx.post(
-        _auth_url("/recover"),
-        headers={
-            "apikey": settings.supabase_anon_key,
-            "Content-Type": "application/json",
-        },
-        json={"email": email, "redirect_to": redirect_url},
-        timeout=15,
-    )
-    if resp.status_code >= 400:
-        # Don't reveal whether the email exists — just log server-side
-        logger.warning("Supabase password reset request failed: %s", resp.text)
-
-
-def update_user_password(access_token: str, new_password: str) -> dict:
-    """Update the authenticated user's password using their access token.
-
-    Used after Supabase redirects the user back with a valid session.
-    """
-    settings = get_settings()
-    resp = httpx.put(
-        _auth_url("/user"),
-        headers={
-            "apikey": settings.supabase_anon_key,
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        },
-        json={"password": new_password},
-        timeout=15,
-    )
-    data = resp.json()
-    if resp.status_code >= 400:
-        msg = data.get("msg") or data.get("message") or str(data)
-        raise SupabaseAuthError(resp.status_code, msg)
-    return data
-
-
-def get_user_by_token(access_token: str) -> dict:
-    """Fetch the current user's profile from Supabase using their access token."""
-    settings = get_settings()
-    resp = httpx.get(
-        _auth_url("/user"),
-        headers={
-            "apikey": settings.supabase_anon_key,
-            "Authorization": f"Bearer {access_token}",
-        },
-        timeout=10,
-    )
-    data = resp.json()
-    if resp.status_code >= 400:
-        msg = data.get("msg") or data.get("message") or str(data)
-        raise SupabaseAuthError(resp.status_code, msg)
-    return data
 
 
 def admin_get_user(supabase_user_id: str) -> dict:
@@ -304,25 +239,6 @@ def admin_delete_user(supabase_user_id: str) -> None:
     )
     if resp.status_code >= 400:
         logger.warning("Failed to delete Supabase user %s: %s", supabase_user_id, resp.text)
-
-
-def refresh_session(refresh_token: str) -> dict:
-    """Exchange a refresh token for a new access token."""
-    settings = get_settings()
-    resp = httpx.post(
-        _auth_url("/token?grant_type=refresh_token"),
-        headers={
-            "apikey": settings.supabase_anon_key,
-            "Content-Type": "application/json",
-        },
-        json={"refresh_token": refresh_token},
-        timeout=15,
-    )
-    data = resp.json()
-    if resp.status_code >= 400:
-        msg = data.get("error_description") or data.get("msg") or str(data)
-        raise SupabaseAuthError(resp.status_code, msg)
-    return data
 
 
 # ── Helpers ──────────────────────────────────────────────────────

@@ -19,71 +19,9 @@ setup_logging("INFO")
 logger = logging.getLogger(__name__)
 
 
-def _migrate_auth_schema(bind) -> None:
-    """Apply lightweight startup migrations for older local/dev databases."""
-    from sqlalchemy import inspect, text
-
-    inspector = inspect(bind)
-    table_names = set(inspector.get_table_names())
-    timestamp_type = "DATETIME" if bind.dialect.name == "sqlite" else "TIMESTAMP WITH TIME ZONE"
-
-    with bind.begin() as conn:
-        if "account_users" in table_names:
-            account_user_columns = {col["name"] for col in inspector.get_columns("account_users")}
-            if "supabase_user_id" not in account_user_columns:
-                conn.execute(text("ALTER TABLE account_users ADD COLUMN supabase_user_id VARCHAR(255)"))
-                logger.info("Migration: added supabase_user_id column to account_users.")
-
-            # Ensure the unique index exists for supabase_user_id
-            existing_indexes = {idx["name"] for idx in inspector.get_indexes("account_users")}
-            if "ix_account_users_supabase_user_id" not in existing_indexes:
-                try:
-                    conn.execute(text(
-                        "CREATE UNIQUE INDEX ix_account_users_supabase_user_id "
-                        "ON account_users (supabase_user_id) WHERE supabase_user_id IS NOT NULL"
-                    ) if bind.dialect.name != "sqlite" else text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_account_users_supabase_user_id "
-                        "ON account_users (supabase_user_id)"
-                    ))
-                    logger.info("Migration: created unique index on account_users.supabase_user_id.")
-                except Exception:
-                    # Check whether duplicates prevent the unique index
-                    dupes = conn.execute(text(
-                        "SELECT supabase_user_id, COUNT(*) AS cnt FROM account_users "
-                        "WHERE supabase_user_id IS NOT NULL "
-                        "GROUP BY supabase_user_id HAVING COUNT(*) > 1"
-                    )).fetchall()
-                    if dupes:
-                        raise RuntimeError(
-                            f"Cannot create unique index on supabase_user_id: {len(dupes)} duplicate value(s) found. "
-                            "Resolve duplicates before starting the application."
-                        ) from None
-                    logger.info("Migration: unique index on supabase_user_id already exists.")
-            if "password_hash" not in account_user_columns:
-                conn.execute(text("ALTER TABLE account_users ADD COLUMN password_hash VARCHAR(255)"))
-                logger.info("Migration: added password_hash column to account_users.")
-            if "tokens_invalid_before" not in account_user_columns:
-                conn.execute(text(f"ALTER TABLE account_users ADD COLUMN tokens_invalid_before {timestamp_type}"))
-                logger.info("Migration: added tokens_invalid_before column to account_users.")
-            if "revoked_access_token_hash" not in account_user_columns:
-                conn.execute(text("ALTER TABLE account_users ADD COLUMN revoked_access_token_hash VARCHAR(64)"))
-                logger.info("Migration: added revoked_access_token_hash column to account_users.")
-
-        if "brand_profiles" in table_names:
-            brand_profile_columns = {col["name"] for col in inspector.get_columns("brand_profiles")}
-            if "business_domain" not in brand_profile_columns:
-                conn.execute(text("ALTER TABLE brand_profiles ADD COLUMN business_domain VARCHAR(255)"))
-                logger.info("Migration: added business_domain column to brand_profiles.")
-
-        if "password_reset_tokens" in table_names:
-            conn.execute(text("DROP TABLE IF EXISTS password_reset_tokens"))
-            logger.info("Migration: dropped password_reset_tokens table.")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting RedditFlow API...")
-    _migrate_auth_schema(engine)
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ensured.")
     yield
