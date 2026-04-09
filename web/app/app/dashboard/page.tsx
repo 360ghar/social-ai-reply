@@ -136,8 +136,8 @@ export default function DashboardPage() {
       if (actRes.status === "fulfilled") {
         setActivity(actRes.value.items || []);
       }
-    } catch (error) {
-      console.error(error);
+    } catch (err: any) {
+      toast.error("Failed to load dashboard", err?.message);
     }
     setLoading(false);
   }

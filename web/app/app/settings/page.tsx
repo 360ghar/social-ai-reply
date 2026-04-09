@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Trash2, ExternalLink } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];

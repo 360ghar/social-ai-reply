@@ -125,8 +125,8 @@ export default function AutoPipelinePage() {
         : `/v1/auto-pipeline`;
       const runs = await apiRequest<{ items: PipelineRun[] }>(url, {}, token);
       setPreviousRuns(runs.items || []);
-    } catch (error: any) {
-      console.error(error);
+    } catch (err: any) {
+      toast.error("Failed to load pipeline runs", err?.message);
     }
     setLoading(false);
   }
@@ -140,8 +140,8 @@ export default function AutoPipelinePage() {
         token
       );
       setActiveRun(updated);
-    } catch (error: any) {
-      console.error(error);
+    } catch (err: any) {
+      toast.error("Failed to refresh pipeline status", err?.message);
     }
   }
 

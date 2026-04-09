@@ -49,18 +49,6 @@ function isOwnedDomain(domain: string, ownedWebsiteHost: string | null) {
   );
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const colorClass =
-    score >= 70
-      ? "text-emerald-600 border-emerald-600/30"
-      : score >= 40
-        ? "text-amber-600 border-amber-600/30"
-        : "text-destructive border-destructive/30";
-  return (
-    <Badge variant="outline" className={colorClass}>{score}</Badge>
-  );
-}
-
 export default function SourcesPage() {
   const { token } = useAuth();
   const { error } = useToast();

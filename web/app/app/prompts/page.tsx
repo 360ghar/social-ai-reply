@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { type PromptTemplate, apiRequest } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";

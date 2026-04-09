@@ -15,20 +15,9 @@ import { useToast } from "@/stores/toast";
 import { apiRequest, type Dashboard, type MonitoredSubreddit } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { ScoreBadge } from "@/components/shared/score-badge";
 
 type SortOption = "fit-score" | "activity-score" | "name";
-
-function ScoreBadge({ score }: { score: number }) {
-  const colorClass =
-    score >= 70
-      ? "text-emerald-600 border-emerald-600/30"
-      : score >= 40
-        ? "text-amber-600 border-amber-600/30"
-        : "text-destructive border-destructive/30";
-  return (
-    <Badge variant="outline" className={colorClass}>{score}</Badge>
-  );
-}
 
 export default function SubredditsPage() {
   const { token } = useAuth();

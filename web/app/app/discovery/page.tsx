@@ -42,6 +42,9 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { ScoreBadge } from "@/components/shared/score-badge";
+import { PlatformIcon } from "@/components/shared/platform-icon";
+import { redditUrl, copyToClipboard as copyText } from "@/lib/reddit";
 
 interface Keyword {
   id: number;
@@ -84,25 +87,6 @@ interface Campaign {
   name: string;
   description?: string;
   status?: string;
-}
-
-function PlatformIcon({ platform }: { platform: string }) {
-  const icons: Record<string, string> = { reddit: "🟠", quora: "🔴", facebook: "🔵", default: "🌐" };
-  return <span title={platform}>{icons[platform] || icons.default}</span>;
-}
-
-function ScoreBadge({ score }: { score: number }) {
-  const colorClass =
-    score >= 70
-      ? "text-emerald-600 border-emerald-300 bg-emerald-50"
-      : score >= 40
-        ? "text-amber-600 border-amber-300 bg-amber-50"
-        : "text-red-600 border-red-300 bg-red-50";
-  return (
-    <span className={cn("inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold", colorClass)}>
-      {score}
-    </span>
-  );
 }
 
 export default function DiscoveryPage() {
@@ -179,8 +163,8 @@ export default function DiscoveryPage() {
       if (campRes.status === "fulfilled") {
         setCampaigns(campRes.value || []);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      error("Failed to load data", err?.message);
     }
     setLoading(false);
   }
@@ -319,19 +303,12 @@ export default function DiscoveryPage() {
   }
 
   function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
+    copyText(text);
     success("Copied to clipboard");
   }
 
-  function redditUrl(permalink: string) {
-    if (permalink.startsWith("http")) {
-      return permalink;
-    }
-    return `https://www.reddit.com${permalink}`;
-  }
-
   function copyAndOpenReddit(text: string, permalink: string) {
-    navigator.clipboard.writeText(text);
+    copyText(text);
     window.open(redditUrl(permalink), "_blank");
     success("Draft copied. Reddit is opening so you can review and paste.");
   }

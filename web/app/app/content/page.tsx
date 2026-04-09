@@ -29,10 +29,11 @@ import {
   SheetFooter,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { cn } from "@/lib/utils";
 import { type PostDraft, apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PlatformIcon } from "@/components/shared/platform-icon";
+import { redditUrl, copyToClipboard as copyText } from "@/lib/reddit";
 
 interface ReplyDraftRow {
   id: number;
@@ -66,11 +67,6 @@ interface PublishedPost {
   permalink?: string;
   upvotes?: number;
   comments?: number;
-}
-
-function PlatformIcon({ platform }: { platform: string }) {
-  const icons: Record<string, string> = { reddit: "🟠", quora: "🔴", facebook: "🔵", default: "🌐" };
-  return <span title={platform}>{icons[platform] || icons.default}</span>;
 }
 
 export default function ContentPage() {
@@ -207,19 +203,12 @@ export default function ContentPage() {
   }
 
   function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
+    copyText(text);
     success("Copied to clipboard");
   }
 
-  function redditUrl(permalink: string) {
-    if (permalink.startsWith("http")) {
-      return permalink;
-    }
-    return `https://www.reddit.com${permalink}`;
-  }
-
   function copyAndOpenReddit(text: string, permalink: string) {
-    navigator.clipboard.writeText(text);
+    copyText(text);
     window.open(redditUrl(permalink), "_blank");
     success("Draft copied. Reddit is opening so you can review and paste.");
   }

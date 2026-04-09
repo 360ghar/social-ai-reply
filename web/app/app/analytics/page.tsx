@@ -8,7 +8,6 @@ import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { withProjectId } from "@/lib/project";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 
 interface AnalyticsOverview {
   visibility_score: number;
@@ -123,7 +122,6 @@ export default function AnalyticsPage() {
       if (subredditsRes.status === "fulfilled") setSubreddits(subredditsRes.value.items || []);
       if (activityRes.status === "fulfilled") setActivity(activityRes.value.items || []);
     } catch (e: any) {
-      console.error("Analytics load failed:", e);
       error("Failed to load analytics", e?.message);
     }
     setLoading(false);
