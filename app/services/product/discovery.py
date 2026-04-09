@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -29,9 +30,10 @@ from app.services.product.relevance import (
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+log = logging.getLogger("redditflow.discovery")
 
-DEFAULT_MIN_SUBREDDIT_FIT = 50
-MAX_DISCOVERY_KEYWORDS = 6
+DEFAULT_MIN_SUBREDDIT_FIT = 40
+MAX_DISCOVERY_KEYWORDS = 10
 SUBREDDIT_TRAILING_GENERIC_TOKENS = {
     "app",
     "apps",
@@ -119,8 +121,17 @@ def discover_and_store_subreddits(
         business_domain=biz_domain,
     )
     search_queries = _build_subreddit_search_queries(base_keywords, domain_context=domain_context, limit=MAX_DISCOVERY_KEYWORDS)
+
+    # ── Fallback: use raw keywords directly if query builder filters all ──
+    if not search_queries:
+        log.warning("No subreddit search queries after filtering — falling back to raw keywords")
+        search_queries = [kw for kw in base_keywords if len(kw.split()) >= 2][:MAX_DISCOVERY_KEYWORDS]
+    if not search_queries and base_keywords:
+        search_queries = base_keywords[:MAX_DISCOVERY_KEYWORDS]
     if not search_queries:
         return []
+
+    log.info("Subreddit search queries (%d): %s", len(search_queries), search_queries)
 
     # Use base_keywords (raw project keywords) for subreddit assessment
     # — they contain the actual domain terms ("founders", "demand capture")
@@ -135,14 +146,16 @@ def discover_and_store_subreddits(
     seen_names = set(existing_names)
     created: list[MonitoredSubreddit] = []
     candidates: dict[str, tuple[RedditSubredditMatch, SubredditAssessment, list[str]]] = {}
-    candidate_budget = max(max_subreddits * 4, max_subreddits + 10)
+    candidate_budget = max(max_subreddits * 6, max_subreddits + 20)
     candidates_reviewed = 0
 
     for keyword in search_queries:
         try:
-            matches = reddit.search_subreddits(keyword, limit=min(max_subreddits * 2, 10))
-        except Exception:
+            matches = reddit.search_subreddits(keyword, limit=min(max_subreddits * 3, 15))
+        except Exception as exc:
+            log.warning("Subreddit search failed for %r: %s", keyword, exc)
             continue
+        log.info("Query %r returned %d subreddit matches", keyword, len(matches))
         for match in matches:
             if len(created) >= max_subreddits:
                 break
@@ -154,11 +167,13 @@ def discover_and_store_subreddits(
             seen_names.add(normalized_name)
 
             if not _is_promising_subreddit_match(match, project, assessment_keywords):
+                log.debug("r/%s rejected at first-pass filter (no sample posts)", match.name)
                 continue
             candidates_reviewed += 1
 
             sample_posts = _safe_subreddit_posts(reddit, match.name)
             if not _is_promising_subreddit_match(match, project, assessment_keywords, sample_posts=sample_posts):
+                log.debug("r/%s rejected at second-pass filter (with %d sample posts)", match.name, len(sample_posts))
                 continue
 
             rules = _safe_subreddit_rules(reddit, match.name)
@@ -171,6 +186,11 @@ def discover_and_store_subreddits(
                 keywords=assessment_keywords,
             )
             if not assessment.eligible:
+                log.debug(
+                    "r/%s not eligible: fit=%d topic=%s domain_aligned=%s reasons=%s",
+                    match.name, assessment.fit_score,
+                    bool(assessment.matched_keywords), True, assessment.reasons[:2],
+                )
                 continue
             previous = candidates.get(normalized_name)
             if previous and _candidate_selection_score(previous[0], previous[1]) >= _candidate_selection_score(match, assessment):
@@ -179,6 +199,11 @@ def discover_and_store_subreddits(
 
         if candidates_reviewed >= candidate_budget:
             break
+
+    log.info(
+        "Subreddit discovery: reviewed %d candidates, %d eligible, selecting up to %d",
+        candidates_reviewed, len(candidates), max_subreddits,
+    )
 
     selected_candidates = sorted(
         candidates.values(),
@@ -376,9 +401,17 @@ def assess_subreddit_candidate(
             100,
         ),
     )
+    # ── Eligibility: softer gates so relevant subreddits aren't rejected ──
+    # A single strong keyword match (e.g. "real estate") gives ~18 topic
+    # points, so require only 12 to pass.  When domain vocabulary is
+    # present in the text, waive the hard topic threshold entirely since
+    # the subreddit clearly discusses the right industry.
+    topic_ok = topic_score >= 12
+    if domain_vocab_count >= 2 and topic_score >= 8:
+        topic_ok = True
     eligible = (
-        topic_score >= 24
-        and domain_match.aligned
+        topic_ok
+        and (domain_match.aligned or domain_vocab_count >= 1)
         and fit_score >= DEFAULT_MIN_SUBREDDIT_FIT
         and offtopic_penalty < 24
     )
@@ -477,14 +510,19 @@ def _is_promising_subreddit_match(
     # and fit-score threshold; the second pass (with sample posts)
     # does the real filtering.
     if not sample_posts:
+        # First pass (name+title+desc only): very relaxed — just need
+        # one keyword match OR a reasonable fit score to proceed to the
+        # sample-post fetch.
         return (
             bool(assessment.matched_keywords)
-            and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 18)
+            and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 22)
         )
+    # Second pass (with sample posts): still relaxed — one keyword
+    # match with a decent fit score is enough.  The full
+    # assess_subreddit_candidate call later does the real gating.
     return (
         bool(assessment.matched_keywords)
-        and len(assessment.matched_keywords) >= 2
-        and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 10)
+        and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 14)
     )
 
 
@@ -530,6 +568,24 @@ def _build_subreddit_search_queries(
                 continue
             queries.append(candidate)
             seen.add(candidate)
+
+    # ── Ensure raw multi-word keywords are included as queries ──────
+    # The variant generator may filter out perfectly good keywords
+    # (e.g. "real estate") if they're seen as low-signal in isolation.
+    # Include them directly so Reddit can find matching subreddits.
+    for kw in keywords:
+        normalized = normalize_phrase(kw)
+        if normalized and normalized not in seen and len(normalized.split()) >= 2:
+            queries.append(normalized)
+            seen.add(normalized)
+
+    # ── Include the business domain itself as a query ──────────────
+    if domain_context.business_domain:
+        biz = normalize_phrase(domain_context.business_domain)
+        if biz and biz not in seen:
+            queries.append(biz)
+            seen.add(biz)
+
     ranked_queries = sorted(
         queries,
         key=lambda query: _subreddit_query_score(query, domain_context=domain_context, keyword_set=keyword_set),

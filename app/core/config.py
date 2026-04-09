@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     reddit_base_url: str = "https://www.reddit.com"
-    reddit_user_agent: str = "redditflow/1.0"
+    reddit_user_agent: str = "web:redditflow:v1.2 (by /u/redditflow_bot)"
 
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None

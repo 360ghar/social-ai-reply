@@ -585,7 +585,7 @@ def select_high_signal_keywords(
             continue
         specificity = keyword_specificity(normalized)
         if (
-            specificity < 42
+            specificity < 32
             and normalized not in ROLE_TERMS
             and normalized not in KNOWN_GEO_TERMS
             and normalized not in (domain_context.anchor_terms if domain_context else ())
@@ -808,26 +808,27 @@ def assess_domain_match(text: str, context: DomainContext | None) -> DomainMatch
 
     base_aligned = bool(phrase_hits or multiword_audience_hits or len(token_hits) >= 2)
 
-    if context.business_domain:
-        if domain_vocab_ok:
-            # At least one curated domain-vocabulary term is present — the
-            # post is topically relevant to the business domain.  The other
-            # scoring gates (keyword match, intent, subreddit fit) will
-            # handle finer-grained filtering.
-            aligned = True
-        else:
-            # No domain vocab term at all — even if phrase/token overlap
-            # exists, the post is very likely off-topic for our domain
-            # (e.g. "VR gaming" matching a real-estate site that mentions VR).
-            aligned = False
-    else:
-        aligned = base_aligned
-
     score = min(len(phrase_hits) * 14 + len(multiword_audience_hits) * 6 + len(token_hits) * 4, 36)
 
     # Bonus for strong domain-vocabulary presence
     if domain_vocab_count >= 2:
         score = min(score + min(domain_vocab_count * 4, 16), 36)
+
+    if context.business_domain:
+        if domain_vocab_ok:
+            # At least one curated domain-vocabulary term is present — the
+            # post is topically relevant to the business domain.
+            aligned = True
+        elif base_aligned and (len(phrase_hits) >= 2 or len(token_hits) >= 3):
+            # No explicit domain vocab, but strong keyword/phrase overlap
+            # suggests genuine relevance — allow through with reduced score.
+            aligned = True
+            score = max(score - 8, 0)
+        else:
+            # Weak overlap and no domain vocab — likely off-topic.
+            aligned = False
+    else:
+        aligned = base_aligned
 
     return DomainMatch(
         aligned=aligned,
