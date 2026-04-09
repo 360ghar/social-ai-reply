@@ -47,7 +47,7 @@ export default function VisibilityPage() {
   const [newSetName, setNewSetName] = useState("");
   const [newSetCategory, setNewSetCategory] = useState("general");
   const [newSetPrompts, setNewSetPrompts] = useState("");
-  const [newSetModels, setNewSetModels] = useState(["chatgpt", "perplexity", "gemini", "claude"]);
+  const [newSetModels, setNewSetModels] = useState<string[]>([...AI_MODELS]);
   const [creating, setCreating] = useState(false);
   const [runningId, setRunningId] = useState<number | null>(null);
   const [inspectedRun, setInspectedRun] = useState<PromptRunResult | null>(null);
