@@ -148,10 +148,13 @@ def _sign_in_with_password(email: str, password: str) -> dict:
         json={"email": email, "password": password},
         timeout=15,
     )
-    data = resp.json()
+    content_type = resp.headers.get("content-type", "")
+    data = resp.json() if content_type.startswith("application/json") else {}
     if resp.status_code >= 400:
         msg = data.get("error_description") or data.get("msg") or data.get("message") or str(data)
         raise SupabaseAuthError(resp.status_code, msg)
+    if not data:
+        raise SupabaseAuthError(resp.status_code, "Supabase returned a non-JSON token response.")
     return data
 
 

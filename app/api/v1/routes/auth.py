@@ -9,6 +9,7 @@ import logging
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -60,8 +61,14 @@ def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> tuple[st
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
     try:
         payload = verify_supabase_jwt(credentials.credentials)
-    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError) as exc:
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
+    except ValueError as exc:
+        logger.error("JWT verification is misconfigured: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable.",
+        ) from exc
     except Exception as exc:
         logger.error("Unexpected error verifying JWT: %s", exc)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
@@ -175,7 +182,7 @@ def me(
     )
 
 
-@router.post("/auth/oauth-complete", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/auth/oauth-complete", response_model=AuthResponse)
 def oauth_complete(
     payload: OAuthCompleteRequest,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -186,7 +193,7 @@ def oauth_complete(
     Called after a first-time OAuth user (e.g. Google sign-in) authenticates
     with Supabase but has no local AccountUser record yet.
     """
-    _raw_token, jwt_payload = _verify_bearer(credentials)
+    raw_token, jwt_payload = _verify_bearer(credentials)
     supabase_uid = jwt_payload["sub"]
     email = jwt_payload.get("email", "")
     metadata = jwt_payload.get("user_metadata") or {}
@@ -199,6 +206,11 @@ def oauth_complete(
     if existing:
         if not existing.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
+        if _is_token_revoked(existing, jwt_payload, raw_token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
         # Sync email if changed in Supabase (e.g. via account settings)
         if email and email != existing.email:
             conflict = db.scalar(
@@ -217,10 +229,13 @@ def oauth_complete(
         if not workspace:
             workspace = _provision_workspace(db, existing, payload.workspace_name)
             db.commit()
-        return AuthResponse(
-            access_token="",
-            user=UserResponse.model_validate(existing),
-            workspace=workspace_summary(db, workspace, existing.id),
+        return JSONResponse(
+            content=AuthResponse(
+                access_token="",
+                user=UserResponse.model_validate(existing),
+                workspace=workspace_summary(db, workspace, existing.id),
+            ).model_dump(),
+            status_code=status.HTTP_200_OK,
         )
 
     # Reject if email is already taken by a different account
@@ -236,13 +251,20 @@ def oauth_complete(
     db.add(user)
     db.flush()
 
-    workspace = _provision_workspace(db, user, payload.workspace_name)
-    db.commit()
+    try:
+        workspace = _provision_workspace(db, user, payload.workspace_name)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-    return AuthResponse(
-        access_token="",
-        user=UserResponse.model_validate(user),
-        workspace=workspace_summary(db, workspace, user.id),
+    return JSONResponse(
+        content=AuthResponse(
+            access_token="",
+            user=UserResponse.model_validate(user),
+            workspace=workspace_summary(db, workspace, user.id),
+        ).model_dump(),
+        status_code=status.HTTP_201_CREATED,
     )
 
 

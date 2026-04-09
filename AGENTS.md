@@ -57,7 +57,7 @@ Next.js 16 + React 18 + Tailwind CSS v4 + shadcn/ui (on `@base-ui/react`) + Zust
 
 - **Routing:** App Router. Public: `web/app/page.tsx`, `login/`, `register/`, `reset-password/`. Authenticated: `web/app/app/` with shared layout wrapping `AppShell` + `ErrorBoundary`.
 - **API client:** `web/lib/api.ts` — `apiRequest<T>()` helper + domain modules in `web/lib/api/`.
-- **State:** Zustand stores in `web/stores/` (`auth-store`, `project-store`, `ui-store`). `AuthProvider` (`web/components/auth/auth-provider.tsx`) wraps the tree and bridges store state to React context. `useSelectedProjectId` hook reads `project-store`.
+- **State:** Zustand stores in `web/stores/` (`auth-store`, `project-store`, `ui-store`). Auth state is managed via `useAuthStore` (`web/stores/auth-store.ts`) and consumed through the `useAuth` hook exported from `web/components/auth/auth-provider.tsx`. `useSelectedProjectId` hook reads `project-store`.
 - **Styles:** Tailwind v4 + CVA variants. Tokens/globals in `web/app/globals.css`. Legacy `web/styles/` plain CSS is being phased out.
 - **Components:** `web/components/ui/` — shadcn primitives (`button`, `input`, `tabs`, `dialog`, ...). `web/components/` — `app-shell.tsx`, `auth/auth-provider.tsx`, `error-boundary.tsx`, `toaster.tsx`.
 
