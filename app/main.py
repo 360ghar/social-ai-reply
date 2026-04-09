@@ -37,16 +37,19 @@ app = FastAPI(
 )
 
 origins = [o.strip() for o in (settings.cors_origins_raw or "http://localhost:3000").split(",")]
+
+# Starlette executes middleware in reverse order of addition.
+# CORSMiddleware MUST be added last so it runs first — otherwise rate-limit
+# or tracing responses won't carry CORS headers and the browser will block them.
+app.add_middleware(RequestTracingMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
-
-app.add_middleware(RequestTracingMiddleware)
-app.add_middleware(RateLimitMiddleware)
 app.include_router(v1_router)
 
 

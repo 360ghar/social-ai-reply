@@ -27,7 +27,7 @@ from app.services.product.scanner import revalidate_opportunity, run_scan
 from app.services.product.scoring import MIN_RELEVANT_OPPORTUNITY_SCORE
 
 log = logging.getLogger("redditflow.pipeline")
-TARGET_PIPELINE_SUBREDDITS = 6
+TARGET_PIPELINE_SUBREDDITS = 10
 
 
 def run_auto_pipeline_background(
@@ -197,7 +197,7 @@ def run_auto_pipeline_background(
                     existing_sub_count,
                 )
         except Exception as e:
-            log.warning("Shared subreddit discovery failed: %s", e)
+            log.error("Subreddit discovery FAILED: %s\n%s", e, traceback.format_exc())
             discovered_subreddits = []
 
         pipeline.subreddits_found = existing_sub_count + len(discovered_subreddits)

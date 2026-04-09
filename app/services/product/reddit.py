@@ -165,7 +165,14 @@ class RedditClient:
 
         response: httpx.Response | None = None
         for attempt in range(3):
-            response = self._client.get(path, params=params)
+            try:
+                response = self._client.get(path, params=params)
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                logger.warning("Reddit connection error on %s (attempt %d/3): %s", path, attempt + 1, exc)
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
             self._last_request_time = time.monotonic()
             if response.status_code == 429:
                 wait = min(2 ** attempt * 2, 10)
@@ -177,6 +184,8 @@ class RedditClient:
                 )
                 time.sleep(wait)
                 continue
+            if response.status_code >= 400:
+                logger.warning("Reddit HTTP %d on %s params=%s", response.status_code, path, params)
             response.raise_for_status()
             payload = response.json()
             self._cache[cache_key] = payload

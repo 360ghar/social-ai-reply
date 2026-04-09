@@ -53,13 +53,13 @@ FastAPI + SQLAlchemy + JWT auth. Entry point: `app/main.py` — creates app, reg
 
 ### Frontend (`web/`)
 
-Next.js 16 + React 18 + pure CSS (no component library, no Tailwind).
+Next.js 16 + React 18 + Tailwind CSS v4 + shadcn/ui (on `@base-ui/react`) + Zustand.
 
 - **Routing:** App Router. Public: `web/app/page.tsx`, `login/`, `register/`, `reset-password/`. Authenticated: `web/app/app/` with shared layout wrapping `AppShell` + `ErrorBoundary`.
 - **API client:** `web/lib/api.ts` — `apiRequest<T>()` helper + domain modules in `web/lib/api/`.
-- **State:** No external library. Auth via `AuthProvider` context. Selected project via `use-selected-project.ts` hook.
-- **Styles:** Plain CSS in `web/styles/` (globals, components, layout, pages, utilities).
-- **Components:** `web/components/` — `app-shell.tsx`, `auth-provider.tsx`, `error-boundary.tsx`, `modal.tsx`, `toast.tsx`, `ui.tsx`.
+- **State:** Zustand stores in `web/stores/` (`auth-store`, `project-store`, `ui-store`). `AuthProvider` (`web/components/auth/auth-provider.tsx`) wraps the tree and bridges store state to React context. `useSelectedProjectId` hook reads `project-store`.
+- **Styles:** Tailwind v4 + CVA variants. Tokens/globals in `web/app/globals.css`. Legacy `web/styles/` plain CSS is being phased out.
+- **Components:** `web/components/ui/` — shadcn primitives (`button`, `input`, `tabs`, `dialog`, ...). `web/components/` — `app-shell.tsx`, `auth/auth-provider.tsx`, `error-boundary.tsx`, `toaster.tsx`.
 
 ## Key Conventions
 

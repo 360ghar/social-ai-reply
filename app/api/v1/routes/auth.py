@@ -201,6 +201,14 @@ def oauth_complete(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
         # Sync email if changed in Supabase (e.g. via account settings)
         if email and email != existing.email:
+            conflict = db.scalar(
+                select(AccountUser).where(
+                    AccountUser.email == email,
+                    AccountUser.id != existing.id,
+                )
+            )
+            if conflict:
+                raise HTTPException(status_code=409, detail="Email already registered.")
             existing.email = email
             db.add(existing)
             db.commit()

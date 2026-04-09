@@ -122,7 +122,7 @@ def verify_supabase_jwt(token: str) -> dict:
 def _admin_headers() -> dict[str, str]:
     settings = get_settings()
     return {
-        "apikey": settings.supabase_publishable_key,
+        "apikey": settings.supabase_secret_key,
         "Authorization": f"Bearer {settings.supabase_secret_key}",
         "Content-Type": "application/json",
     }

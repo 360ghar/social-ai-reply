@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 RedditFlow is a hosted SaaS platform for finding relevant Reddit posts, scoring opportunities, and drafting helpful replies. It does **not** auto-post to Reddit — all posting is manual. The product layers are:
 
 - **Backend** (`app/`): FastAPI API server with JWT auth, workspace-scoped multi-tenancy, LLM-powered analysis/drafting, Reddit scraping, billing/entitlements, and a legacy Instagram service kept in isolation.
-- **Frontend** (`web/`): Next.js 16 app with React 18, pure CSS (no component library), and an `AuthProvider` context wrapping all routes.
+- **Frontend** (`web/`): Next.js 16 app with React 18, shadcn/ui components (built on `@base-ui/react`), Tailwind CSS v4, and Zustand state management. `AuthProvider` context wraps all routes.
 
 ## Commands
 
@@ -76,17 +76,19 @@ npm run build     # type-check + production build (used as the "test" step)
 
 ## Frontend Architecture
 
-**Entry point**: `web/app/layout.tsx` — root layout wrapping children in `AuthProvider`.
+**Entry point**: `web/app/layout.tsx` — root layout wrapping children in `AuthProvider` + `Toaster`.
 
 **Routing**: Next.js App Router. Public pages at `web/app/page.tsx` (landing), `web/app/login/`, `web/app/register/`, `web/app/reset-password/`. Authenticated app pages under `web/app/app/` with a shared layout (`app/app/layout.tsx`) that wraps in `AppShell` + `ErrorBoundary`.
 
 **API client**: `web/lib/api.ts` — central module with `apiRequest<T>()` helper, shared types, and re-exports from domain-specific modules in `web/lib/api/` (auth, content, discovery, visibility, analytics, etc.).
 
-**State**: No external state library. Auth state via `AuthProvider` context. Selected project via `use-selected-project.ts` hook.
+**State**: Zustand stores in `web/stores/` — `auth-store.ts` (auth state, consumed by `AuthProvider`), `project-store.ts` (selected project, consumed by `useSelectedProjectId` hook), `ui-store.ts` (sidebar + notification panel toggles). `AuthProvider` (`web/components/auth/auth-provider.tsx`) wraps the tree and bridges Zustand state to React context.
 
-**Styling**: Plain CSS files in `web/styles/` (globals, components, layout, pages, utilities). No Tailwind, no CSS modules.
+**Styling**: Tailwind CSS v4 + shadcn/ui primitives built on `@base-ui/react`. Design tokens and global styles in `web/app/globals.css`. Component variants use `class-variance-authority`. Legacy plain-CSS files under `web/styles/` are being phased out.
 
-**Components** (`web/components/`): `app-shell.tsx` (sidebar navigation), `auth-provider.tsx`, `error-boundary.tsx`, `modal.tsx`, `toast.tsx`, `ui.tsx` (shared UI primitives).
+**Components** (`web/components/`):
+- `ui/` — shadcn primitives (`button.tsx`, `input.tsx`, `tabs.tsx`, `dialog.tsx`, etc.) wrapping `@base-ui/react` with Tailwind classes and CVA variants
+- `app-shell.tsx` (sidebar navigation), `auth/auth-provider.tsx` (auth bootstrap), `error-boundary.tsx`, `toaster.tsx`
 
 ## Key Conventions
 

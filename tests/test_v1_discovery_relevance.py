@@ -434,7 +434,7 @@ def test_discovery_deduplicates_candidates_before_detail_fetch(authed_client, db
     created = discover_and_store_subreddits(db_session, project, max_subreddits=2, reddit=reddit)
 
     assert [row.name for row in created] == ["saas"]
-    assert reddit.search_calls == 6
+    assert reddit.search_calls == 10
     assert reddit.posts_calls == 1
     assert reddit.rules_calls == 1
 
