@@ -179,7 +179,7 @@ export function Pricing() {
                 href={tier.ctaLink}
                 className={`mt-8 flex h-12 items-center justify-center rounded-xl text-sm font-semibold transition-all duration-200 ${
                   tier.highlighted
-                    ? "bg-primary text-white border-none hover:bg-primary/90"
+                    ? "bg-primary text-white border-none hover:bg-[var(--color-coral-hover)]"
                     : "bg-transparent text-foreground border border-border hover:border-primary hover:text-primary"
                 }`}
               >
