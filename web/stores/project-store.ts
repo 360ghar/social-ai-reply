@@ -11,7 +11,7 @@ interface ProjectState {
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
-  selectedProjectId: typeof window !== "undefined" ? getStoredProjectId() : null,
+  selectedProjectId: null,
   projects: [],
 
   setProjectId(id) {

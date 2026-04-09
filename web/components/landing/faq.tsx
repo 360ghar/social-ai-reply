@@ -1,6 +1,6 @@
 "use client";
 
-import { m, AnimatePresence } from "framer-motion";
+import { m } from "framer-motion";
 import { useState } from "react";
 
 const faqs = [
@@ -68,22 +68,17 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
           <polyline points="6 9 12 15 18 9" />
         </m.svg>
       </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <m.div
-            id={answerId}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <p className="pb-5 text-sm leading-relaxed text-muted-foreground">
-              {answer}
-            </p>
-          </m.div>
-        )}
-      </AnimatePresence>
+      <m.div
+        id={answerId}
+        animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+        initial={false}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
+        style={{ overflow: "hidden" }}
+      >
+        <p className="pb-5 text-sm leading-relaxed text-muted-foreground">
+          {answer}
+        </p>
+      </m.div>
     </div>
   );
 }
