@@ -36,6 +36,7 @@ export default function VisibilityPage() {
   const [newSetModels, setNewSetModels] = useState(["chatgpt", "perplexity", "gemini", "claude"]);
   const [creating, setCreating] = useState(false);
   const [runningId, setRunningId] = useState<number | null>(null);
+  const [inspectedRun, setInspectedRun] = useState<PromptRunResult | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -146,8 +147,8 @@ export default function VisibilityPage() {
         <Button onClick={() => setShowCreate(true)}>+ Add Prompt</Button>
       </div>
 
-      {/* KPI Row - 4 cards */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      {/* KPI Row - 3 cards */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
         <Card className="p-4">
           <div className="text-2xl font-bold">{summary?.share_of_voice || 0}%</div>
           <div className="text-xs text-muted-foreground">Visibility Score</div>
@@ -155,10 +156,6 @@ export default function VisibilityPage() {
         <Card className="p-4">
           <div className="text-2xl font-bold">{summary?.brand_mentioned || 0}</div>
           <div className="text-xs text-muted-foreground">Total Mentions</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{Math.round((summary?.brand_mentioned || 0) * 0.7)}%</div>
-          <div className="text-xs text-muted-foreground">Positive Sentiment %</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold">{Object.keys(summary?.models || {}).length}</div>
@@ -232,7 +229,7 @@ export default function VisibilityPage() {
                                 <div className="capitalize text-xs">{r.sentiment || "—"}</div>
                                 <div className="text-center"><strong>{r.citations_count}</strong></div>
                                 <button
-                                  onClick={() => alert(JSON.stringify(r, null, 2))}
+                                  onClick={() => setInspectedRun(r)}
                                   className="bg-transparent border-none cursor-pointer text-primary text-xs"
                                 >
                                   View
@@ -292,6 +289,19 @@ export default function VisibilityPage() {
           </Card>
         </div>
       </div>
+
+      {/* Run Detail Dialog */}
+      <Dialog open={inspectedRun !== null} onOpenChange={(open) => { if (!open) setInspectedRun(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Run Detail</DialogTitle>
+            <DialogDescription>Full result data for this prompt run.</DialogDescription>
+          </DialogHeader>
+          <pre className="overflow-auto rounded-md bg-muted p-4 text-xs max-h-96">
+            {JSON.stringify(inspectedRun, null, 2)}
+          </pre>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Prompt Set Modal */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

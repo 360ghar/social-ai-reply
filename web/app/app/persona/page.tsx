@@ -237,13 +237,11 @@ export default function PersonaPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardContent>
-            <form onSubmit={isEditingId ? updatePersona : createPersona}>
+            <form onSubmit={createPersona}>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Customers</p>
-              <h2 className="text-lg font-semibold mt-1">{isEditingId ? "Edit customer type" : "Who do you want to help on Reddit?"}</h2>
+              <h2 className="text-lg font-semibold mt-1">Who do you want to help on Reddit?</h2>
               <p className="text-sm text-muted-foreground mb-6">
-                {isEditingId
-                  ? "Update this customer type."
-                  : "Write 2 or 3 customer types in simple language. Example: Small business owner looking for a better CRM."}
+                Write 2 or 3 customer types in simple language. Example: Small business owner looking for a better CRM.
               </p>
 
               <div className="space-y-4">
@@ -280,32 +278,18 @@ export default function PersonaPage() {
               </div>
 
               <div className="flex flex-wrap gap-2 mt-6">
-                <Button variant="secondary" type="submit" disabled={isCreating || isUpdating}>
-                  {(isCreating || isUpdating) && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {isEditingId ? "Update" : "Save customer type"}
+                <Button variant="secondary" type="submit" disabled={isCreating}>
+                  {isCreating && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save customer type
                 </Button>
-                {!isEditingId && (
-                  <Button
-                    type="button"
-                    onClick={generateSeedPersonas}
-                    disabled={isGenerating}
-                  >
-                    {isGenerating && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Create examples
-                  </Button>
-                )}
-                {isEditingId && (
-                  <Button
-                    variant="ghost"
-                    type="button"
-                    onClick={() => {
-                      setIsEditingId(null);
-                      setDraft(emptyPersona);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  onClick={generateSeedPersonas}
+                  disabled={isGenerating}
+                >
+                  {isGenerating && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Create examples
+                </Button>
               </div>
             </form>
           </CardContent>

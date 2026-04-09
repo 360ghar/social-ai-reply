@@ -24,13 +24,6 @@ interface DashData {
   projects?: Project[];
 }
 
-interface UsageData {
-  metrics?: {
-    keywords?: { used: number; limit: number };
-    subreddits?: { used: number; limit: number };
-  };
-}
-
 interface NotificationData {
   unread_count: number;
 }
@@ -107,10 +100,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState("");
   const [notifCount, setNotifCount] = useState(0);
-  const [_usage, _setUsage] = useState<UsageData | null>(null);
   const selectedProjectId = useSelectedProjectId();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [notifLoading, setNotifLoading] = useState(false);
 
   const { sidebarOpen, toggleSidebar, setSidebarOpen, notifPanelOpen, setNotifPanelOpen } = useUIStore();
 
@@ -133,7 +124,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       void loadNotifications();
     }, 30000);
     return () => clearInterval(interval);
-  }, [token]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedProjectId]);
 
   useEffect(() => {
     const projects = dash?.projects || [];
@@ -154,10 +146,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
       setLoading(true);
     }
     try {
-      const [dashRes, notifRes, usageRes] = await Promise.allSettled([
+      const [dashRes, notifRes] = await Promise.allSettled([
         apiRequest<DashData>(withProjectId("/v1/dashboard", projectId), {}, token),
         apiRequest<NotificationData>("/v1/notifications", {}, token),
-        apiRequest<UsageData>(withProjectId("/v1/usage", projectId), {}, token),
       ]);
 
       if (dashRes.status === "fulfilled") {
@@ -165,9 +156,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       }
       if (notifRes.status === "fulfilled") {
         setNotifCount(notifRes.value.unread_count || 0);
-      }
-      if (usageRes.status === "fulfilled") {
-        _setUsage(usageRes.value);
       }
 
       const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);
