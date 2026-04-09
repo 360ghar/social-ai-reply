@@ -131,7 +131,7 @@ export default function AnalyticsPage() {
     return (
       <div>
         <h2 className="text-2xl font-semibold mb-6">Analytics</h2>
-        <div className="grid grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[1, 2, 3, 4].map(i => (
             <Card key={i} className="p-4">
               <Skeleton className="h-8 w-3/5 mb-2" />
@@ -149,10 +149,13 @@ export default function AnalyticsPage() {
   const trendDir = visibilityTrend >= 0 ? "↑" : "↓";
   const trendColor = visibilityTrend >= 0 ? "text-emerald-600" : "text-destructive";
 
-  // Max values for bar heights
-  const maxTrendScore = Math.max(...trendData.map(d => d.visibility_score), 100);
-  const maxKeywords = Math.max(...keywords.map(k => k.priority_score), 1);
-  const maxSubreddits = Math.max(...subreddits.map(s => s.fit_score), 100);
+  // Max values for bar heights — use reduce to avoid stack overflow on large arrays
+  const trendScores = trendData.map(d => d.visibility_score);
+  const maxTrendScore = trendScores.length ? trendScores.reduce((a, b) => Math.max(a, b), -Infinity) : 100;
+  const keywordScores = keywords.map(k => k.priority_score);
+  const maxKeywords = keywordScores.length ? keywordScores.reduce((a, b) => Math.max(a, b), -Infinity) : 1;
+  const subredditScores = subreddits.map(s => s.fit_score);
+  const maxSubreddits = subredditScores.length ? subredditScores.reduce((a, b) => Math.max(a, b), -Infinity) : 100;
 
   // Funnel calculations
   const byStatus = engagementData?.by_status || {};
@@ -184,7 +187,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <Card className="p-4">
           <div className="text-[28px] font-bold text-primary mb-1">
             {overview?.visibility_score || 0}%

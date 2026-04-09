@@ -636,6 +636,7 @@ function ExpandableSection({ title, isExpanded, onToggle, children }: Expandable
     <div className="border rounded-xl overflow-hidden bg-card">
       <button
         onClick={onToggle}
+        aria-expanded={isExpanded}
         className="w-full px-4 py-4 bg-transparent border-none text-left text-sm font-semibold text-foreground cursor-pointer flex justify-between items-center transition-colors hover:bg-muted"
       >
         {title}

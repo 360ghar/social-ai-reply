@@ -389,7 +389,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               >
                 <Bell className="h-4 w-4" />
                 {notifCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-[10px] font-bold">
+                  <span aria-live="polite" className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-[10px] font-bold">
                     {notifCount > 9 ? "9+" : notifCount}
                   </span>
                 )}
@@ -417,7 +417,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     notifications.map((notif) => (
                       <div
                         key={notif.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => handleNotificationClick(notif)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleNotificationClick(notif);
+                          }
+                        }}
                         className={`px-4 py-2.5 border-b border-border last:border-b-0 transition-colors ${
                           notif.link ? "cursor-pointer hover:bg-muted/50" : "cursor-default"
                         } ${!notif.read ? "bg-primary/[0.04] border-l-[3px] border-l-primary" : ""}`}

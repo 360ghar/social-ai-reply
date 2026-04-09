@@ -8,3 +8,6 @@ export const useToast = () => ({
   warning: (title: string, description?: string) => sonner.warning(title, { description }),
   info: (title: string, description?: string) => sonner.info(title, { description }),
 });
+
+// Plain function alias — preferred when no reactive state is needed.
+export const toastActions = useToast;

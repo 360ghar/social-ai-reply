@@ -19,8 +19,10 @@ backend.out.log
 backend.err.log
 e2e_results.log*
 
-web/node_modules/
-web/.next/
+node_modules/
+.next/
+.factory/
+web/next-env.d.ts
 
 instagram_poacher.egg-info/
 exports/

@@ -132,15 +132,8 @@ export default function SettingsPage() {
   }
 
   async function saveGeneralSettings() {
-    setLoading(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      toast.success("Settings saved", "Your workspace settings have been updated");
-    } catch (err) {
-      toast.error("Failed to save settings", err instanceof Error ? err.message : undefined);
-    } finally {
-      setLoading(false);
-    }
+    // Not yet implemented — show a "coming soon" notice instead of a fake success.
+    toast.info("Coming soon", "Workspace settings persistence is not yet available.");
   }
 
   async function createSecret(e: FormEvent) {
@@ -255,15 +248,8 @@ export default function SettingsPage() {
   }
 
   async function exportData() {
-    setLoading(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      toast.success("Export started", "Check your email for the data export file");
-    } catch (err) {
-      toast.error("Failed to export", err instanceof Error ? err.message : undefined);
-    } finally {
-      setLoading(false);
-    }
+    // Not yet implemented — show a "coming soon" notice instead of a fake success.
+    toast.info("Coming soon", "Data export is not yet available.");
   }
 
   async function deleteWorkspace() {

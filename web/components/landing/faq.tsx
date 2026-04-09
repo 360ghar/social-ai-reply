@@ -38,11 +38,14 @@ const faqs = [
 
 function FaqItem({ question, answer }: { question: string; answer: string }) {
   const [open, setOpen] = useState(false);
+  const answerId = `faq-answer-${question.replace(/\s+/g, "-").toLowerCase().slice(0, 40)}`;
 
   return (
     <div className="border-b border-border">
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={answerId}
         className="flex w-full items-center justify-between py-5 text-left"
       >
         <span className="text-base font-medium text-foreground">
@@ -68,6 +71,7 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
       <AnimatePresence initial={false}>
         {open && (
           <m.div
+            id={answerId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}

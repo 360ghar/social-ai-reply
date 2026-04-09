@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import {
   SheetFooter,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { type PostDraft, apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
@@ -344,8 +345,8 @@ export default function ContentPage() {
                 <p className="mt-2 text-sm text-muted-foreground">
                   Generate response drafts from Engagement Radar. They will appear here for review, revision, and manual publishing.
                 </p>
-                <Link href="/app/discovery" className="mt-4">
-                  <Button variant="outline">Open Engagement Radar</Button>
+                <Link href="/app/discovery" className={cn(buttonVariants({ variant: "outline" }), "mt-4")}>
+                  Open Engagement Radar
                 </Link>
               </div>
             ) : (
@@ -527,8 +528,8 @@ export default function ContentPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 Manage reply, post, and analysis prompt systems from a single template library.
               </p>
-              <Link href="/app/prompts" className="mt-4">
-                <Button variant="outline">Open Templates</Button>
+              <Link href="/app/prompts" className={cn(buttonVariants({ variant: "outline" }), "mt-4")}>
+                Open Templates
               </Link>
             </div>
           </TabsContent>

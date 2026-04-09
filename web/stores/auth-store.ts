@@ -14,8 +14,8 @@ interface AuthState {
   setToken: (token: string | null) => void;
 }
 
-const STORAGE_KEY = "redditflow-auth";
-const LEGACY_STORAGE_KEY = "reply-radar-auth";
+export const STORAGE_KEY = "redditflow-auth";
+export const LEGACY_STORAGE_KEY = "reply-radar-auth";
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { apiRequest, isAuthError, type AuthPayload } from "@/lib/api";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, STORAGE_KEY, LEGACY_STORAGE_KEY } from "@/stores/auth-store";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { persist, clearAuth, setLoading, setError, setToken } = useAuthStore();
@@ -27,8 +27,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } else {
-          const STORAGE_KEY = "redditflow-auth";
-          const LEGACY_STORAGE_KEY = "reply-radar-auth";
           const raw =
             window.localStorage.getItem(STORAGE_KEY) ??
             window.localStorage.getItem(LEGACY_STORAGE_KEY);
@@ -64,66 +62,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useAuth() {
-  const store = useAuthStore();
+  const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
+  const workspace = useAuthStore((s) => s.workspace);
+  const loading = useAuthStore((s) => s.loading);
+  const error = useAuthStore((s) => s.error);
+  const storeSetError = useAuthStore((s) => s.setError);
+  const storePersist = useAuthStore((s) => s.persist);
+  const storeClearAuth = useAuthStore((s) => s.clearAuth);
+  const storeSetToken = useAuthStore((s) => s.setToken);
 
-  return {
-    token: store.token,
-    user: store.user,
-    workspace: store.workspace,
-    loading: store.loading,
-    error: store.error,
-    login: async (email: string, password: string) => {
-      store.setError(null);
-      const { data, error: sbError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (sbError || !data.session) {
-        throw new Error(sbError?.message ?? "Invalid email or password.");
-      }
-      const payload = await apiRequest<AuthPayload>("/v1/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      store.persist({ ...payload, access_token: data.session.access_token });
-    },
-    register: async (input: {
-      email: string;
-      password: string;
-      fullName: string;
-      workspaceName: string;
-    }) => {
-      store.setError(null);
-      const payload = await apiRequest<AuthPayload>("/v1/auth/register", {
-        method: "POST",
-        body: JSON.stringify({
-          email: input.email,
-          password: input.password,
-          full_name: input.fullName,
-          workspace_name: input.workspaceName,
-        }),
-      });
-      if (payload.access_token && payload.refresh_token) {
-        await supabase.auth.setSession({
-          access_token: payload.access_token,
-          refresh_token: payload.refresh_token,
+  const methods = useMemo(
+    () => ({
+      login: async (email: string, password: string) => {
+        storeSetError(null);
+        const { data, error: sbError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
-      }
-      store.persist(payload);
-    },
-    logout: async () => {
-      const currentToken = store.token;
-      store.clearAuth();
-      await supabase.auth.signOut();
-      if (currentToken) {
-        await apiRequest("/v1/auth/logout", { method: "POST" }, currentToken);
-      }
-    },
-    refreshSession: async () => {
-      const { data: { session } } = await supabase.auth.refreshSession();
-      if (session?.access_token) {
-        store.setToken(session.access_token);
-      }
-    },
-  };
+        if (sbError || !data.session) {
+          throw new Error(sbError?.message ?? "Invalid email or password.");
+        }
+        const payload = await apiRequest<AuthPayload>("/v1/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+        storePersist({ ...payload, access_token: data.session.access_token });
+      },
+      register: async (input: {
+        email: string;
+        password: string;
+        fullName: string;
+        workspaceName: string;
+      }) => {
+        storeSetError(null);
+        const payload = await apiRequest<AuthPayload>("/v1/auth/register", {
+          method: "POST",
+          body: JSON.stringify({
+            email: input.email,
+            password: input.password,
+            full_name: input.fullName,
+            workspace_name: input.workspaceName,
+          }),
+        });
+        if (payload.access_token && payload.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: payload.access_token,
+            refresh_token: payload.refresh_token,
+          });
+        }
+        storePersist(payload);
+      },
+      logout: async () => {
+        const currentToken = token;
+        storeClearAuth();
+        await supabase.auth.signOut();
+        if (currentToken) {
+          await apiRequest("/v1/auth/logout", { method: "POST" }, currentToken);
+        }
+      },
+      refreshSession: async () => {
+        const { data: { session } } = await supabase.auth.refreshSession();
+        if (session?.access_token) {
+          storeSetToken(session.access_token);
+        }
+      },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [token, storeSetError, storePersist, storeClearAuth, storeSetToken],
+  );
+
+  return { token, user, workspace, loading, error, ...methods };
 }
