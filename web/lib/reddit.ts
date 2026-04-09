@@ -16,7 +16,8 @@ export function redditUrl(permalink: string): string {
 /**
  * Copies `text` to the clipboard.
  * The caller is responsible for showing user feedback after the call.
+ * Errors propagate so callers can show failure toasts.
  */
-export function copyToClipboard(text: string): void {
-  navigator.clipboard.writeText(text);
+export async function copyText(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text);
 }

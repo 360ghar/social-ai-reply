@@ -33,7 +33,7 @@ import { type PostDraft, apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PlatformIcon } from "@/components/shared/platform-icon";
-import { redditUrl, copyToClipboard as copyText } from "@/lib/reddit";
+import { redditUrl, copyText } from "@/lib/reddit";
 
 interface ReplyDraftRow {
   id: number;
@@ -202,9 +202,13 @@ export default function ContentPage() {
     setPostBody(draft.body);
   }
 
-  function copyToClipboard(text: string) {
-    copyText(text);
-    success("Copied to clipboard");
+  async function copyToClipboard(text: string) {
+    try {
+      await copyText(text);
+      success("Copied to clipboard");
+    } catch {
+      error("Failed to copy", "Clipboard access was denied.");
+    }
   }
 
   function copyAndOpenReddit(text: string, permalink: string) {

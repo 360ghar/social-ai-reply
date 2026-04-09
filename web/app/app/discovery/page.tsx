@@ -44,7 +44,7 @@ import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { ScoreBadge } from "@/components/shared/score-badge";
 import { PlatformIcon } from "@/components/shared/platform-icon";
-import { redditUrl, copyToClipboard as copyText } from "@/lib/reddit";
+import { redditUrl, copyText } from "@/lib/reddit";
 
 interface Keyword {
   id: number;
@@ -302,9 +302,13 @@ export default function DiscoveryPage() {
     }
   }
 
-  function copyToClipboard(text: string) {
-    copyText(text);
-    success("Copied to clipboard");
+  async function copyToClipboard(text: string) {
+    try {
+      await copyText(text);
+      success("Copied to clipboard");
+    } catch {
+      error("Failed to copy", "Clipboard access was denied.");
+    }
   }
 
   function copyAndOpenReddit(text: string, permalink: string) {
