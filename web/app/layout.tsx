@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "next-themes";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 
 import "../styles/globals.css";
 import { AuthProvider } from "../components/auth/auth-provider";
