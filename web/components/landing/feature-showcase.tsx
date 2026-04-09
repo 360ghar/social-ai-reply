@@ -137,9 +137,8 @@ export function FeatureShowcase() {
               viewport={{ once: true, margin: "-100px" }}
               transition={{ duration: 0.6 }}
               className="grid items-center gap-12 md:grid-cols-2"
-              style={{ direction: feature.reverse ? "rtl" : "ltr" }}
             >
-              <div style={{ direction: "ltr" }}>
+              <div className={feature.reverse ? "md:order-2" : undefined}>
                 <h3
                   className="mb-4 text-2xl font-bold tracking-tight text-foreground md:text-3xl"
                 >
@@ -153,10 +152,7 @@ export function FeatureShowcase() {
               </div>
 
               <div
-                className="rounded-2xl border border-border bg-background p-6"
-                style={{
-                  direction: "ltr",
-                }}
+                className={`rounded-2xl border border-border bg-background p-6${feature.reverse ? " md:order-1" : ""}`}
               >
                 {feature.mockup}
               </div>

@@ -31,8 +31,6 @@ export function Footer() {
                     <a
                       href="#"
                       className="text-sm transition-colors duration-200 text-muted-foreground hover:text-primary"
-                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--primary)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = "")}
                     >
                       {link}
                     </a>
@@ -53,8 +51,6 @@ export function Footer() {
                 key={social}
                 href="#"
                 className="text-xs transition-colors duration-200 text-muted-foreground hover:text-primary"
-                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--primary)")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "")}
               >
                 {social}
               </a>

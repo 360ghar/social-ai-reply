@@ -83,9 +83,7 @@ export function Navbar() {
             </button>
             <Link
               href="/register"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-all duration-200"
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-coral-hover)")}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--primary)")}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary/90"
             >
               Get Started Free
             </Link>

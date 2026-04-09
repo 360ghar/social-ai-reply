@@ -73,29 +73,13 @@ export function Hero() {
         <m.div variants={fadeUp} className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
             href="/register"
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-8 text-base font-semibold text-white transition-all duration-200"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--color-coral-hover)";
-              e.currentTarget.style.transform = "scale(1.02)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--primary)";
-              e.currentTarget.style.transform = "scale(1)";
-            }}
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-8 text-base font-semibold text-white transition-all duration-200 hover:bg-primary/90 hover:scale-[1.02]"
           >
             Start Free Trial
           </Link>
           <a
             href="#features"
-            className="inline-flex h-12 items-center justify-center rounded-xl border border-border px-8 text-base font-semibold text-foreground transition-all duration-200"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--primary)";
-              e.currentTarget.style.color = "var(--primary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
-              e.currentTarget.style.color = "var(--foreground)";
-            }}
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-border px-8 text-base font-semibold text-foreground transition-all duration-200 hover:border-primary hover:text-primary"
           >
             Watch Demo
           </a>

@@ -85,15 +85,7 @@ export function HowItWorks() {
               variants={cardVariants}
               whileHover={{ y: -4 }}
               transition={{ duration: 0.2 }}
-              className="group rounded-2xl border border-border bg-background p-8 transition-shadow duration-300"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--primary)";
-                e.currentTarget.style.boxShadow = "0 10px 40px var(--color-coral-glow)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--border)";
-                e.currentTarget.style.boxShadow = "none";
-              }}
+              className="group rounded-2xl border border-border bg-background p-8 transition-all duration-300 hover:border-primary hover:shadow-[0_10px_40px_var(--color-coral-glow)]"
             >
               <div
                 className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-coral-glow text-primary"

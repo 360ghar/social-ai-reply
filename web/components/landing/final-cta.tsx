@@ -36,29 +36,13 @@ export function FinalCta() {
             <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 href="/register"
-                className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-8 text-base font-semibold transition-all duration-200 text-primary"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "scale(1.02)";
-                  e.currentTarget.style.boxShadow = "0 10px 40px rgba(0,0,0,0.2)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "scale(1)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
+                className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-8 text-base font-semibold transition-all duration-200 text-primary hover:scale-[1.02] hover:shadow-[0_10px_40px_rgba(0,0,0,0.2)]"
               >
                 Get Started Free
               </Link>
               <a
                 href="mailto:hello@redditflow.com"
-                className="inline-flex h-12 items-center justify-center rounded-xl border border-white/30 px-8 text-base font-semibold text-white transition-all duration-200"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "white";
-                  e.currentTarget.style.transform = "scale(1.02)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.3)";
-                  e.currentTarget.style.transform = "scale(1)";
-                }}
+                className="inline-flex h-12 items-center justify-center rounded-xl border border-white/30 px-8 text-base font-semibold text-white transition-all duration-200 hover:border-white hover:scale-[1.02]"
               >
                 Schedule Demo
               </a>

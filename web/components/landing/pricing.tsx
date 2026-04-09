@@ -179,25 +179,9 @@ export function Pricing() {
                 href={tier.ctaLink}
                 className={`mt-8 flex h-12 items-center justify-center rounded-xl text-sm font-semibold transition-all duration-200 ${
                   tier.highlighted
-                    ? "bg-primary text-white border-none"
-                    : "bg-transparent text-foreground border border-border"
+                    ? "bg-primary text-white border-none hover:bg-primary/90"
+                    : "bg-transparent text-foreground border border-border hover:border-primary hover:text-primary"
                 }`}
-                onMouseEnter={(e) => {
-                  if (tier.highlighted) {
-                    e.currentTarget.style.backgroundColor = "var(--color-coral-hover)";
-                  } else {
-                    e.currentTarget.style.borderColor = "var(--primary)";
-                    e.currentTarget.style.color = "var(--primary)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (tier.highlighted) {
-                    e.currentTarget.style.backgroundColor = "var(--primary)";
-                  } else {
-                    e.currentTarget.style.borderColor = "var(--border)";
-                    e.currentTarget.style.color = "var(--foreground)";
-                  }
-                }}
               >
                 {tier.cta}
               </Link>
