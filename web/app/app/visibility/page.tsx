@@ -111,8 +111,8 @@ export default function VisibilityPage() {
     return (
       <div>
         <h2 className="text-2xl font-semibold mb-6">AI Visibility</h2>
-        <div className="grid grid-cols-4 gap-4 mt-6">
-          {[1,2,3,4].map(i => (
+        <div className="grid grid-cols-3 gap-4 mt-6">
+          {[1,2,3].map(i => (
             <Card key={i} className="p-4">
               <Skeleton className="h-[60px] w-full" />
               <Skeleton className="h-4 w-3/5 mt-3" />
