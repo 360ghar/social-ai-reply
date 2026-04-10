@@ -7,6 +7,7 @@ import { Loader2, User } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,8 +79,8 @@ function SetupForm() {
       await completeOAuthSetup(workspace.trim());
       success("Account created!", "Your workspace is ready.");
       router.push("/app/dashboard");
-    } catch (e: any) {
-      error("Setup failed", e.message || "Could not create workspace.");
+    } catch (err: unknown) {
+      error("Setup failed", getErrorMessage(err) || "Could not create workspace.");
     }
     setLoading(false);
   }

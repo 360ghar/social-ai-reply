@@ -1,12 +1,19 @@
+"""Notification management endpoints."""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_current_user, get_current_workspace
-from app.db.models import AccountUser, Workspace
-from app.db.models import Notification as NotificationModel
-from app.db.session import get_db
+from app.db.supabase_client import get_supabase
+from app.db.tables.system import (
+    delete_notification as delete_notification_table,
+)
+from app.db.tables.system import (
+    get_notification_by_id,
+    list_notifications_for_workspace,
+    update_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,36 +24,42 @@ router = APIRouter(prefix="/v1", tags=["notifications"])
 def list_notifications(
     limit: int = 20,
     offset: int = 0,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """List notifications for current user"""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
-    notifications = db.query(NotificationModel).filter(
-        NotificationModel.workspace_id == workspace.id,
-        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None))
-    ).order_by(NotificationModel.created_at.desc()).offset(offset).limit(limit).all()
+    # Get all notifications for workspace, then filter for user-specific or global
+    all_notifications = list_notifications_for_workspace(supabase, workspace["id"], limit=limit + offset)
+    # Filter for user-specific or global (user_id is None) notifications
+    notifications = [
+        n for n in all_notifications
+        if n.get("user_id") == current_user["id"] or n.get("user_id") is None
+    ]
+    # Apply pagination
+    notifications = notifications[offset:offset + limit]
 
-    unread_count = db.query(NotificationModel).filter(
-        NotificationModel.workspace_id == workspace.id,
-        (NotificationModel.user_id == current_user.id) | (NotificationModel.user_id.is_(None)),
-        NotificationModel.is_read.is_(False)
-    ).count()
+    # Count unread
+    all_for_user = [
+        n for n in all_notifications
+        if (n.get("user_id") == current_user["id"] or n.get("user_id") is None) and not n.get("is_read", True)
+    ]
+    unread_count = len(all_for_user)
 
     return {
         "items": [
             {
-                "id": n.id,
-                "title": n.title,
-                "body": n.body,
-                "message": n.body,
-                "type": n.type,
-                "link": n.action_url,
-                "action_url": n.action_url,
-                "is_read": n.is_read,
-                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "id": n["id"],
+                "title": n["title"],
+                "body": n["body"],
+                "message": n["body"],
+                "type": n.get("type", "info"),
+                "link": n.get("action_url"),
+                "action_url": n.get("action_url"),
+                "is_read": n.get("is_read", False),
+                "created_at": n.get("created_at"),
             }
             for n in notifications
         ],
@@ -57,63 +70,74 @@ def list_notifications(
 @router.put("/notifications/{notification_id}/read")
 def mark_notification_read(
     notification_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Mark a notification as read"""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    notification = db.query(NotificationModel).filter(
-        NotificationModel.id == notification_id,
-        NotificationModel.workspace_id == workspace.id,
-        NotificationModel.user_id == current_user.id,
-    ).first()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    notification = get_notification_by_id(supabase, notification_id)
     if not notification:
         raise HTTPException(404, "Notification not found.")
 
-    notification.is_read = True
-    db.commit()
-    db.refresh(notification)
+    # Verify notification belongs to workspace and user
+    # Workspace-wide notifications (user_id=None) cannot be modified by individual users
+    if notification["workspace_id"] != workspace["id"]:
+        raise HTTPException(404, "Notification not found.")
+    if not notification.get("user_id") or notification["user_id"] != current_user["id"]:
+        raise HTTPException(404, "Notification not found.")
 
-    return {"id": notification.id, "is_read": notification.is_read}
+    updated = update_notification(supabase, notification_id, {"is_read": True})
+
+    return {"id": updated["id"], "is_read": updated["is_read"]}
 
 
 @router.put("/notifications/read-all")
 def mark_all_read(
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Mark all notifications as read"""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    db.query(NotificationModel).filter(
-        NotificationModel.workspace_id == workspace.id,
-        NotificationModel.user_id == current_user.id,
-        NotificationModel.is_read.is_(False)
-    ).update({NotificationModel.is_read: True}, synchronize_session=False)
-    db.commit()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    # Get all notifications for workspace
+    all_notifications = list_notifications_for_workspace(supabase, workspace["id"], limit=1000)
+    # Filter for user-specific notifications that are unread (exclude workspace-wide notifications)
+    to_update = [
+        n for n in all_notifications
+        if n.get("user_id") == current_user["id"] and not n.get("is_read", True)
+    ]
+
+    # Update each notification
+    for n in to_update:
+        update_notification(supabase, n["id"], {"is_read": True})
 
     return {"success": True, "message": "All notifications marked as read."}
 
 
 @router.delete("/notifications/{notification_id}")
-def delete_notification(
+def delete_notification_endpoint(
     notification_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Delete a notification"""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    notification = db.query(NotificationModel).filter(
-        NotificationModel.id == notification_id,
-        NotificationModel.workspace_id == workspace.id,
-        NotificationModel.user_id == current_user.id,
-    ).first()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    notification = get_notification_by_id(supabase, notification_id)
     if not notification:
         raise HTTPException(404, "Notification not found.")
 
-    db.delete(notification)
-    db.commit()
+    # Verify notification belongs to workspace and user
+    # Workspace-wide notifications (user_id=None) cannot be modified by individual users
+    if notification["workspace_id"] != workspace["id"]:
+        raise HTTPException(404, "Notification not found.")
+    if not notification.get("user_id") or notification["user_id"] != current_user["id"]:
+        raise HTTPException(404, "Notification not found.")
+
+    delete_notification_table(supabase, notification_id)
 
     return {"success": True, "message": "Notification deleted."}

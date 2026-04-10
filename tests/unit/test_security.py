@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.product.security import (
+from app.utils.security import (
     slugify,
     validate_webhook_url,
 )
@@ -37,7 +37,7 @@ class TestSlugify:
 
 
 class TestWebhookValidation:
-    @patch("app.services.product.security.socket.getaddrinfo", return_value=_EXAMPLE_COM_ADDRINFO)
+    @patch("app.utils.security.socket.getaddrinfo", return_value=_EXAMPLE_COM_ADDRINFO)
     def test_valid_external_url_passes(self, _mock_dns):
         validate_webhook_url("https://example.com/webhook")
 
@@ -50,7 +50,7 @@ class TestWebhookValidation:
             validate_webhook_url("")
 
     @patch(
-        "app.services.product.security.socket.getaddrinfo",
+        "app.utils.security.socket.getaddrinfo",
         return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))],
     )
     def test_internal_url_blocked(self, _mock_dns):

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { apiRequest } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { withProjectId } from "@/lib/project";
@@ -124,8 +125,8 @@ export default function AnalyticsPage() {
       if (keywordsRes.status === "fulfilled") setKeywords(keywordsRes.value.items || []);
       if (subredditsRes.status === "fulfilled") setSubreddits(subredditsRes.value.items || []);
       if (activityRes.status === "fulfilled") setActivity(activityRes.value.items || []);
-    } catch (e: any) {
-      error("Failed to load analytics", e?.message);
+    } catch (e: unknown) {
+      error("Failed to load analytics", getErrorMessage(e));
     }
     setLoading(false);
   }

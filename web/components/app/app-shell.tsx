@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { type Project, apiRequest, isAuthError } from "@/lib/api";
+import { getErrorMessage } from "@/types/errors";
 import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
@@ -224,8 +225,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
         router.replace("/login");
         return;
       }
-    } catch (e: any) {
-      const msg = e?.message || "";
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e);
       if (isAuthError(e)) {
         void logout();
         router.replace("/login");
@@ -380,7 +381,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <div className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50 px-3 mb-2">
                 {section.title}
               </div>
-              {section.items.map((item: any) => {
+              {section.items.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link

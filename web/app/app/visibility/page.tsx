@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { apiRequest } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { withProjectId } from "@/lib/project";
@@ -72,8 +73,8 @@ export default function VisibilityPage() {
       setSummary(sumRes);
       setPromptSets(setsRes.items);
       setPromptResults(promptsRes.items);
-    } catch (e: any) {
-      const msg = e?.message || "";
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e) || "";
       if (msg.includes("No active project") || msg.includes("No project") || msg.includes("Not Found") || msg.includes("404")) {
         setNoProject(true);
       } else {
@@ -103,8 +104,8 @@ export default function VisibilityPage() {
       setNewSetName("");
       setNewSetPrompts("");
       loadData();
-    } catch (e: any) {
-      error("Could not create prompt set", e.message);
+    } catch (e: unknown) {
+      error("Could not create prompt set", getErrorMessage(e));
     }
     setCreating(false);
   }
@@ -115,8 +116,8 @@ export default function VisibilityPage() {
       const res = await runPromptSet(token!, id, selectedProjectId);
       success(`Run complete: ${res.total_runs} prompts executed`);
       loadData();
-    } catch (e: any) {
-      error("Run failed", e.message);
+    } catch (e: unknown) {
+      error("Run failed", getErrorMessage(e));
     }
     setRunningId(null);
   }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -58,14 +59,31 @@ interface SetupStatus {
   subreddits_count: number;
 }
 
+interface OpportunityItem {
+  id: number;
+  title: string;
+  subreddit_name: string;
+  score: number;
+  status: string;
+  permalink: string;
+  created_at: string;
+  score_reasons?: string[];
+}
+
+interface Subscription {
+  plan_code: string;
+  status: string;
+  current_period_end?: string;
+}
+
 interface DashData {
   projects: {
     id: number;
     name: string;
     description?: string | null;
   }[];
-  top_opportunities: any[];
-  subscription: any;
+  top_opportunities: OpportunityItem[];
+  subscription: Subscription;
   setup_status?: SetupStatus;
 }
 
@@ -269,8 +287,8 @@ export default function DashboardPage() {
       if (visRes.status === "fulfilled") setVisibility(visRes.value);
       if (actRes.status === "fulfilled")
         setActivity(actRes.value.items || []);
-    } catch (err: any) {
-      toast.error("Failed to load dashboard", err?.message);
+    } catch (err: unknown) {
+      toast.error("Failed to load dashboard", getErrorMessage(err));
     }
     setLoading(false);
   }
@@ -300,8 +318,8 @@ export default function DashboardPage() {
       setBizDesc("");
       setShowCreate(false);
       router.push("/app/persona");
-    } catch (error: any) {
-      toast.error("Could not create project", error.message);
+    } catch (error: unknown) {
+      toast.error("Could not create project", getErrorMessage(error));
     }
     setCreating(false);
   }
@@ -646,7 +664,7 @@ export default function DashboardPage() {
           ) : (
             <CardContent>
               <div className="space-y-3">
-                {topOpps.slice(0, 6).map((opp: any) => (
+                {topOpps.slice(0, 6).map((opp) => (
                   <div
                     key={opp.id}
                     className="flex items-start justify-between gap-3 rounded-lg border bg-card p-4"

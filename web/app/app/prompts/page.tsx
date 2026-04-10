@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -99,8 +100,8 @@ export default function PromptsPage() {
       setProjectId(currentProject.id);
       const rows = await apiRequest<PromptTemplate[]>(`/v1/prompts?project_id=${currentProject.id}`, {}, token);
       setTemplates(rows);
-    } catch (error: any) {
-      toast.error("Failed to load prompts", error.message);
+    } catch (error: unknown) {
+      toast.error("Failed to load prompts", getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -132,8 +133,8 @@ export default function PromptsPage() {
       toast.success("Template saved");
       setShowDrawer(false);
       setEditingTemplate(null);
-    } catch (error: any) {
-      toast.error("Save failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Save failed", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -165,8 +166,8 @@ export default function PromptsPage() {
       toast.success("Template created");
       setShowCreateModal(false);
       setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
-    } catch (error: any) {
-      toast.error("Create failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Create failed", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -195,8 +196,8 @@ export default function PromptsPage() {
       );
       setTemplates((rows) => [...rows, duplicated]);
       toast.success("Template duplicated");
-    } catch (error: any) {
-      toast.error("Duplicate failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Duplicate failed", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -213,8 +214,8 @@ export default function PromptsPage() {
       setTemplates((rows) => rows.filter((row) => row.id !== id));
       toast.success("Template deleted");
       setShowDeleteModal(null);
-    } catch (error: any) {
-      toast.error("Delete failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Delete failed", getErrorMessage(error));
     } finally {
       setDeleting(null);
     }

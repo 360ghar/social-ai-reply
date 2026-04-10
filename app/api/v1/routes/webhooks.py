@@ -5,21 +5,26 @@ import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
+from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_current_user, get_current_workspace
-from app.db.models import AccountUser, WebhookEndpoint, Workspace
-from app.db.session import get_db
+from app.db.supabase_client import get_supabase
+from app.db.tables.system import create_activity_log
+from app.db.tables.webhooks import (
+    create_webhook_endpoint,
+    delete_webhook_endpoint,
+    get_webhook_endpoint_by_id,
+    list_webhook_endpoints_for_workspace,
+    update_webhook_endpoint,
+)
 from app.schemas.v1.product import (
     WebhookRequest,
     WebhookResponse,
     WebhookTestRequest,
     WebhookUpdateRequest,
 )
-from app.services.product.security import validate_webhook_url
-from app.utils.audit import record_audit
+from app.utils.security import validate_webhook_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["webhooks"])
@@ -27,40 +32,47 @@ router = APIRouter(prefix="/v1", tags=["webhooks"])
 
 @router.get("/webhooks", response_model=list[WebhookResponse])
 def list_webhooks(
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[WebhookResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    rows = db.scalars(select(WebhookEndpoint).where(WebhookEndpoint.workspace_id == workspace.id)).all()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    rows = list_webhook_endpoints_for_workspace(supabase, workspace["id"])
     return [WebhookResponse.model_validate(row) for row in rows]
 
 
 @router.post("/webhooks", response_model=WebhookResponse, status_code=status.HTTP_201_CREATED)
 def create_webhook(
     payload: WebhookRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> WebhookResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     try:
         validate_webhook_url(str(payload.target_url))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    row = WebhookEndpoint(
-        workspace_id=workspace.id,
-        target_url=str(payload.target_url),
-        event_types=payload.event_types,
-        is_active=payload.is_active if payload.is_active is not None else True,
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    row = create_webhook_endpoint(
+        supabase,
+        {
+            "workspace_id": workspace["id"],
+            "target_url": str(payload.target_url),
+            "event_types": payload.event_types,
+            "is_active": payload.is_active if payload.is_active is not None else True,
+        },
     )
-    db.add(row)
-    record_audit(
-        db, workspace_id=workspace.id, project_id=None, actor_user_id=current_user.id,
-        event_type="webhook.created", entity_type="WebhookEndpoint", entity_id=str(row.id),
+    create_activity_log(
+        supabase,
+        {
+            "workspace_id": workspace["id"],
+            "project_id": None,
+            "actor_user_id": current_user["id"],
+            "event_type": "webhook.created",
+            "entity_type": "WebhookEndpoint",
+            "entity_id": str(row["id"]),
+        },
     )
-    db.commit()
-    db.refresh(row)
     return WebhookResponse.model_validate(row)
 
 
@@ -68,53 +80,52 @@ def create_webhook(
 def update_webhook(
     webhook_id: int,
     payload: WebhookUpdateRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> WebhookResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    row = db.scalar(
-        select(WebhookEndpoint).where(WebhookEndpoint.id == webhook_id, WebhookEndpoint.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    row = get_webhook_endpoint_by_id(supabase, webhook_id)
     if not row:
         raise HTTPException(status_code=404, detail="Webhook not found.")
+    if row["workspace_id"] != workspace["id"]:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
     for key, value in payload.model_dump(exclude_unset=True).items():
-        setattr(row, key, value)
-    db.commit()
-    db.refresh(row)
-    return WebhookResponse.model_validate(row)
+        if key in row:
+            row[key] = value
+    updated = update_webhook_endpoint(supabase, webhook_id, row)
+    return WebhookResponse.model_validate(updated)
 
 
 @router.delete("/webhooks/{webhook_id}")
 def delete_webhook(
     webhook_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> dict[str, bool]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    row = db.scalar(
-        select(WebhookEndpoint).where(WebhookEndpoint.id == webhook_id, WebhookEndpoint.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    row = get_webhook_endpoint_by_id(supabase, webhook_id)
     if not row:
         raise HTTPException(status_code=404, detail="Webhook not found.")
-    db.delete(row)
-    db.commit()
+    if row["workspace_id"] != workspace["id"]:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    delete_webhook_endpoint(supabase, webhook_id)
     return {"ok": True}
 
 
 @router.get("/webhooks/{webhook_id}/sample-payload")
 def webhook_sample_payload(
     webhook_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    row = db.scalar(
-        select(WebhookEndpoint).where(WebhookEndpoint.id == webhook_id, WebhookEndpoint.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    row = get_webhook_endpoint_by_id(supabase, webhook_id)
     if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    if row["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Webhook not found.")
     return {
         "event": "opportunity.found",
@@ -133,15 +144,15 @@ def webhook_sample_payload(
 async def test_webhook(
     webhook_id: int,
     payload: WebhookTestRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    row = db.scalar(
-        select(WebhookEndpoint).where(WebhookEndpoint.id == webhook_id, WebhookEndpoint.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    row = get_webhook_endpoint_by_id(supabase, webhook_id)
     if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    if row["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Webhook not found.")
 
     test_payload = {
@@ -150,12 +161,12 @@ async def test_webhook(
         "data": {"test": True, "message": "Test webhook delivery"},
     }
     body = json.dumps(test_payload)
-    signature = hmac.new(row.signing_secret.encode(), body.encode(), hashlib.sha256).hexdigest() if row.signing_secret else ""
+    signature = hmac.new(row["signing_secret"].encode(), body.encode(), hashlib.sha256).hexdigest() if row.get("signing_secret") else ""
 
     try:
-        validate_webhook_url(row.target_url)
+        validate_webhook_url(row["target_url"])
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -164,7 +175,7 @@ async def test_webhook(
                 "X-Webhook-Signature": signature,
                 "X-Webhook-Event": "webhook.test",
             }
-            resp = await client.post(row.target_url, content=body, headers=headers)
+            resp = await client.post(row["target_url"], content=body, headers=headers)
         return {
             "delivered": True,
             "status_code": resp.status_code,

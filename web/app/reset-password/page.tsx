@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Mail, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { forgotPassword, resetPassword } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { getErrorMessage } from "@/types/errors";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -109,8 +110,8 @@ function ResetPasswordContent() {
         "Reset link sent!",
         "Check your email for the password reset link.",
       );
-    } catch (e: any) {
-      error("Could not send reset email", e.message);
+    } catch (err: unknown) {
+      error("Could not send reset email", getErrorMessage(err));
     }
     setLoading(false);
   }
@@ -128,8 +129,8 @@ function ResetPasswordContent() {
       await resetPassword(password);
       setDone(true);
       success("Password updated!", "You can now log in with your new password.");
-    } catch (e: any) {
-      error("Reset failed", e.message);
+    } catch (err: unknown) {
+      error("Reset failed", getErrorMessage(err));
     }
     setLoading(false);
   }

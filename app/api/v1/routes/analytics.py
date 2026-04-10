@@ -3,22 +3,25 @@ import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
-from app.db.models import (
-    AccountUser,
-    AnalyticsSnapshot,
-    DiscoveryKeyword,
-    MonitoredSubreddit,
-    Opportunity,
-    PostDraft,
-    ReplyDraft,
-    ScanRun,
-    Workspace,
+from app.db.supabase_client import get_supabase
+from app.db.tables.analytics import (
+    create_analytics_snapshot,
+    get_analytics_snapshot_by_project_and_date,
+    list_analytics_snapshots_for_project,
+    list_visibility_snapshots_for_project,
 )
-from app.db.session import get_db
+from app.db.tables.campaigns import list_published_posts_for_project
+from app.db.tables.content import list_post_drafts_for_project, list_reply_drafts_for_project
+from app.db.tables.discovery import (
+    count_opportunities_for_project,
+    list_discovery_keywords_for_project,
+    list_monitored_subreddits_for_project,
+    list_opportunities_for_project,
+    list_scan_runs_for_project,
+)
 from app.services.product.entitlements import count_active_keywords, count_active_subreddits
 
 logger = logging.getLogger(__name__)
@@ -28,56 +31,41 @@ router = APIRouter(prefix="/v1", tags=["analytics"])
 @router.get("/analytics/overview")
 def analytics_overview(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Get dashboard KPIs."""
-    from app.db.models import VisibilitySnapshot, PublishedPost
-
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    today_snapshot = db.query(AnalyticsSnapshot).filter(
-        AnalyticsSnapshot.project_id == proj.id,
-        AnalyticsSnapshot.date == date.today()
-    ).first()
+    today_snapshot = get_analytics_snapshot_by_project_and_date(supabase, proj["id"], date.today().isoformat())
 
     visibility_score = 0
-    visibility_snapshot = db.query(VisibilitySnapshot).filter(
-        VisibilitySnapshot.project_id == proj.id
-    ).order_by(VisibilitySnapshot.date.desc()).first()
-    if visibility_snapshot:
-        visibility_score = visibility_snapshot.share_of_voice or 0
+    visibility_snapshots = list_visibility_snapshots_for_project(supabase, proj["id"], limit=1)
+    if visibility_snapshots:
+        visibility_score = visibility_snapshots[0].get("share_of_voice", 0)
 
-    opportunities_count = db.query(func.count(Opportunity.id)).filter(
-        Opportunity.project_id == proj.id
-    ).scalar() or 0
+    opportunities_count = count_opportunities_for_project(supabase, proj["id"])
 
-    reply_drafts_count = db.query(func.count(ReplyDraft.id)).filter(
-        ReplyDraft.project_id == proj.id
-    ).scalar() or 0
-    post_drafts_count = db.query(func.count(PostDraft.id)).filter(
-        PostDraft.project_id == proj.id
-    ).scalar() or 0
+    reply_drafts_count = len(list_reply_drafts_for_project(supabase, proj["id"]))
+    post_drafts_count = len(list_post_drafts_for_project(supabase, proj["id"]))
     total_drafts = reply_drafts_count + post_drafts_count
 
-    published_count = db.query(func.count(PublishedPost.id)).filter(
-        PublishedPost.project_id == proj.id,
-        PublishedPost.status == "published"
-    ).scalar() or 0
+    published_posts = list_published_posts_for_project(supabase, proj["id"], status="published")
+    published_count = len(published_posts)
 
     return {
         "visibility_score": visibility_score,
         "total_opportunities": opportunities_count,
         "total_drafts": total_drafts,
         "total_published": published_count,
-        "keywords_count": count_active_keywords(db, proj.id),
-        "subreddits_count": count_active_subreddits(db, proj.id),
-        "today_opportunities": today_snapshot.opportunities_found if today_snapshot else 0,
-        "today_posts_published": today_snapshot.posts_published if today_snapshot else 0,
+        "keywords_count": count_active_keywords(supabase, proj["id"]),
+        "subreddits_count": count_active_subreddits(supabase, proj["id"]),
+        "today_opportunities": today_snapshot.get("opportunities_found", 0) if today_snapshot else 0,
+        "today_posts_published": today_snapshot.get("posts_published", 0) if today_snapshot else 0,
     }
 
 
@@ -85,31 +73,30 @@ def analytics_overview(
 def visibility_trend(
     days: int = 30,
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Get visibility trend over time."""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
     start_date = date.today() - timedelta(days=days)
-    snapshots = db.query(AnalyticsSnapshot).filter(
-        AnalyticsSnapshot.project_id == proj.id,
-        AnalyticsSnapshot.date >= start_date
-    ).order_by(AnalyticsSnapshot.date).all()
+    snapshots = list_analytics_snapshots_for_project(supabase, proj["id"], limit=days)
+    # Filter by start_date in memory
+    snapshots = [s for s in snapshots if s.get("date") and s["date"] >= start_date.isoformat()]
 
     return {
         "items": [
             {
-                "date": s.date.isoformat() if s.date else None,
-                "visibility_score": s.visibility_score,
-                "total_mentions": s.total_mentions,
-                "positive_mentions": s.positive_mentions,
-                "negative_mentions": s.negative_mentions,
-                "neutral_mentions": s.neutral_mentions,
+                "date": s.get("date"),
+                "visibility_score": s.get("visibility_score", 0),
+                "total_mentions": s.get("total_mentions", 0),
+                "positive_mentions": s.get("positive_mentions", 0),
+                "negative_mentions": s.get("negative_mentions", 0),
+                "neutral_mentions": s.get("neutral_mentions", 0),
             }
             for s in snapshots
         ]
@@ -119,24 +106,28 @@ def visibility_trend(
 @router.get("/analytics/engagement")
 def engagement_metrics(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Get engagement metrics."""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    status_counts = db.query(
-        Opportunity.status,
-        func.count(Opportunity.id).label("count")
-    ).filter(Opportunity.project_id == proj.id).group_by(Opportunity.status).all()
+    # Get all opportunities and group by status
+    opportunities = list_opportunities_for_project(supabase, proj["id"], limit=1000)
+    status_counts = {}
+    for opp in opportunities:
+        status = opp.get("status", "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    scan_runs = list_scan_runs_for_project(supabase, proj["id"])
 
     return {
-        "by_status": {s.value: c for s, c in status_counts},
-        "total_scans": db.query(func.count(ScanRun.id)).filter(ScanRun.project_id == proj.id).scalar() or 0,
+        "by_status": status_counts,
+        "total_scans": len(scan_runs),
     }
 
 
@@ -144,24 +135,25 @@ def engagement_metrics(
 def keyword_performance(
     limit: int = 20,
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Get keyword performance data."""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    keywords = db.query(DiscoveryKeyword).filter(
-        DiscoveryKeyword.project_id == proj.id,
-        DiscoveryKeyword.is_active.is_(True)
-    ).order_by(DiscoveryKeyword.priority_score.desc()).limit(limit).all()
+    keywords = list_discovery_keywords_for_project(supabase, proj["id"], limit=limit)
+    # Filter for active keywords in memory
+    keywords = [k for k in keywords if k.get("is_active", True)]
+    # Sort by priority_score descending
+    keywords.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
 
     return {
         "items": [
-            {"id": k.id, "keyword": k.keyword, "priority_score": k.priority_score, "rationale": k.rationale}
+            {"id": k["id"], "keyword": k["keyword"], "priority_score": k.get("priority_score", 0), "rationale": k.get("rationale", "")}
             for k in keywords
         ]
     }
@@ -171,25 +163,25 @@ def keyword_performance(
 def subreddit_performance(
     limit: int = 20,
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Get subreddit performance data."""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    subreddits = db.query(MonitoredSubreddit).filter(
-        MonitoredSubreddit.project_id == proj.id,
-        MonitoredSubreddit.is_active.is_(True)
-    ).order_by(MonitoredSubreddit.fit_score.desc()).limit(limit).all()
+    subreddits = list_monitored_subreddits_for_project(supabase, proj["id"], limit=limit)
+    # Filter for active subreddits in memory
+    subreddits = [s for s in subreddits if s.get("is_active", True)]
+    # Sort by fit_score descending
+    subreddits.sort(key=lambda x: x.get("fit_score", 0), reverse=True)
 
     return {
         "items": [
-            {"id": s.id, "name": s.name, "subscribers": s.subscribers,
-             "activity_score": s.activity_score, "fit_score": s.fit_score}
+            {"id": s["id"], "name": s["name"], "subscribers": s.get("subscribers", 0), "activity_score": s.get("activity_score", 0), "fit_score": s.get("fit_score", 0)}
             for s in subreddits
         ]
     }
@@ -198,107 +190,90 @@ def subreddit_performance(
 @router.post("/analytics/snapshot")
 def take_analytics_snapshot(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Take a daily analytics snapshot."""
-    from app.db.models import VisibilitySnapshot, PublishedPost
-
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    today = date.today()
-    existing = db.query(AnalyticsSnapshot).filter(
-        AnalyticsSnapshot.project_id == proj.id,
-        AnalyticsSnapshot.date == today
-    ).first()
+    today = date.today().isoformat()
+    existing = get_analytics_snapshot_by_project_and_date(supabase, proj["id"], today)
     if existing:
-        return {"message": "Snapshot already taken today.", "id": existing.id}
+        return {"message": "Snapshot already taken today.", "id": existing["id"]}
 
-    opportunities_count = db.query(func.count(Opportunity.id)).filter(
-        Opportunity.project_id == proj.id
-    ).scalar() or 0
-    reply_drafts = db.query(func.count(ReplyDraft.id)).filter(
-        ReplyDraft.project_id == proj.id
-    ).scalar() or 0
-    post_drafts = db.query(func.count(PostDraft.id)).filter(
-        PostDraft.project_id == proj.id
-    ).scalar() or 0
-    published = db.query(func.count(PublishedPost.id)).filter(
-        PublishedPost.project_id == proj.id, PublishedPost.status == "published"
-    ).scalar() or 0
+    opportunities_count = count_opportunities_for_project(supabase, proj["id"])
+    reply_drafts = list_reply_drafts_for_project(supabase, proj["id"])
+    post_drafts = list_post_drafts_for_project(supabase, proj["id"])
+    published = list_published_posts_for_project(supabase, proj["id"], status="published")
 
-    top_keywords = [
-        k.keyword for k in db.query(DiscoveryKeyword).filter(
-            DiscoveryKeyword.project_id == proj.id, DiscoveryKeyword.is_active.is_(True)
-        ).order_by(DiscoveryKeyword.priority_score.desc()).limit(5).all()
-    ]
-    top_subreddits = [
-        s.name for s in db.query(MonitoredSubreddit).filter(
-            MonitoredSubreddit.project_id == proj.id, MonitoredSubreddit.is_active.is_(True)
-        ).order_by(MonitoredSubreddit.fit_score.desc()).limit(5).all()
-    ]
+    top_keywords = list_discovery_keywords_for_project(supabase, proj["id"], limit=5)
+    top_subreddits = list_monitored_subreddits_for_project(supabase, proj["id"], limit=5)
 
     visibility_score = 0.0
-    visibility_snapshot = db.query(VisibilitySnapshot).filter(
-        VisibilitySnapshot.project_id == proj.id
-    ).order_by(VisibilitySnapshot.date.desc()).first()
-    if visibility_snapshot:
-        visibility_score = visibility_snapshot.share_of_voice or 0.0
+    visibility_snapshots = list_visibility_snapshots_for_project(supabase, proj["id"], limit=1)
+    if visibility_snapshots:
+        visibility_score = visibility_snapshots[0].get("share_of_voice", 0.0)
 
-    snapshot = AnalyticsSnapshot(
-        project_id=proj.id, date=today, visibility_score=visibility_score,
-        total_mentions=0, positive_mentions=0, negative_mentions=0, neutral_mentions=0,
-        citation_count=0, opportunities_found=opportunities_count,
-        drafts_created=reply_drafts + post_drafts, posts_published=published,
-        top_keywords=top_keywords, top_subreddits=top_subreddits,
+    snapshot = create_analytics_snapshot(
+        supabase,
+        {
+            "project_id": proj["id"],
+            "date": today,
+            "visibility_score": visibility_score,
+            "total_mentions": 0,
+            "positive_mentions": 0,
+            "negative_mentions": 0,
+            "neutral_mentions": 0,
+            "citation_count": 0,
+            "opportunities_found": opportunities_count,
+            "drafts_created": len(reply_drafts) + len(post_drafts),
+            "posts_published": len(published),
+            "top_keywords": [k["keyword"] for k in top_keywords],
+            "top_subreddits": [s["name"] for s in top_subreddits],
+        },
     )
-    db.add(snapshot)
-    db.commit()
-    db.refresh(snapshot)
 
     return {
-        "id": snapshot.id,
-        "date": snapshot.date.isoformat() if snapshot.date else None,
-        "opportunities_found": snapshot.opportunities_found,
-        "drafts_created": snapshot.drafts_created,
-        "posts_published": snapshot.posts_published,
+        "id": snapshot["id"],
+        "date": snapshot["date"],
+        "opportunities_found": snapshot["opportunities_found"],
+        "drafts_created": snapshot["drafts_created"],
+        "posts_published": snapshot["posts_published"],
     }
 
 
 @router.get("/analytics/export")
 def export_analytics(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
     """Export analytics data as JSON."""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    snapshots = db.query(AnalyticsSnapshot).filter(
-        AnalyticsSnapshot.project_id == proj.id
-    ).order_by(AnalyticsSnapshot.date.desc()).all()
+    snapshots = list_analytics_snapshots_for_project(supabase, proj["id"], limit=100)
 
     return {
-        "project_id": proj.id,
-        "project_name": proj.name,
+        "project_id": proj["id"],
+        "project_name": proj["name"],
         "snapshots": [
             {
-                "date": s.date.isoformat() if s.date else None,
-                "visibility_score": s.visibility_score,
-                "total_mentions": s.total_mentions,
-                "opportunities_found": s.opportunities_found,
-                "drafts_created": s.drafts_created,
-                "posts_published": s.posts_published,
-                "top_keywords": s.top_keywords,
-                "top_subreddits": s.top_subreddits,
+                "date": s.get("date"),
+                "visibility_score": s.get("visibility_score", 0),
+                "total_mentions": s.get("total_mentions", 0),
+                "opportunities_found": s.get("opportunities_found", 0),
+                "drafts_created": s.get("drafts_created", 0),
+                "posts_published": s.get("posts_published", 0),
+                "top_keywords": s.get("top_keywords", []),
+                "top_subreddits": s.get("top_subreddits", []),
             }
             for s in snapshots
         ]

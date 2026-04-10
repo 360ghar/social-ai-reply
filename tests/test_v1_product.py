@@ -1,39 +1,21 @@
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.db.base import Base
-from app.db.session import get_db
+from app.db.supabase_client import get_supabase
 from app.main import app
 from app.services.product.copilot import GeneratedKeyword
 from app.services.product.reddit import RedditPost, RedditSubredditMatch
 
 
-def setup_db() -> Session:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
-    return session_local()
-
-
-def test_v1_auth_project_and_brand_flow():
-    db = setup_db()
-
-    def override_get_db():
+def test_v1_auth_project_and_brand_flow(mock_supabase):
+    def override_get_supabase():
         try:
-            yield db
+            yield mock_supabase
         finally:
             pass
 
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_supabase] = override_get_supabase
     client = TestClient(app)
 
     register = client.post(
@@ -78,16 +60,14 @@ def test_v1_auth_project_and_brand_flow():
     app.dependency_overrides.clear()
 
 
-def test_v1_discovery_scan_and_draft_flow(monkeypatch):
-    db = setup_db()
-
-    def override_get_db():
+def test_v1_discovery_scan_and_draft_flow(monkeypatch, mock_supabase):
+    def override_get_supabase():
         try:
-            yield db
+            yield mock_supabase
         finally:
             pass
 
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_supabase] = override_get_supabase
     client = TestClient(app)
 
     register = client.post(

@@ -1,21 +1,17 @@
 """Opportunity listing and status management endpoints."""
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from fastapi import APIRouter, Depends, HTTPException, Query
+from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
-from app.db.models import (
-    AccountUser,
-    Opportunity,
-    OpportunityStatus,
-    Project,
-    ReplyDraft,
-    Workspace,
+from app.db.supabase_client import get_supabase
+from app.db.tables.discovery import (
+    get_opportunity_by_id,
+    list_opportunities_for_project,
+    update_opportunity,
 )
-from app.db.session import get_db
 from app.schemas.v1.product import OpportunityResponse, OpportunityStatusRequest
 
 logger = logging.getLogger(__name__)
@@ -37,35 +33,17 @@ def list_opportunities(
     project_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[OpportunityResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         return []
-    if status_filter == "all":
-        stmt = (
-            select(Opportunity)
-            .where(Opportunity.project_id == proj.id)
-            .order_by(Opportunity.score.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-    else:
-        try:
-            opp_status = OpportunityStatus(status_filter)
-        except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
-        stmt = (
-            select(Opportunity)
-            .where(Opportunity.project_id == proj.id, Opportunity.status == opp_status)
-            .order_by(Opportunity.score.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-    rows = db.scalars(stmt).all()
+
+    status_param = None if status_filter == "all" else status_filter
+    rows = list_opportunities_for_project(supabase, proj["id"], status=status_param, limit=limit, offset=offset)
     return [OpportunityResponse.model_validate(row) for row in rows]
 
 
@@ -73,26 +51,30 @@ def list_opportunities(
 def update_opportunity_status(
     opportunity_id: int,
     payload: OpportunityStatusRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> OpportunityResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    opportunity = db.scalar(
-        select(Opportunity)
-        .join(Project)
-        .where(Opportunity.id == opportunity_id, Project.workspace_id == workspace.id)
-        .options(selectinload(Opportunity.reply_drafts))
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    opportunity = get_opportunity_by_id(supabase, opportunity_id)
     if not opportunity:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    current = opportunity.status.value
+
+    # Verify workspace access via project
+    proj = get_active_project(supabase, workspace["id"])
+    if not proj or opportunity["project_id"] != proj["id"]:
+        raise HTTPException(status_code=404, detail="Opportunity not found.")
+
+    current = opportunity.get("status", "new")
     target = payload.status
+
     if target not in _VALID_TRANSITIONS.get(current, set()):
         raise HTTPException(status_code=422, detail=f"Cannot transition from '{current}' to '{target}'.")
-    opportunity.status = OpportunityStatus(target)
+
+    update_data = {"status": target}
     if target == "posted":
-        opportunity.posted_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(opportunity)
-    return OpportunityResponse.model_validate(opportunity)
+        update_data["posted_at"] = datetime.now(UTC).isoformat()
+
+    updated = update_opportunity(supabase, opportunity_id, update_data)
+    return OpportunityResponse.model_validate(updated)

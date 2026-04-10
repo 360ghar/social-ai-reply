@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,8 +119,8 @@ function RegisterForm() {
       });
       success("Account created!", "Let's set up your brand.");
       router.push("/app/dashboard");
-    } catch (e: any) {
-      error("Registration failed", e.message || "Could not create account.");
+    } catch (err: unknown) {
+      error("Registration failed", getErrorMessage(err) || "Could not create account.");
     }
     setLoading(false);
   }
@@ -128,8 +129,8 @@ function RegisterForm() {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
-    } catch (e: any) {
-      error("Google sign-up failed", e.message);
+    } catch (err: unknown) {
+      error("Google sign-up failed", getErrorMessage(err));
       setGoogleLoading(false);
     }
   }

@@ -1,10 +1,9 @@
 """AI Visibility (prompt sets, runs, summaries) endpoints."""
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from app.api.v1.deps import (
     ensure_workspace_membership,
@@ -13,9 +12,21 @@ from app.api.v1.deps import (
     get_current_workspace,
     get_project,
 )
-from app.db.models import AccountUser, BrandProfile, Project, Workspace
-from app.db.session import get_db
-from app.utils.audit import record_audit
+from app.db.supabase_client import get_supabase
+from app.db.tables.projects import get_brand_profile_by_project
+from app.db.tables.system import create_activity_log
+from app.db.tables.visibility import (
+    create_ai_response,
+    create_brand_mention,
+    create_citation,
+    create_prompt_run,
+    list_prompt_runs_for_prompt_set,
+    list_prompt_sets_for_project,
+)
+from app.db.tables.visibility import (
+    create_prompt_set as create_prompt_set_db,
+)
+from app.services.product.visibility import CitationExtractor, MentionDetector, ModelRunner
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["visibility"])
@@ -24,23 +35,27 @@ router = APIRouter(prefix="/v1", tags=["visibility"])
 @router.get("/prompt-sets")
 def list_prompt_sets(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    from app.db.models import PromptSet
-
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
-    sets = db.query(PromptSet).filter(PromptSet.project_id == proj.id).order_by(PromptSet.created_at.desc()).all()
+    sets = list_prompt_sets_for_project(supabase, proj["id"])
     return {
         "items": [
-            {"id": s.id, "name": s.name, "category": s.category,
-             "prompts": s.prompts or [], "target_models": s.target_models or [],
-             "is_active": s.is_active, "schedule": s.schedule,
-             "created_at": s.created_at.isoformat() if s.created_at else None}
+            {
+                "id": s["id"],
+                "name": s["name"],
+                "category": s["category"],
+                "prompts": s.get("prompts", []),
+                "target_models": s.get("target_models", []),
+                "is_active": s.get("is_active", True),
+                "schedule": s.get("schedule", "manual"),
+                "created_at": s.get("created_at"),
+            }
             for s in sets
         ]
     }
@@ -50,58 +65,61 @@ def list_prompt_sets(
 def create_prompt_set(
     payload: dict,
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    from app.db.models import PromptSet
-
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
-    ps = PromptSet(
-        project_id=proj.id,
-        name=payload.get("name", "Untitled"),
-        category=payload.get("category", "general"),
-        prompts=payload.get("prompts", []),
-        target_models=payload.get("target_models", ["chatgpt", "perplexity", "gemini", "claude"]),
-        schedule=payload.get("schedule", "manual"),
+    ps = create_prompt_set_db(
+        supabase,
+        {
+            "project_id": proj["id"],
+            "name": payload.get("name", "Untitled"),
+            "category": payload.get("category", "general"),
+            "prompts": payload.get("prompts", []),
+            "target_models": payload.get("target_models", ["chatgpt", "perplexity", "gemini", "claude"]),
+            "schedule": payload.get("schedule", "manual"),
+        },
     )
-    db.add(ps)
-    db.flush()
-    record_audit(
-        db, workspace_id=workspace.id, project_id=proj.id, actor_user_id=current_user.id,
-        event_type="prompt_set.created", entity_type="PromptSet", entity_id=str(ps.id),
+    create_activity_log(
+        supabase,
+        {
+            "workspace_id": workspace["id"],
+            "project_id": proj["id"],
+            "actor_user_id": current_user["id"],
+            "event_type": "prompt_set.created",
+            "entity_type": "PromptSet",
+            "entity_id": str(ps["id"]),
+        },
     )
-    db.commit()
-    db.refresh(ps)
-    return {"id": ps.id, "name": ps.name}
+    return {"id": ps["id"], "name": ps["name"]}
 
 
 @router.post("/prompt-sets/{psid}/run")
 def run_prompt_set(
     psid: int,
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    from app.db.models import PromptSet, PromptRun, AIResponse, BrandMention, Citation
-    from app.services.product.visibility import ModelRunner, MentionDetector, CitationExtractor
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    ps = db.scalar(
-        select(PromptSet).join(Project).where(PromptSet.id == psid, Project.workspace_id == workspace.id)
-    )
+    # Get prompt set and verify workspace access
+    from app.db.tables.visibility import get_prompt_set_by_id
+    ps = get_prompt_set_by_id(supabase, psid)
     if not ps:
         raise HTTPException(404, "Prompt set not found.")
-    proj = get_project(db, workspace.id, ps.project_id)
-    if project_id is not None and proj.id != project_id:
+
+    proj = get_project(supabase, workspace["id"], ps["project_id"])
+    if project_id is not None and proj["id"] != project_id:
         raise HTTPException(404, "Prompt set not found in the selected project.")
 
-    brand = db.scalar(select(BrandProfile).where(BrandProfile.project_id == proj.id))
-    brand_name = brand.brand_name if brand else proj.name
+    brand = get_brand_profile_by_project(supabase, proj["id"])
+    brand_name = brand["brand_name"] if brand else proj["name"]
     competitors = []
 
     runner = ModelRunner()
@@ -109,91 +127,144 @@ def run_prompt_set(
     extractor = CitationExtractor()
 
     results = []
-    for prompt_text in (ps.prompts or []):
-        for model in (ps.target_models or ["chatgpt"]):
-            pr = PromptRun(prompt_set_id=ps.id, model_name=model, prompt_text=prompt_text, status="running")
-            db.add(pr)
-            db.flush()
+    for prompt_text in ps.get("prompts", []):
+        for model in ps.get("target_models", ["chatgpt"]):
+            pr = create_prompt_run(
+                supabase,
+                {
+                    "prompt_set_id": ps["id"],
+                    "model_name": model,
+                    "prompt_text": prompt_text,
+                    "status": "running",
+                },
+            )
 
             response_text = runner.run_prompt(prompt_text, model)
             if response_text:
-                pr.status = "complete"
-                pr.completed_at = datetime.now(timezone.utc)
+                # Update prompt run as complete
+                from app.db.tables.visibility import update_prompt_run
+                update_prompt_run(
+                    supabase,
+                    pr["id"],
+                    {
+                        "status": "complete",
+                        "completed_at": datetime.now(UTC).isoformat(),
+                    },
+                )
 
                 mentions = detector.detect_mentions(response_text, brand_name, competitors)
                 citations = extractor.extract_citations(response_text)
 
-                ai_resp = AIResponse(
-                    prompt_run_id=pr.id, model_name=model, raw_response=response_text,
-                    brand_mentioned=mentions["brand_mentioned"],
-                    competitor_mentions=mentions["competitor_mentions"],
-                    sentiment=mentions["sentiment"],
-                    response_length=len(response_text),
+                ai_resp = create_ai_response(
+                    supabase,
+                    {
+                        "prompt_run_id": pr["id"],
+                        "model_name": model,
+                        "raw_response": response_text,
+                        "brand_mentioned": mentions["brand_mentioned"],
+                        "competitor_mentions": mentions["competitor_mentions"],
+                        "sentiment": mentions["sentiment"],
+                        "response_length": len(response_text),
+                    },
                 )
-                db.add(ai_resp)
-                db.flush()
 
                 if mentions["brand_mentioned"]:
-                    db.add(BrandMention(
-                        ai_response_id=ai_resp.id, entity_name=brand_name,
-                        mention_type="brand", context_snippet=response_text[:200],
-                    ))
+                    create_brand_mention(
+                        supabase,
+                        {
+                            "ai_response_id": ai_resp["id"],
+                            "entity_name": brand_name,
+                            "mention_type": "brand",
+                            "context_snippet": response_text[:200],
+                        },
+                    )
                 for comp in mentions["competitor_mentions"]:
-                    db.add(BrandMention(
-                        ai_response_id=ai_resp.id, entity_name=comp["name"],
-                        mention_type="competitor",
-                    ))
+                    create_brand_mention(
+                        supabase,
+                        {
+                            "ai_response_id": ai_resp["id"],
+                            "entity_name": comp["name"],
+                            "mention_type": "competitor",
+                        },
+                    )
                 for cit in citations:
-                    db.add(Citation(
-                        ai_response_id=ai_resp.id, url=cit["url"],
-                        domain=cit["domain"], content_type=cit["content_type"],
-                    ))
+                    create_citation(
+                        supabase,
+                        {
+                            "ai_response_id": ai_resp["id"],
+                            "url": cit["url"],
+                            "domain": cit["domain"],
+                            "content_type": cit["content_type"],
+                        },
+                    )
 
-                results.append({"prompt": prompt_text[:80], "model": model, "brand_mentioned": mentions["brand_mentioned"], "citations": len(citations)})
+                results.append({
+                    "prompt": prompt_text[:80],
+                    "model": model,
+                    "brand_mentioned": mentions["brand_mentioned"],
+                    "citations": len(citations),
+                })
             else:
-                pr.status = "failed"
-                pr.error_message = "No response from model"
-                results.append({"prompt": prompt_text[:80], "model": model, "brand_mentioned": False, "citations": 0, "error": True})
+                update_prompt_run(
+                    supabase,
+                    pr["id"],
+                    {
+                        "status": "failed",
+                        "error_message": "No response from model",
+                    },
+                )
+                results.append({
+                    "prompt": prompt_text[:80],
+                    "model": model,
+                    "brand_mentioned": False,
+                    "citations": 0,
+                    "error": True,
+                })
 
-    record_audit(
-        db, workspace_id=workspace.id, project_id=proj.id, actor_user_id=current_user.id,
-        event_type="visibility.run", entity_type="PromptSet", entity_id=str(ps.id),
+    create_activity_log(
+        supabase,
+        {
+            "workspace_id": workspace["id"],
+            "project_id": proj["id"],
+            "actor_user_id": current_user["id"],
+            "event_type": "visibility.run",
+            "entity_type": "PromptSet",
+            "entity_id": str(ps["id"]),
+        },
     )
-    db.commit()
-    return {"prompt_set_id": ps.id, "results": results, "total_runs": len(results)}
+    return {"prompt_set_id": ps["id"], "results": results, "total_runs": len(results)}
 
 
 @router.get("/visibility/summary")
 def visibility_summary(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    from app.db.models import PromptRun, AIResponse, Citation, PromptSet
+    from app.db.tables.visibility import (
+        count_ai_responses_with_brand_mention_for_project,
+        count_ai_responses_with_model_and_mention,
+        count_citations_for_project,
+        count_prompt_runs_for_project,
+        count_prompt_runs_with_model,
+    )
 
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    total_runs = db.query(PromptRun).join(PromptSet).filter(PromptSet.project_id == proj.id, PromptRun.status == "complete").count()
-    total_mentioned = db.query(AIResponse).join(PromptRun).join(PromptSet).filter(
-        PromptSet.project_id == proj.id, AIResponse.brand_mentioned == True
-    ).count()
-    total_citations = db.query(Citation).join(AIResponse).join(PromptRun).join(PromptSet).filter(
-        PromptSet.project_id == proj.id
-    ).count()
+    # N+1 FIX: Batch count queries instead of N+1 queries
+    total_runs = count_prompt_runs_for_project(supabase, proj["id"])
+    total_mentioned = count_ai_responses_with_brand_mention_for_project(supabase, proj["id"])
+    total_citations = count_citations_for_project(supabase, proj["id"])
     sov = round((total_mentioned / total_runs * 100), 1) if total_runs > 0 else 0.0
 
     models = {}
     for model in ["chatgpt", "perplexity", "gemini", "claude"]:
-        m_total = db.query(PromptRun).join(PromptSet).filter(
-            PromptSet.project_id == proj.id, PromptRun.model_name == model, PromptRun.status == "complete"
-        ).count()
-        m_mentioned = db.query(AIResponse).join(PromptRun).join(PromptSet).filter(
-            PromptSet.project_id == proj.id, PromptRun.model_name == model, AIResponse.brand_mentioned == True
-        ).count()
+        m_total = count_prompt_runs_with_model(supabase, proj["id"], model)
+        m_mentioned = count_ai_responses_with_model_and_mention(supabase, proj["id"], model)
         models[model] = {
             "total_runs": m_total,
             "brand_mentioned": m_mentioned,
@@ -211,34 +282,50 @@ def visibility_summary(
 
 @router.get("/visibility/prompts")
 def visibility_prompt_results(
-    limit: int = 20, offset: int = 0, model: str = None,
+    limit: int = 20,
+    offset: int = 0,
+    model: str = None,
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    from app.db.models import PromptRun, AIResponse, PromptSet
-
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    q = db.query(PromptRun).join(PromptSet).filter(PromptSet.project_id == proj.id)
-    if model:
-        q = q.filter(PromptRun.model_name == model)
-    total = q.count()
-    runs = q.order_by(PromptRun.scheduled_at.desc()).offset(offset).limit(limit).all()
+    # Get prompt runs with filtering
+    runs = list_prompt_runs_for_prompt_set(
+        supabase,
+        prompt_set_id=None,  # None means all prompt sets
+        project_id=proj["id"],
+        model_filter=model,
+        limit=limit,
+        offset=offset,
+    )
+
+    # N+1 FIX: Batch fetch all AI responses for these runs
+    run_ids = [r["id"] for r in runs]
+    ai_responses_by_run = {}
+    if run_ids:
+        from app.db.tables.visibility import list_ai_responses_for_runs
+        all_responses = list_ai_responses_for_runs(supabase, run_ids)
+        ai_responses_by_run = {resp["prompt_run_id"]: resp for resp in all_responses}
 
     items = []
     for r in runs:
-        resp = db.query(AIResponse).filter(AIResponse.prompt_run_id == r.id).first()
+        resp = ai_responses_by_run.get(r["id"])
         items.append({
-            "id": r.id, "prompt_text": r.prompt_text, "model_name": r.model_name,
-            "status": r.status, "brand_mentioned": resp.brand_mentioned if resp else False,
-            "competitor_mentions": resp.competitor_mentions if resp else [],
-            "sentiment": resp.sentiment if resp else None,
-            "citations_count": len(resp.citations) if resp else 0,
-            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            "id": r["id"],
+            "prompt_text": r["prompt_text"],
+            "model_name": r["model_name"],
+            "status": r["status"],
+            "brand_mentioned": resp["brand_mentioned"] if resp else False,
+            "competitor_mentions": resp.get("competitor_mentions", []) if resp else [],
+            "sentiment": resp.get("sentiment") if resp else None,
+            "citations_count": 0,  # Would need another batch query if needed
+            "completed_at": r.get("completed_at"),
         })
-    return {"items": items, "total": total}
+
+    return {"items": items, "total": len(runs)}

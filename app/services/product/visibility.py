@@ -1,9 +1,8 @@
 """AI Visibility tracking: model runners, mention detection, citation extraction."""
-import re
 import logging
+import re
 from urllib.parse import urlparse
-from datetime import datetime, timezone
-from typing import Optional
+
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ class ModelRunner:
             except ImportError:
                 logger.warning("OpenAI package not installed")
 
-    def run_prompt(self, prompt: str, model_name: str) -> Optional[str]:
+    def run_prompt(self, prompt: str, model_name: str) -> str | None:
         try:
             if model_name in ("chatgpt", "openai"):
                 # Try OpenAI first, fall back to Gemini
@@ -48,7 +47,7 @@ class ModelRunner:
             logger.error(f"Model runner error ({model_name}): {e}")
             return None
 
-    def _run_openai(self, prompt: str) -> Optional[str]:
+    def _run_openai(self, prompt: str) -> str | None:
         if not self.openai_client:
             return None
         settings = get_settings()
@@ -67,7 +66,7 @@ class ModelRunner:
             logger.error(f"OpenAI API error: {e}")
             return None
 
-    def _run_perplexity(self, prompt: str) -> Optional[str]:
+    def _run_perplexity(self, prompt: str) -> str | None:
         """Perplexity API via OpenAI-compatible endpoint."""
         settings = get_settings()
         perplexity_key = getattr(settings, "perplexity_api_key", None)
@@ -87,7 +86,7 @@ class ModelRunner:
             logger.error(f"Perplexity API error: {e}")
             return None
 
-    def _run_gemini(self, prompt: str) -> Optional[str]:
+    def _run_gemini(self, prompt: str) -> str | None:
         if not self.gemini_api_key:
             logger.info("Gemini API key not set, using simulation")
             return self._simulate_response(prompt, "gemini")
@@ -105,7 +104,7 @@ class ModelRunner:
             logger.error(f"Gemini API error: {e}")
             return None
 
-    def _run_claude(self, prompt: str) -> Optional[str]:
+    def _run_claude(self, prompt: str) -> str | None:
         settings = get_settings()
         claude_key = getattr(settings, "anthropic_api_key", None)
         if not claude_key:

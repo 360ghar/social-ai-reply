@@ -16,6 +16,7 @@ import {
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
@@ -187,8 +188,8 @@ export default function DiscoveryPage() {
       if (campRes.status === "fulfilled") {
         setCampaigns(campRes.value || []);
       }
-    } catch (err: any) {
-      error("Failed to load data", err?.message);
+    } catch (err: unknown) {
+      error("Failed to load data", getErrorMessage(err));
     }
     setLoading(false);
   }
@@ -215,8 +216,8 @@ export default function DiscoveryPage() {
       setNewKeyword("");
       success("Signal added");
       await loadAll();
-    } catch (err: any) {
-      error("Failed to add keyword", err.message);
+    } catch (err: unknown) {
+      error("Failed to add keyword", getErrorMessage(err));
     }
     setAddingKeyword(false);
   }
@@ -237,8 +238,8 @@ export default function DiscoveryPage() {
       );
       success("Audience signals generated");
       await loadAll();
-    } catch (err: any) {
-      error("Failed to generate", err.message);
+    } catch (err: unknown) {
+      error("Failed to generate", getErrorMessage(err));
     }
     setGeneratingKeywords(false);
   }
@@ -259,8 +260,8 @@ export default function DiscoveryPage() {
       );
       success("Communities discovered");
       await loadAll();
-    } catch (err: any) {
-      error("Failed to discover", err.message);
+    } catch (err: unknown) {
+      error("Failed to discover", getErrorMessage(err));
     }
     setDiscoveringCommunities(false);
   }
@@ -285,8 +286,8 @@ export default function DiscoveryPage() {
       );
       success("Scan complete", "Check the conversation queue below.");
       await loadAll();
-    } catch (err: any) {
-      error("Scan failed", err.message);
+    } catch (err: unknown) {
+      error("Scan failed", getErrorMessage(err));
     }
     setScanning(false);
   }
@@ -308,8 +309,8 @@ export default function DiscoveryPage() {
       setShowOriginalThread(true);
       setShowRationale(false);
       success("Response drafted");
-    } catch (err: any) {
-      error("Could not generate response", err.message);
+    } catch (err: unknown) {
+      error("Could not generate response", getErrorMessage(err));
     }
     setGeneratingReply(null);
   }
@@ -323,8 +324,8 @@ export default function DiscoveryPage() {
       success(`${deleteTarget.name} deleted`);
       setDeleteTarget(null);
       await loadAll();
-    } catch (err: any) {
-      error("Delete failed", err.message);
+    } catch (err: unknown) {
+      error("Delete failed", getErrorMessage(err));
     }
   }
 
@@ -361,8 +362,8 @@ export default function DiscoveryPage() {
       success("Marked as posted");
       setDraftingOpp(null);
       await loadAll();
-    } catch (err: any) {
-      error("Could not update status", err.message);
+    } catch (err: unknown) {
+      error("Could not update status", getErrorMessage(err));
     }
   }
 
@@ -390,8 +391,8 @@ export default function DiscoveryPage() {
       setNewCampaignDesc("");
       setShowCampaignModal(false);
       success("Campaign created");
-    } catch (err: any) {
-      error("Failed to create campaign", err.message);
+    } catch (err: unknown) {
+      error("Failed to create campaign", getErrorMessage(err));
     }
     setCreatingCampaign(false);
   }

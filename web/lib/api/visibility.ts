@@ -19,13 +19,19 @@ export interface VisibilitySummary {
   models: Record<string, { total_runs: number; brand_mentioned: number; share_of_voice: number }>;
 }
 
+export interface CompetitorMention {
+  competitor_name: string;
+  domain: string;
+  citation_count: number;
+}
+
 export interface PromptRunResult {
   id: number;
   prompt_text: string;
   model_name: string;
   status: string;
   brand_mentioned: boolean;
-  competitor_mentions: any[];
+  competitor_mentions: CompetitorMention[];
   sentiment: string | null;
   citations_count: number;
   completed_at: string | null;
@@ -60,7 +66,7 @@ export async function createPromptSet(
 
 export async function runPromptSet(token: string, id: number, projectId?: number | null) {
   const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ prompt_set_id: number; results: any[]; total_runs: number }>(
+  return apiRequest<{ prompt_set_id: number; results: PromptRunResult[]; total_runs: number }>(
     `/v1/prompt-sets/${id}/run${suffix}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
   );
 }
@@ -97,9 +103,16 @@ export async function getSourceDomains(token: string, projectId?: number | null)
   );
 }
 
+export interface SourceGap {
+  id: number;
+  competitor_name: string;
+  domain: string;
+  citation_count: number;
+}
+
 export async function getSourceGaps(token: string, projectId?: number | null) {
   const suffix = projectId ? `?project_id=${projectId}` : "";
-  return apiRequest<{ items: any[] }>(
+  return apiRequest<{ items: SourceGap[] }>(
     `/v1/sources/gaps${suffix}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }

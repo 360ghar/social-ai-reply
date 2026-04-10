@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -96,8 +97,8 @@ export default function SourcesPage() {
       } else {
         setOwnedWebsiteHost(null);
       }
-    } catch (e: any) {
-      const msg = e?.message || "";
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e);
       if (!msg.includes("No active project") && !msg.includes("Not Found") && !msg.includes("404")) {
         error("Failed to load source data", msg);
       }

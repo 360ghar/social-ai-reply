@@ -7,43 +7,37 @@ from app.services.product.scoring import MIN_RELEVANT_OPPORTUNITY_SCORE, score_p
 
 
 def _make_brand():
-    from app.db.models import BrandProfile
-
-    return BrandProfile(
-        id=1,
-        project_id=1,
-        brand_name="SignalFlow",
-        summary="High-intent Reddit thread discovery for SaaS teams.",
-        product_summary="Find relevant Reddit conversations and draft grounded replies.",
-        target_audience="founders, growth marketers",
-    )
+    return {
+        "id": 1,
+        "project_id": 1,
+        "brand_name": "SignalFlow",
+        "summary": "High-intent Reddit thread discovery for SaaS teams.",
+        "product_summary": "Find relevant Reddit conversations and draft grounded replies.",
+        "target_audience": "founders, growth marketers",
+    }
 
 
 def _make_real_estate_brand():
-    from app.db.models import BrandProfile
-
-    return BrandProfile(
-        id=2,
-        project_id=2,
-        brand_name="360Ghar",
-        summary="AI-powered real estate marketplace for home buyers and renters.",
-        product_summary="Compare property listings, apartments, rent options, and home tours.",
-        target_audience="home buyers, renters, real estate agents",
-    )
+    return {
+        "id": 2,
+        "project_id": 2,
+        "brand_name": "360Ghar",
+        "summary": "AI-powered real estate marketplace for home buyers and renters.",
+        "product_summary": "Compare property listings, apartments, rent options, and home tours.",
+        "target_audience": "home buyers, renters, real estate agents",
+    }
 
 
 def _make_subreddit(fit_score: int = 80):
-    from app.db.models import MonitoredSubreddit
-
-    return MonitoredSubreddit(
-        id=1,
-        project_id=1,
-        name="saas",
-        title="SaaS",
-        description="Software founders discussing growth and demand capture.",
-        subscribers=1000,
-        fit_score=fit_score,
-    )
+    return {
+        "id": 1,
+        "project_id": 1,
+        "name": "saas",
+        "title": "SaaS",
+        "description": "Software founders discussing growth and demand capture.",
+        "subscribers": 1000,
+        "fit_score": fit_score,
+    }
 
 
 def _make_post(**overrides):

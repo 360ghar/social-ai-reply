@@ -35,4 +35,4 @@ class BrandProfileResponse(BaseModel):
     business_domain: str | None
     reddit_username: str | None
     linkedin_url: str | None
-    last_analyzed_at: datetime | None
+    last_analyzed_at: datetime | None = None

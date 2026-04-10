@@ -6,6 +6,7 @@ import { Loader2, ChevronDown, ChevronRight, Check, Zap } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -126,8 +127,8 @@ export default function AutoPipelinePage() {
         : `/v1/auto-pipeline`;
       const runs = await apiRequest<{ items: PipelineRun[] }>(url, {}, token);
       setPreviousRuns(runs.items || []);
-    } catch (err: any) {
-      toast.error("Failed to load pipeline runs", err?.message);
+    } catch (err: unknown) {
+      toast.error("Failed to load pipeline runs", getErrorMessage(err));
     }
     setLoading(false);
   }
@@ -141,8 +142,8 @@ export default function AutoPipelinePage() {
         token
       );
       setActiveRun(updated);
-    } catch (err: any) {
-      toast.error("Failed to refresh pipeline status", err?.message);
+    } catch (err: unknown) {
+      toast.error("Failed to refresh pipeline status", getErrorMessage(err));
     }
   }
 
@@ -182,8 +183,8 @@ export default function AutoPipelinePage() {
       );
       setActiveRun(run);
       setUrlInput("");
-    } catch (error: any) {
-      toast.error("Failed to launch pipeline", error.message || "Unknown error");
+    } catch (error: unknown) {
+      toast.error("Failed to launch pipeline", getErrorMessage(error) || "Unknown error");
     }
     setLaunching(false);
   }
@@ -200,8 +201,8 @@ export default function AutoPipelinePage() {
       toast.success("Sales package executed! All drafts published.");
       setActiveRun(null);
       loadPreviousRuns();
-    } catch (error: any) {
-      toast.error("Failed to execute", error.message);
+    } catch (error: unknown) {
+      toast.error("Failed to execute", getErrorMessage(error));
     }
   }
 

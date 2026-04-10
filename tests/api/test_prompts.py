@@ -1,35 +1,10 @@
 """API tests for prompt template endpoints."""
 import pytest
-from fastapi.testclient import TestClient
-
-from app.main import app
-from app.db.session import get_db
 
 
 @pytest.fixture
-def client(db_session):
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    app.dependency_overrides.clear()
-    app.dependency_overrides[get_db] = override_get_db
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def authed_with_project(client):
-    reg = client.post("/v1/auth/register", json={
-        "email": "prompts@example.com",
-        "password": "strongpass123",
-        "full_name": "Prompt User",
-        "workspace_name": "Prompt WS",
-    })
-    token = reg.json()["access_token"]
-    client.headers.update({"Authorization": f"Bearer {token}"})
+def authed_with_project(authed_client):
+    client, _ = authed_client
     proj = client.post("/v1/projects", json={"name": "Prompt Project", "description": ""})
     return client, proj.json()["id"]
 

@@ -18,6 +18,7 @@ import {
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -185,8 +186,8 @@ export default function ContentPage() {
       setPostDrafts((rows) => rows.map((r) => (r.id === draftId ? { ...r, status: "posted" } : r)));
       setShowPostConfirm(false);
       await loadDrafts();
-    } catch (err: any) {
-      error("Could not post to Reddit", err.message);
+    } catch (err: unknown) {
+      error("Could not post to Reddit", getErrorMessage(err));
     }
     setPostingReddit(false);
   }
@@ -209,8 +210,8 @@ export default function ContentPage() {
       setPostDrafts((rows) => [draft, ...rows]);
       openPostDraft(draft);
       setActiveTab("posts");
-    } catch (err: any) {
-      error("Could not generate post draft", err.message);
+    } catch (err: unknown) {
+      error("Could not generate post draft", getErrorMessage(err));
     }
     setGeneratingPost(false);
   }
@@ -270,8 +271,8 @@ export default function ContentPage() {
       setDrafts((rows) => rows.map((row) => (row.id === updated.id ? { ...row, content: updated.content, rationale: updated.rationale || "" } : row)));
       setSelectedReply((current) => (current ? { ...current, content: updated.content, rationale: updated.rationale || "" } : current));
       success("Reply draft saved");
-    } catch (err: any) {
-      error("Could not save reply draft", err.message);
+    } catch (err: unknown) {
+      error("Could not save reply draft", getErrorMessage(err));
     }
     setSavingReply(false);
   }
@@ -297,8 +298,8 @@ export default function ContentPage() {
       setPostDrafts((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
       setSelectedPost(updated);
       success("Post draft saved");
-    } catch (err: any) {
-      error("Could not save post draft", err.message);
+    } catch (err: unknown) {
+      error("Could not save post draft", getErrorMessage(err));
     }
     setSavingPost(false);
   }
@@ -316,8 +317,8 @@ export default function ContentPage() {
       success("Marked as posted");
       setSelectedReply(null);
       await loadDrafts();
-    } catch (err: any) {
-      error("Could not update status", err.message);
+    } catch (err: unknown) {
+      error("Could not update status", getErrorMessage(err));
     }
   }
 

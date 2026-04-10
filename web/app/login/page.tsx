@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,12 +84,13 @@ function LoginForm() {
       await login(email.trim().toLowerCase(), password);
       success("Welcome back!");
       router.push("/app/dashboard");
-    } catch (e: any) {
-      if (e.message === "SETUP_REQUIRED") {
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      if (message === "SETUP_REQUIRED") {
         router.push("/auth/setup");
         return;
       }
-      error("Login failed", e.message || "Invalid email or password.");
+      error("Login failed", message || "Invalid email or password.");
     }
     setLoading(false);
   }
@@ -97,8 +99,8 @@ function LoginForm() {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
-    } catch (e: any) {
-      error("Google sign-in failed", e.message);
+    } catch (err: unknown) {
+      error("Google sign-in failed", getErrorMessage(err));
       setGoogleLoading(false);
     }
   }

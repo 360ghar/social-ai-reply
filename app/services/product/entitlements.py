@@ -1,19 +1,17 @@
+"""Entitlements and subscription management.
+
+This module handles plan-based feature gating and subscription management.
+"""
+
 from collections.abc import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from supabase import Client
 
-from app.db.models import (
-    DiscoveryKeyword,
-    MonitoredSubreddit,
-    PlanEntitlement,
-    Project,
-    Subscription,
-    SubscriptionStatus,
-    Workspace,
+from app.db.tables.workspaces import (
+    create_subscription,
+    get_subscription_by_workspace,
 )
-
 
 PLAN_CATALOG = [
     {
@@ -48,95 +46,99 @@ PLAN_CATALOG = [
 ]
 
 
-def seed_plan_entitlements(db: Session) -> None:
-    existing = {
-        (row.plan_code, row.feature_key): row
-        for row in db.scalars(select(PlanEntitlement)).all()
-    }
-    changed = False
-    for plan in PLAN_CATALOG:
-        for feature_key, limit_value in plan["limits"].items():
-            key = (plan["code"], feature_key)
-            row = existing.get(key)
-            if row:
-                if row.limit_value != limit_value:
-                    row.limit_value = limit_value
-                    changed = True
-                continue
-            db.add(
-                PlanEntitlement(
-                    plan_code=plan["code"],
-                    feature_key=feature_key,
-                    limit_value=limit_value,
-                    description=f"{plan['name']} limit for {feature_key}",
-                )
-            )
-            changed = True
-    if changed:
-        db.commit()
+def seed_plan_entitlements(supabase: Client) -> None:
+    """Seed plan entitlements in the database.
 
-
-def get_or_create_subscription(db: Session, workspace: Workspace) -> Subscription:
-    subscription = db.scalar(select(Subscription).where(Subscription.workspace_id == workspace.id))
-    if subscription:
-        changed = False
-        if subscription.plan_code not in ("free", "internal"):
-            subscription.plan_code = "free"
-            changed = True
-        if subscription.status != SubscriptionStatus.ACTIVE:
-            subscription.status = SubscriptionStatus.ACTIVE
-            changed = True
-        if subscription.current_period_end is not None:
-            subscription.current_period_end = None
-            changed = True
-        if changed:
-            db.commit()
-            db.refresh(subscription)
-        return subscription
-    subscription = Subscription(workspace_id=workspace.id, plan_code="free", status=SubscriptionStatus.ACTIVE)
-    db.add(subscription)
-    db.commit()
-    db.refresh(subscription)
-    return subscription
-
-
-def get_limit(db: Session, workspace: Workspace, feature_key: str) -> int:
-    # The private workspace always runs in unlocked mode.
-    return 999999
-
-
-def enforce_limit(db: Session, workspace: Workspace, feature_key: str, current_count: int) -> None:
-    # Limits are intentionally disabled for the internal workspace.
+    For the private workspace, entitlements are intentionally unlimited.
+    """
+    # In the Supabase era, we'll manage entitlements differently.
+    # For now, this is a no-op for the private workspace.
     pass
 
 
-def count_projects(db: Session, workspace_id: int) -> int:
-    return db.scalar(select(func.count(Project.id)).where(Project.workspace_id == workspace_id)) or 0
+def get_or_create_subscription(supabase: Client, workspace: dict) -> dict:
+    """Get or create a subscription for a workspace.
+
+    For the private workspace, always returns an active 'free' plan.
+    """
+    subscription = get_subscription_by_workspace(supabase, workspace["id"])
+
+    if subscription:
+        if subscription["plan_code"] not in ("free", "internal"):
+            subscription = update_subscription(supabase, subscription["id"], {"plan_code": "free"})
+        if subscription["status"] != "active":
+            subscription = update_subscription(supabase, subscription["id"], {"status": "active"})
+        if subscription.get("current_period_end") is not None:
+            subscription = update_subscription(supabase, subscription["id"], {"current_period_end": None})
+        return subscription
+
+    return create_subscription(
+        supabase,
+        {
+            "workspace_id": workspace["id"],
+            "plan_code": "free",
+            "status": "active",
+        },
+    )
 
 
-def count_active_keywords(db: Session, project_id: int) -> int:
-    return db.scalar(
-        select(func.count(DiscoveryKeyword.id)).where(
-            DiscoveryKeyword.project_id == project_id,
-            DiscoveryKeyword.is_active.is_(True),
-        )
-    ) or 0
+def update_subscription(supabase: Client, subscription_id: int, update_data: dict) -> dict:
+    """Update a subscription."""
+    from app.db.tables.workspaces import update_subscription as _update
+
+    result = _update(supabase, subscription_id, update_data)
+    if not result:
+        raise HTTPException(status_code=404, detail="Subscription not found.")
+    return result
 
 
-def count_active_subreddits(db: Session, project_id: int) -> int:
-    return db.scalar(
-        select(func.count(MonitoredSubreddit.id)).where(
-            MonitoredSubreddit.project_id == project_id,
-            MonitoredSubreddit.is_active.is_(True),
-        )
-    ) or 0
+def get_limit(supabase: Client, workspace: dict, feature_key: str) -> int:
+    """Get the limit for a feature.
+
+    For the private workspace, always returns unlimited (999999).
+    """
+    return 999999
+
+
+def enforce_limit(supabase: Client, workspace: dict, feature_key: str, current_count: int) -> None:
+    """Enforce a feature limit.
+
+    For the private workspace, limits are intentionally disabled.
+    """
+    pass
+
+
+def count_projects(supabase: Client, workspace_id: int) -> int:
+    """Count projects in a workspace."""
+    from app.db.tables.projects import list_projects_for_workspace
+
+    projects = list_projects_for_workspace(supabase, workspace_id)
+    return len(projects)
+
+
+def count_active_keywords(supabase: Client, project_id: int) -> int:
+    """Count active keywords for a project."""
+    from app.db.tables.discovery import list_keywords_for_project
+
+    keywords = list_keywords_for_project(supabase, project_id)
+    return sum(1 for k in keywords if k.get("is_active", True))
+
+
+def count_active_subreddits(supabase: Client, project_id: int) -> int:
+    """Count active subreddits for a project."""
+    from app.db.tables.discovery import list_subreddits_for_project
+
+    subreddits = list_subreddits_for_project(supabase, project_id)
+    return sum(1 for s in subreddits if s.get("is_active", True))
 
 
 def serialize_plan_catalog() -> list[dict]:
+    """Serialize the plan catalog for API responses."""
     return [{k: v for k, v in plan.items() if k != "limits"} | {"limits": dict(plan["limits"])} for plan in PLAN_CATALOG]
 
 
 def feature_set(plan_code: str) -> Iterable[str]:
+    """Get the features for a plan code."""
     for plan in PLAN_CATALOG:
         if plan["code"] == plan_code:
             return plan["features"]

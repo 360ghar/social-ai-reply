@@ -1,0 +1,91 @@
+"""Application limits and thresholds.
+
+These constants define maximum values, pagination sizes, and other limits
+used throughout the application.
+"""
+
+# Draft limits
+MAX_DRAFTS_PER_PROJECT = 50
+MAX_REPLY_DRAFTS_PER_OPPORTUNITY = 10
+
+# Persona limits
+MAX_PERSONAS_PER_PROJECT = 20
+MAX_ACTIVE_PERSONAS_PER_PROJECT = 10
+
+# Keyword limits
+MAX_KEYWORDS_PER_PERSONA = 50
+MAX_DISCOVERY_KEYWORDS_PER_PROJECT = 100
+
+# Opportunity limits
+OPPORTUNITY_SCORE_THRESHOLD = 0.35
+MAX_OPPORTUNITIES_PER_SCAN = 100
+MAX_OPPORTUNITIES_DISPLAY = 100
+
+# Subreddit limits
+MAX_MONITORED_SUBREDDITS_PER_PROJECT = 50
+MIN_SUBREDDIT_SUBSCRIBERS = 1000
+MAX_SUBREDDIT_SUBSCRIBERS = 10_000_000
+
+# Content limits
+MAX_TITLE_LENGTH = 300
+MAX_DESCRIPTION_LENGTH = 4000
+MAX_CONTENT_LENGTH = 10_000
+MAX_BIO_EXCERPT_LENGTH = 1200
+
+# Prompt limits
+MAX_PROMPTS_PER_SET = 20
+MAX_PROMPT_SETS_PER_PROJECT = 10
+
+# Scan limits
+MAX_SCAN_HISTORY = 100
+MAX_SCAN_RUNS_DISPLAY = 10
+
+# Pagination defaults
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 1000
+
+# Rate limiting (requests per window)
+RATE_LIMIT_SCAN = 5  # 5 scans per 60 seconds
+RATE_LIMIT_GENERATE = 10  # 10 generations per 60 seconds
+RATE_LIMIT_AUTH = 10  # 10 auth requests per 300 seconds
+RATE_LIMIT_DEFAULT = 60  # 60 requests per 60 seconds
+
+# Token limits for LLM
+MAX_INPUT_TOKENS = 128_000
+MAX_OUTPUT_TOKENS = 4096
+DEFAULT_MAX_OUTPUT_TOKENS = 2048
+
+# Unlimited placeholder (for plan entitlements)
+UNLIMITED = 999_999
+
+# Workspace limits
+MAX_WORKSPACES_PER_USER = 10
+MAX_MEMBERS_PER_WORKSPACE = 50
+MAX_INVITATIONS_PER_WORKSPACE = 100
+
+# Webhook limits
+MAX_WEBHOOKS_PER_WORKSPACE = 10
+MAX_WEBHOOK_EVENTS = 20
+MAX_WEBHOOK_URL_LENGTH = 2048
+
+# Notification limits
+MAX_NOTIFICATIONS_PER_USER = 1000
+MAX_NOTIFICATIONS_DISPLAY = 50
+
+# Analytics limits
+MAX_ANALYTICS_HISTORY_DAYS = 90
+MAX_SNAPSHOTS_DISPLAY = 30
+
+# File upload limits (in bytes)
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_AVATAR_SIZE = 5 * 1024 * 1024  # 5 MB
+
+# Password requirements
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128
+
+# Session/token limits
+MAX_SESSION_AGE_HOURS = 24
+MAX_REFRESH_TOKEN_AGE_DAYS = 30

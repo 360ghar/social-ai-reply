@@ -1,7 +1,7 @@
 """Unit tests for Fernet encryption module."""
 import pytest
 
-from app.services.product.encryption import decrypt_text, encrypt_text
+from app.utils.encryption import decrypt_text, encrypt_text
 
 
 @pytest.fixture(autouse=True)
@@ -9,7 +9,7 @@ def set_encryption_key(monkeypatch):
     """Ensure ENCRYPTION_KEY is set for all tests via Settings."""
     from app.core.config import Settings
     test_settings = Settings(encryption_key="test-encryption-key-for-unit-tests-min-32-ch")
-    monkeypatch.setattr("app.services.product.encryption.get_settings", lambda: test_settings)
+    monkeypatch.setattr("app.utils.encryption.get_settings", lambda: test_settings)
 
 
 class TestEncryption:

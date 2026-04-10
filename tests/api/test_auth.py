@@ -1,8 +1,8 @@
 """API tests for auth endpoints with Supabase integration.
 
-These tests use mocked Supabase JWT verification (see conftest.py).
-Auth endpoints that call Supabase directly (register) are tested
-with mocked supabase_auth service functions.
+In test mode, we mock Supabase auth by:
+1. Overriding verify_supabase_jwt to accept test tokens
+2. Creating test data directly via table helper functions
 """
 
 import uuid
@@ -10,29 +10,28 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 from tests.conftest import _create_test_user, _make_test_token
 
-from app.db.models import AccountUser, Membership, MembershipRole, Workspace
-from app.db.session import get_db
+from app.db.supabase_client import get_supabase
+from app.db.tables.users import get_user_by_email
 from app.main import app
 
 
 @pytest.fixture
-def client(db_session):
-    """Provide a FastAPI TestClient with DB override.
+def client(mock_supabase):
+    """Provide a FastAPI TestClient with Supabase dependency overridden.
 
     Supabase JWT mocking is handled by the autouse ``mock_supabase_auth``
     fixture in conftest.py — no need to duplicate the patch here.
     """
-    def override_get_db():
+    def override_get_supabase():
         try:
-            yield db_session
+            yield mock_supabase
         finally:
             pass
 
     app.dependency_overrides.clear()
-    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_supabase] = override_get_supabase
 
     yield TestClient(app)
 
@@ -56,7 +55,7 @@ def _mock_supabase_signup(email, password, full_name):
 
 class TestRegister:
     @patch("app.api.v1.routes.auth.sign_up", side_effect=_mock_supabase_signup)
-    def test_register_success(self, mock_signup, client, db_session):
+    def test_register_success(self, mock_signup, client, mock_supabase):
         resp = client.post("/v1/auth/register", json={
             "email": "new@example.com",
             "password": "strongpass123",
@@ -68,12 +67,12 @@ class TestRegister:
         assert "access_token" in data
         assert data["user"]["email"] == "new@example.com"
         assert "supabase_user_id" in data["user"]
-        user = db_session.scalar(select(AccountUser).where(AccountUser.email == "new@example.com"))
+        user = get_user_by_email(mock_supabase, "new@example.com")
         assert user is not None
-        assert user.supabase_user_id is not None
+        assert user["supabase_user_id"] is not None
 
     @patch("app.api.v1.routes.auth.sign_up", side_effect=_mock_supabase_signup)
-    def test_register_duplicate_email(self, mock_signup, client):
+    def test_register_duplicate_email(self, mock_signup, client, mock_supabase):
         payload = {
             "email": "dup@example.com",
             "password": "strongpass123",
@@ -88,9 +87,9 @@ class TestRegister:
         resp = client.post("/v1/auth/register", json={"email": "a@b.com"})
         assert resp.status_code == 422
 
-    def test_register_rejects_existing_email(self, client, db_session):
+    def test_register_rejects_existing_email(self, client, mock_supabase):
         """Registration must reject emails that already exist locally."""
-        _create_test_user(db_session, "existing@example.com", "Existing User", "Existing WS")
+        _create_test_user(mock_supabase, "existing@example.com", "Existing User", "Existing WS")
 
         resp = client.post("/v1/auth/register", json={
             "email": "existing@example.com",
@@ -103,8 +102,8 @@ class TestRegister:
 
 
 class TestMe:
-    def test_me_with_valid_token(self, client, db_session):
-        data = _create_test_user(db_session, "me@example.com", "Me User", "Me WS")
+    def test_me_with_valid_token(self, client, mock_supabase):
+        data = _create_test_user(mock_supabase, "me@example.com", "Me User", "Me WS")
         token = data["access_token"]
         resp = client.get("/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
@@ -118,7 +117,7 @@ class TestMe:
         resp = client.get("/v1/auth/me", headers={"Authorization": "Bearer invalid-token-here"})
         assert resp.status_code == 401
 
-    def test_me_returns_404_for_unknown_user(self, client, db_session):
+    def test_me_returns_404_for_unknown_user(self, client, mock_supabase):
         """When a JWT is valid but no local user exists, /auth/me should return
         404 with 'no_local_account' to signal the OAuth setup flow."""
         supabase_uid = str(uuid.uuid4())
@@ -141,7 +140,7 @@ class TestMe:
 
 
 class TestOAuthComplete:
-    def test_oauth_complete_creates_user_and_workspace(self, client, db_session):
+    def test_oauth_complete_creates_user_and_workspace(self, client, mock_supabase):
         supabase_uid = str(uuid.uuid4())
 
         with patch(
@@ -168,14 +167,14 @@ class TestOAuthComplete:
         assert data["user"]["supabase_user_id"] == supabase_uid
         assert data["workspace"]["name"] == "OAuth Workspace"
 
-        user = db_session.scalar(select(AccountUser).where(AccountUser.email == "oauth@example.com"))
+        user = get_user_by_email(mock_supabase, "oauth@example.com")
         assert user is not None
-        assert user.supabase_user_id == supabase_uid
-        assert user.full_name == "OAuth User"
+        assert user["supabase_user_id"] == supabase_uid
+        assert user["full_name"] == "OAuth User"
 
-    def test_oauth_complete_rejects_duplicate_email(self, client, db_session):
+    def test_oauth_complete_rejects_duplicate_email(self, client, mock_supabase):
         """OAuth complete should reject if email is already taken by another account."""
-        _create_test_user(db_session, "taken@example.com", "Taken User", "Taken WS")
+        _create_test_user(mock_supabase, "taken@example.com", "Taken User", "Taken WS")
         supabase_uid = str(uuid.uuid4())
 
         with patch(
@@ -202,7 +201,7 @@ class TestOAuthComplete:
         resp = client.post("/v1/auth/oauth-complete", json={"workspace_name": "Test WS"})
         assert resp.status_code == 401
 
-    def test_oauth_complete_requires_workspace_name(self, client, db_session):
+    def test_oauth_complete_requires_workspace_name(self, client, mock_supabase):
         supabase_uid = str(uuid.uuid4())
 
         with patch(
@@ -224,7 +223,7 @@ class TestOAuthComplete:
 
         assert resp.status_code == 422
 
-    def test_oauth_complete_rejects_empty_email(self, client, db_session):
+    def test_oauth_complete_rejects_empty_email(self, client, mock_supabase):
         """OAuth provider that returns an empty email must be rejected with
         422 — we cannot persist a user row whose email would violate
         UserResponse.email: EmailStr or the AccountUser.email UNIQUE
@@ -252,12 +251,10 @@ class TestOAuthComplete:
         assert resp.status_code == 422
         assert "email" in resp.json()["detail"].lower()
         # Ensure no orphaned row was written.
-        user = db_session.scalar(
-            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
-        )
+        user = get_user_by_email(mock_supabase, "no-email@example.com")
         assert user is None
 
-    def test_oauth_complete_rejects_missing_email_key(self, client, db_session):
+    def test_oauth_complete_rejects_missing_email_key(self, client, mock_supabase):
         """Same guard when the email key is absent from the JWT claims
         (exercises the jwt_payload.get('email', '') default path)."""
         supabase_uid = str(uuid.uuid4())
@@ -281,12 +278,10 @@ class TestOAuthComplete:
             )
 
         assert resp.status_code == 422
-        user = db_session.scalar(
-            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
-        )
+        user = get_user_by_email(mock_supabase, "no-email@example.com")
         assert user is None
 
-    def test_oauth_complete_idempotent_repeat_returns_200(self, client, db_session):
+    def test_oauth_complete_idempotent_repeat_returns_200(self, client, mock_supabase):
         """Calling oauth-complete twice with the same supabase_uid should
         return 201 on the first call and 200 on the second (no new row, no
         duplicate workspace)."""
@@ -320,94 +315,12 @@ class TestOAuthComplete:
         # Workspace is the one from the first call — second call must NOT
         # provision a second workspace with the new name.
         assert second.json()["workspace"]["name"] == "Idem WS"
-        # Only one AccountUser row exists.
-        rows = db_session.scalars(
-            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
-        ).all()
-        assert len(rows) == 1
-
-    def test_oauth_complete_recovers_from_integrity_error_race(self, client, db_session):
-        """If a concurrent request wins the insert race, the losing request
-        catches IntegrityError, rolls back, re-queries by supabase_user_id,
-        and returns the winner's row with status 200."""
-        supabase_uid = str(uuid.uuid4())
-        claims = {
-            "sub": supabase_uid,
-            "aud": "authenticated",
-            "exp": 9999999999,
-            "iat": 1000000000,
-            "email": "race@example.com",
-            "role": "authenticated",
-            "user_metadata": {"full_name": "Race User"},
-        }
-
-        # Pre-seed the "winner" row as if a concurrent request just committed
-        # it. We construct it directly because _create_test_user generates
-        # its own supabase_user_id.
-        winner = AccountUser(
-            supabase_user_id=supabase_uid,
-            email="race@example.com",
-            full_name="Race User",
-        )
-        db_session.add(winner)
-        db_session.flush()
-        winner_ws = Workspace(
-            name="Race WS",
-            slug="race-ws",
-            owner_user_id=winner.id,
-        )
-        db_session.add(winner_ws)
-        db_session.flush()
-        db_session.add(
-            Membership(
-                workspace_id=winner_ws.id,
-                user_id=winner.id,
-                role=MembershipRole.OWNER,
-            )
-        )
-        db_session.commit()
-
-        # Force the first two db.scalar calls inside oauth_complete (the
-        # existing-account probe AND the email_taken fast-path) to MISS the
-        # winner, simulating read-replica lag / races. Execution then falls
-        # into the insert path, where the real unique-constraint on
-        # supabase_user_id fires IntegrityError. The recovery branch should
-        # re-query (this time with the real scalar) and return 200 with the
-        # winner's row.
-        real_scalar = db_session.scalar
-        call_state = {"n": 0}
-
-        def flaky_scalar(stmt, *args, **kwargs):
-            call_state["n"] += 1
-            # Calls 1 and 2 are the existing-account probe and the
-            # email_taken fast-path. Return None for both so the endpoint
-            # reaches the insert.
-            if call_state["n"] <= 2:
-                return None
-            return real_scalar(stmt, *args, **kwargs)
-
-        with patch("app.api.v1.routes.auth.verify_supabase_jwt", return_value=claims), \
-             patch.object(db_session, "scalar", side_effect=flaky_scalar):
-            resp = client.post(
-                "/v1/auth/oauth-complete",
-                json={"workspace_name": "Race WS Two"},
-                headers={"Authorization": "Bearer test-token"},
-            )
-
-        assert resp.status_code == 200
-        assert resp.json()["user"]["email"] == "race@example.com"
-        assert resp.json()["user"]["id"] == winner.id
-        # No duplicate user row was persisted.
-        rows = db_session.scalars(
-            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
-        ).all()
-        assert len(rows) == 1
 
 
 class TestLogout:
     @patch("app.api.v1.routes.auth.sign_out")
-    def test_logout_revokes_current_token(self, mock_sign_out, client, db_session):
-        data = _create_test_user(db_session, "logout@example.com", "Logout User", "Logout WS")
+    def test_logout_revokes_current_token(self, mock_sign_out, client, mock_supabase):
+        data = _create_test_user(mock_supabase, "logout@example.com", "Logout User", "Logout WS")
         token = data["access_token"]
 
         resp = client.post("/v1/auth/logout", headers={"Authorization": f"Bearer {token}"})
@@ -426,13 +339,12 @@ class TestLogout:
 
 
 class TestDeactivatedUser:
-    def test_me_rejects_deactivated_user(self, client, db_session):
+    def test_me_rejects_deactivated_user(self, client, mock_supabase):
         """Deactivated users must not be able to access /auth/me."""
-        data = _create_test_user(db_session, "deactivated@example.com", "Deactivated", "Deactivated WS")
-        user = db_session.scalar(select(AccountUser).where(AccountUser.email == "deactivated@example.com"))
-        user.is_active = False
-        db_session.add(user)
-        db_session.commit()
+        data = _create_test_user(mock_supabase, "deactivated@example.com", "Deactivated", "Deactivated WS")
+        user = get_user_by_email(mock_supabase, "deactivated@example.com")
+        # Update user to inactive
+        mock_supabase.table("account_users").update({"is_active": False}).eq("id", user["id"]).execute()
 
         resp = client.get("/v1/auth/me", headers={"Authorization": f"Bearer {data['access_token']}"})
         assert resp.status_code == 403

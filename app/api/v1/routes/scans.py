@@ -1,12 +1,11 @@
 """Scan run endpoints."""
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
-from app.db.models import AccountUser, Workspace
-from app.db.session import get_db
+from app.db.supabase_client import get_supabase
 from app.schemas.v1.product import ScanRequest, ScanRunResponse
 from app.services.product.scanner import run_scan
 
@@ -18,14 +17,15 @@ router = APIRouter(prefix="/v1", tags=["scans"])
 def create_scan(
     payload: ScanRequest,
     project_id: int = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> ScanRunResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     effective_project_id = project_id or payload.project_id
-    proj = get_active_project(db, workspace.id, effective_project_id)
+    proj = get_active_project(supabase, workspace["id"], effective_project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="No active project found.")
-    result = run_scan(db, proj, payload)
+
+    result = run_scan(supabase, proj, payload)
     return ScanRunResponse.model_validate(result)

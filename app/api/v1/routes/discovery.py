@@ -2,8 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from supabase import Client
 
 from app.api.v1.deps import (
     ensure_workspace_membership,
@@ -11,15 +10,18 @@ from app.api.v1.deps import (
     get_current_workspace,
     get_project,
 )
-from app.db.models import (
-    AccountUser,
-    DiscoveryKeyword,
-    MonitoredSubreddit,
-    Persona,
-    Project,
-    Workspace,
+from app.db.supabase_client import get_supabase
+from app.db.tables.discovery import (
+    create_discovery_keyword,
+    create_monitored_subreddit,
+    delete_discovery_keyword,
+    delete_monitored_subreddit,
+    get_discovery_keyword_by_id,
+    get_keyword_by_project_and_keyword,
+    get_monitored_subreddit_by_id,
+    list_keywords_for_project,
+    list_subreddits_for_project,
 )
-from app.db.session import get_db
 from app.schemas.v1.product import (
     KeywordGenerateRequest,
     KeywordRequest,
@@ -29,16 +31,16 @@ from app.schemas.v1.product import (
     SubredditResponse,
 )
 from app.services.product.copilot import ProductCopilot
+from app.services.product.discovery import (
+    discover_and_store_subreddits,
+    get_project_search_keywords,
+    refresh_subreddit_analysis,
+)
 from app.services.product.entitlements import (
     count_active_keywords,
     count_active_subreddits,
     enforce_limit,
     get_limit,
-)
-from app.services.product.discovery import (
-    discover_and_store_subreddits,
-    get_project_search_keywords,
-    refresh_subreddit_analysis,
 )
 from app.services.product.reddit import RedditClient
 
@@ -49,17 +51,14 @@ router = APIRouter(prefix="/v1", tags=["discovery"])
 @router.get("/discovery/keywords", response_model=list[KeywordResponse])
 def list_keywords(
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[KeywordResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    rows = db.scalars(
-        select(DiscoveryKeyword)
-        .where(DiscoveryKeyword.project_id == project.id)
-        .order_by(DiscoveryKeyword.priority_score.desc())
-    ).all()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    # Validate project access
+    get_project(supabase, workspace["id"], project_id)
+    rows = list_keywords_for_project(supabase, project_id)
     return [KeywordResponse.model_validate(row) for row in rows]
 
 
@@ -67,18 +66,19 @@ def list_keywords(
 def create_keyword(
     payload: KeywordRequest,
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> KeywordResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    # Validate project access
+    get_project(supabase, workspace["id"], project_id)
+
     if payload.is_active:
-        enforce_limit(db, workspace, "keywords", count_active_keywords(db, project.id))
-    row = DiscoveryKeyword(project_id=project.id, source="manual", **payload.model_dump())
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+        enforce_limit(supabase, workspace, "keywords", count_active_keywords(supabase, project_id))
+
+    keyword_data = {"project_id": project_id, "source": "manual", **payload.model_dump()}
+    row = create_discovery_keyword(supabase, keyword_data)
     return KeywordResponse.model_validate(row)
 
 
@@ -86,77 +86,75 @@ def create_keyword(
 def generate_keywords(
     payload: KeywordGenerateRequest,
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[KeywordResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    personas = db.scalars(select(Persona).where(Persona.project_id == project.id, Persona.is_active.is_(True))).all()
-    generated = ProductCopilot().generate_keywords(project.brand_profile, personas, payload.count)
-    created: list[DiscoveryKeyword] = []
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    project = get_project(supabase, workspace["id"], project_id)
+
+    # Get active personas
+    from app.db.tables.discovery import list_personas_for_project
+    personas = list_personas_for_project(supabase, project_id, include_inactive=False)
+
+    generated = ProductCopilot().generate_keywords(project.get("brand_profile"), personas, payload.count)
+    created = []
+
     for item in generated:
-        existing = db.scalar(
-            select(DiscoveryKeyword).where(
-                DiscoveryKeyword.project_id == project.id,
-                DiscoveryKeyword.keyword == item.keyword,
-            )
-        )
+        # Check for duplicates
+        existing = get_keyword_by_project_and_keyword(supabase, project_id, item.keyword)
         if existing:
             continue
-        if count_active_keywords(db, project.id) >= get_limit(db, workspace, "keywords"):
+
+        # Check limit
+        if count_active_keywords(supabase, project_id) >= get_limit(supabase, workspace, "keywords"):
             break
-        row = DiscoveryKeyword(
-            project_id=project.id,
-            keyword=item.keyword,
-            rationale=item.rationale,
-            priority_score=item.priority_score,
-            source="generated",
-            is_active=True,
-        )
-        db.add(row)
+
+        keyword_data = {
+            "project_id": project_id,
+            "keyword": item.keyword,
+            "rationale": item.rationale,
+            "priority_score": item.priority_score,
+            "source": "generated",
+            "is_active": True,
+        }
+        row = create_discovery_keyword(supabase, keyword_data)
         created.append(row)
-    db.commit()
-    for row in created:
-        db.refresh(row)
+
     return [KeywordResponse.model_validate(row) for row in created]
 
 
 @router.delete("/discovery/keywords/{keyword_id}")
 def delete_keyword(
     keyword_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> dict[str, bool]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    row = db.scalar(
-        select(DiscoveryKeyword)
-        .join(Project)
-        .where(DiscoveryKeyword.id == keyword_id, Project.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    row = get_discovery_keyword_by_id(supabase, keyword_id)
     if not row:
         raise HTTPException(status_code=404, detail="Keyword not found.")
-    db.delete(row)
-    db.commit()
+
+    # Verify workspace access via project
+    get_project(supabase, workspace["id"], row["project_id"])
+
+    delete_discovery_keyword(supabase, keyword_id)
     return {"ok": True}
 
 
 @router.get("/discovery/subreddits", response_model=list[SubredditResponse])
 def list_subreddits(
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[SubredditResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    rows = db.scalars(
-        select(MonitoredSubreddit)
-        .where(MonitoredSubreddit.project_id == project.id)
-        .options(selectinload(MonitoredSubreddit.analyses))
-        .order_by(MonitoredSubreddit.fit_score.desc(), MonitoredSubreddit.subscribers.desc())
-    ).all()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    # Validate project access
+    get_project(supabase, workspace["id"], project_id)
+    rows = list_subreddits_for_project(supabase, project_id)
     return [SubredditResponse.model_validate(row) for row in rows]
 
 
@@ -164,18 +162,19 @@ def list_subreddits(
 def create_subreddit(
     payload: SubredditRequest,
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> SubredditResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    # Validate project access
+    get_project(supabase, workspace["id"], project_id)
+
     if payload.is_active:
-        enforce_limit(db, workspace, "subreddits", count_active_subreddits(db, project.id))
-    row = MonitoredSubreddit(project_id=project.id, **payload.model_dump())
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+        enforce_limit(supabase, workspace, "subreddits", count_active_subreddits(supabase, project_id))
+
+    subreddit_data = {"project_id": project_id, **payload.model_dump()}
+    row = create_monitored_subreddit(supabase, subreddit_data)
     return SubredditResponse.model_validate(row)
 
 
@@ -183,78 +182,76 @@ def create_subreddit(
 def discover_subreddits(
     payload: SubredditDiscoverRequest,
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[SubredditResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    keywords = db.scalars(
-        select(DiscoveryKeyword)
-        .where(DiscoveryKeyword.project_id == project.id, DiscoveryKeyword.is_active.is_(True))
-        .order_by(DiscoveryKeyword.priority_score.desc())
-    ).all()
-    if not keywords:
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    project = get_project(supabase, workspace["id"], project_id)
+
+    keywords = list_keywords_for_project(supabase, project_id)
+    active_keywords = [k for k in keywords if k.get("is_active", True)]
+
+    if not active_keywords:
         raise HTTPException(status_code=400, detail="Generate or add keywords before discovering subreddits.")
 
-    search_keywords = get_project_search_keywords(db, project)
+    search_keywords = get_project_search_keywords(supabase, project)
     if not search_keywords:
         raise HTTPException(status_code=400, detail="Add more specific keywords before discovering subreddits.")
 
-    remaining_slots = max(get_limit(db, workspace, "subreddits") - count_active_subreddits(db, project.id), 0)
+    remaining_slots = max(get_limit(supabase, workspace, "subreddits") - count_active_subreddits(supabase, project_id), 0)
     if remaining_slots == 0:
         return []
 
     created = discover_and_store_subreddits(
-        db,
+        supabase,
         project,
         max_subreddits=min(payload.max_subreddits, remaining_slots),
         reddit=RedditClient(),
     )
-    db.commit()
-    for row in created:
-        db.refresh(row)
     return [SubredditResponse.model_validate(row) for row in created]
 
 
 @router.post("/subreddits/{subreddit_id}/analyze", response_model=SubredditResponse)
 def analyze_subreddit(
     subreddit_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> SubredditResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    subreddit = db.scalar(
-        select(MonitoredSubreddit)
-        .join(Project)
-        .where(MonitoredSubreddit.id == subreddit_id, Project.workspace_id == workspace.id)
-        .options(selectinload(MonitoredSubreddit.analyses))
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    subreddit = get_monitored_subreddit_by_id(supabase, subreddit_id)
     if not subreddit:
         raise HTTPException(status_code=404, detail="Subreddit not found.")
-    project = get_project(db, workspace.id, subreddit.project_id)
-    refresh_subreddit_analysis(db, project, subreddit, reddit=RedditClient())
-    db.commit()
-    db.refresh(subreddit)
-    return SubredditResponse.model_validate(subreddit)
+
+    # Verify workspace access
+    project = get_project(supabase, workspace["id"], subreddit["project_id"])
+
+    refresh_subreddit_analysis(supabase, project, subreddit, reddit=RedditClient())
+
+    # Refresh from DB
+    updated = get_monitored_subreddit_by_id(supabase, subreddit_id)
+    return SubredditResponse.model_validate(updated)
 
 
 @router.delete("/discovery/subreddits/{subreddit_id}")
 def delete_subreddit(
     subreddit_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> dict[str, bool]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    row = db.scalar(
-        select(MonitoredSubreddit)
-        .join(Project)
-        .where(MonitoredSubreddit.id == subreddit_id, Project.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    row = get_monitored_subreddit_by_id(supabase, subreddit_id)
     if not row:
         raise HTTPException(status_code=404, detail="Subreddit not found.")
-    db.delete(row)
-    db.commit()
+
+    # Verify workspace access via project
+    get_project(supabase, workspace["id"], row["project_id"])
+
+    delete_monitored_subreddit(supabase, subreddit_id)
     return {"ok": True}
+
+
