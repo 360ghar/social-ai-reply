@@ -1,6 +1,8 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 type Props = { children: ReactNode };
 type State = { hasError: boolean; message: string };
@@ -15,18 +17,20 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <section className="card">
-          <div className="notice">
-            <strong>Something went wrong</strong>
-            <p>{this.state.message || "An unexpected error occurred."}</p>
-            <button
-              className="secondary-button"
+        <Card className="mx-auto mt-8 max-w-md">
+          <CardContent className="flex flex-col gap-3 pt-6">
+            <strong className="text-base font-semibold text-foreground">Something went wrong</strong>
+            <p className="text-sm text-muted-foreground">
+              {this.state.message || "An unexpected error occurred."}
+            </p>
+            <Button
+              variant="outline"
               onClick={() => this.setState({ hasError: false, message: "" })}
             >
               Try again
-            </button>
-          </div>
-        </section>
+            </Button>
+          </CardContent>
+        </Card>
       );
     }
     return this.props.children;

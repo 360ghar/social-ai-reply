@@ -30,10 +30,8 @@ SLOW_ENDPOINTS = {
     "/v1/personas/generate": "generate",
     "/v1/discovery/keywords/generate": "generate",
     "/v1/discovery/subreddits/discover": "generate",
-    "/v1/auth/login": "auth",
     "/v1/auth/register": "auth",
-    "/v1/auth/forgot-password": "auth",
-    "/v1/auth/reset-password": "auth",
+    "/v1/auth/oauth-complete": "auth",
 }
 
 

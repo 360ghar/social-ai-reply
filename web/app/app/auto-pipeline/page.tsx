@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, ChevronDown, ChevronRight, Check } from "lucide-react";
 
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
-import { Button, Spinner } from "@/components/ui";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/api";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 // Types
 interface PipelineRun {
@@ -120,8 +125,8 @@ export default function AutoPipelinePage() {
         : `/v1/auto-pipeline`;
       const runs = await apiRequest<{ items: PipelineRun[] }>(url, {}, token);
       setPreviousRuns(runs.items || []);
-    } catch (error: any) {
-      console.error(error);
+    } catch (err: any) {
+      toast.error("Failed to load pipeline runs", err?.message);
     }
     setLoading(false);
   }
@@ -135,8 +140,8 @@ export default function AutoPipelinePage() {
         token
       );
       setActiveRun(updated);
-    } catch (error: any) {
-      console.error(error);
+    } catch (err: any) {
+      toast.error("Failed to refresh pipeline status", err?.message);
     }
   }
 
@@ -209,52 +214,33 @@ export default function AutoPipelinePage() {
   // State 1: Input State
   if (!activeRun) {
     return (
-      <div style={{ display: "grid", gap: 40, maxWidth: 1000, margin: "0 auto" }}>
+      <div className="grid gap-10 max-w-[1000px] mx-auto">
         {/* Hero Section */}
-        <div
-          style={{
-            textAlign: "center",
-            padding: "60px 40px",
-            background: "linear-gradient(135deg, var(--surface) 0%, var(--card) 100%)",
-            borderRadius: 20,
-            border: "1px solid var(--border)",
-          }}
-        >
-          <h1 style={{ fontSize: 44, fontWeight: 700, marginBottom: 12, color: "var(--ink)" }}>
+        <div className="text-center py-[60px] px-10 bg-gradient-to-br from-muted/50 to-card rounded-[20px] border">
+          <h1 className="text-[44px] font-bold mb-3 text-foreground">
             Auto-Pipeline
           </h1>
-          <p style={{ fontSize: 16, color: "var(--muted)", marginBottom: 40, maxWidth: 600, margin: "0 auto 40px" }}>
+          <p className="text-base text-muted-foreground mb-10 max-w-[600px] mx-auto">
             Enter any website URL and we'll build your complete engagement strategy
           </p>
 
           {/* URL Input */}
-          <div style={{ display: "grid", gap: 12, marginBottom: 24 }}>
-            <input
+          <div className="grid gap-3 mb-6">
+            <Input
               type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleLaunch()}
               placeholder="https://example.com"
-              style={{
-                padding: "16px 20px",
-                fontSize: 16,
-                border: "2px solid var(--border)",
-                borderRadius: 12,
-                background: "var(--card)",
-                color: "var(--ink)",
-                fontFamily: "inherit",
-              }}
+              className="h-12 px-5 text-base rounded-xl"
             />
             <Button
-              loading={launching}
+              disabled={launching}
               onClick={handleLaunch}
-              style={{
-                padding: "14px 24px",
-                fontSize: 15,
-                fontWeight: 600,
-                width: "100%",
-              }}
+              size="lg"
+              className="w-full h-12 text-[15px] font-semibold"
             >
+              {launching && <Loader2 className="h-4 w-4 animate-spin" />}
               Launch Pipeline
             </Button>
           </div>
@@ -263,71 +249,41 @@ export default function AutoPipelinePage() {
         {/* Previous Runs */}
         {!loading && previousRuns.length > 0 && (
           <section>
-            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, color: "var(--ink)" }}>
+            <h3 className="text-base font-semibold mb-4 text-foreground">
               Previous Pipeline Runs
             </h3>
-            <div style={{ display: "grid", gap: 10 }}>
+            <div className="grid gap-2.5">
               {previousRuns.map((run) => (
                 <div
                   key={run.id}
                   onClick={() => setActiveRun(run)}
-                  style={{
-                    padding: "16px",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                    background: "var(--card)",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto auto",
-                    alignItems: "center",
-                    gap: 16,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--surface)";
-                    e.currentTarget.style.borderColor = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "var(--card)";
-                    e.currentTarget.style.borderColor = "var(--border)";
-                  }}
+                  className="p-4 border rounded-xl bg-card cursor-pointer transition-all grid grid-cols-[1fr_auto_auto] items-center gap-4 hover:bg-muted hover:border-primary"
                 >
                   <div>
-                    <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 14, marginBottom: 4 }}>
+                    <div className="font-semibold text-foreground text-sm mb-1">
                       {run.website_url}
                     </div>
-                    <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                    <div className="text-[13px] text-muted-foreground">
                       {new Date(run.created_at).toLocaleString()}
                     </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>
+                  <div className="text-right">
+                    <div className="text-[13px] font-semibold text-primary">
                       {run.drafts_count} drafts
                     </div>
                   </div>
-                  <div
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 6,
-                      background:
-                        run.status === "ready"
-                          ? "rgba(34, 197, 94, 0.1)"
-                          : run.status === "error"
-                            ? "rgba(239, 68, 68, 0.1)"
-                            : "rgba(168, 162, 158, 0.1)",
-                      color:
-                        run.status === "ready"
-                          ? "#22c55e"
-                          : run.status === "error"
-                            ? "#ef4444"
-                            : "#a8a29e",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      textTransform: "capitalize",
-                    }}
+                  <Badge
+                    variant={
+                      run.status === "ready"
+                        ? "default"
+                        : run.status === "error"
+                          ? "destructive"
+                          : "secondary"
+                    }
+                    className="capitalize"
                   >
                     {run.status.replace(/_/g, " ")}
-                  </div>
+                  </Badge>
                 </div>
               ))}
             </div>
@@ -344,103 +300,62 @@ export default function AutoPipelinePage() {
     const completedSteps = currentStepIndex >= 0 ? currentStepIndex : 0;
 
     return (
-      <div style={{ maxWidth: 800, margin: "0 auto", padding: "40px 20px" }}>
+      <div className="max-w-[800px] mx-auto py-10 px-5">
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <h2 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>Building Your Sales Package</h2>
-          <p style={{ fontSize: 14, color: "var(--muted)" }}>{activeRun.website_url}</p>
+        <div className="text-center mb-10">
+          <h2 className="text-[32px] font-bold mb-2">Building Your Sales Package</h2>
+          <p className="text-sm text-muted-foreground">{activeRun.website_url}</p>
         </div>
 
         {/* Progress Bar */}
-        <div style={{ marginBottom: 40 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>Progress</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)" }}>{progressPercent}%</div>
+        <div className="mb-10">
+          <div className="flex justify-between mb-2">
+            <div className="text-xs font-semibold text-muted-foreground">Progress</div>
+            <div className="text-xs font-semibold text-primary">{progressPercent}%</div>
           </div>
-          <div
-            style={{
-              width: "100%",
-              height: 8,
-              background: "var(--surface)",
-              borderRadius: 4,
-              overflow: "hidden",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <div
-              style={{
-                width: `${progressPercent}%`,
-                height: "100%",
-                background: "var(--accent)",
-                transition: "width 0.3s ease",
-              }}
-            />
-          </div>
+          <Progress value={progressPercent} />
         </div>
 
         {/* Steps Checklist */}
-        <div
-          style={{
-            padding: 20,
-            background: "var(--card)",
-            borderRadius: 12,
-            border: "1px solid var(--border)",
-            marginBottom: 32,
-          }}
-        >
-          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 16 }}>
-            Pipeline Steps
-          </div>
-          <div style={{ display: "grid", gap: 12 }}>
-            {PIPELINE_STEPS.map((step, idx) => {
-              const isDone = idx < completedSteps;
-              const isCurrent = idx === completedSteps;
+        <Card className="mb-8">
+          <CardContent className="p-5">
+            <div className="text-xs font-bold text-muted-foreground uppercase mb-4">
+              Pipeline Steps
+            </div>
+            <div className="grid gap-3">
+              {PIPELINE_STEPS.map((step, idx) => {
+                const isDone = idx < completedSteps;
+                const isCurrent = idx === completedSteps;
 
-              return (
-                <div
-                  key={step.key}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    opacity: isDone || isCurrent ? 1 : 0.4,
-                  }}
-                >
+                return (
                   <div
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 12,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      background: isDone ? "var(--accent)" : isCurrent ? "var(--surface)" : "var(--border)",
-                      color: isDone ? "white" : isCurrent ? "var(--accent)" : "var(--muted)",
-                      border: isCurrent ? "2px solid var(--accent)" : "none",
-                    }}
+                    key={step.key}
+                    className="flex items-center gap-3 transition-opacity"
+                    style={{ opacity: isDone || isCurrent ? 1 : 0.4 }}
                   >
-                    {isDone ? "✓" : isCurrent ? <Spinner size="sm" /> : idx + 1}
+                    <div
+                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                        isDone
+                          ? "bg-primary text-primary-foreground"
+                          : isCurrent
+                            ? "bg-muted text-primary border-2 border-primary"
+                            : "bg-border text-muted-foreground"
+                      }`}
+                    >
+                      {isDone ? <Check className="h-3 w-3" /> : isCurrent ? <Loader2 className="h-3 w-3 animate-spin" /> : idx + 1}
+                    </div>
+                    <div className={`text-sm ${isDone || isCurrent ? "font-semibold" : "font-normal"} text-foreground`}>
+                      {step.label}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: isDone || isCurrent ? 600 : 400, color: "var(--ink)" }}>
-                    {step.label}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Live Counters */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-            gap: 12,
-            marginBottom: 32,
-          }}
-        >
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3 mb-8">
           <CounterCard label="Personas" value={activeRun.personas_count} />
           <CounterCard label="Keywords" value={activeRun.keywords_count} />
           <CounterCard label="Subreddits" value={activeRun.subreddits_count} />
@@ -449,9 +364,9 @@ export default function AutoPipelinePage() {
         </div>
 
         {/* Cancel Button */}
-        <div style={{ textAlign: "center" }}>
+        <div className="text-center">
           <Button
-            variant="secondary"
+            variant="outline"
             onClick={() => {
               setActiveRun(null);
               loadPreviousRuns();
@@ -469,35 +384,20 @@ export default function AutoPipelinePage() {
     const results = activeRun.results;
 
     return (
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: "40px 20px" }}>
+      <div className="max-w-[1000px] mx-auto py-10 px-5">
         {/* Success Banner */}
-        <div
-          style={{
-            padding: "24px",
-            background: "rgba(34, 197, 94, 0.1)",
-            border: "1px solid rgba(34, 197, 94, 0.3)",
-            borderRadius: 12,
-            marginBottom: 32,
-            textAlign: "center",
-          }}
-        >
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#22c55e", marginBottom: 4 }}>
-            ✓ Your Sales Package is Ready!
+        <div className="p-6 bg-emerald-500/10 border border-emerald-500/30 rounded-xl mb-8 text-center">
+          <div className="text-base font-bold text-emerald-600 mb-1">
+            <Check className="inline h-4 w-4 mr-1" />
+            Your Sales Package is Ready!
           </div>
-          <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 0 }}>
+          <p className="text-[13px] text-muted-foreground mb-0">
             {activeRun.website_url}
           </p>
         </div>
 
         {/* Summary Cards */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-            gap: 12,
-            marginBottom: 32,
-          }}
-        >
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 mb-8">
           <SummaryCard label="Personas" value={results.personas.length} />
           <SummaryCard label="Keywords" value={results.keywords.length} />
           <SummaryCard label="Subreddits" value={results.subreddits.length} />
@@ -506,14 +406,14 @@ export default function AutoPipelinePage() {
         </div>
 
         {/* Expandable Sections */}
-        <div style={{ display: "grid", gap: 16, marginBottom: 32 }}>
+        <div className="grid gap-4 mb-8">
           {/* Brand Summary */}
           <ExpandableSection
             title="Brand Summary"
             isExpanded={expanding["brand_summary"]}
             onToggle={() => toggleExpand("brand_summary")}
           >
-            <p style={{ fontSize: 14, lineHeight: 1.6, color: "var(--ink)", margin: 0 }}>
+            <p className="text-sm leading-relaxed text-foreground m-0">
               {results.brand_summary}
             </p>
           </ExpandableSection>
@@ -524,25 +424,20 @@ export default function AutoPipelinePage() {
             isExpanded={expanding["personas"]}
             onToggle={() => toggleExpand("personas")}
           >
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="grid gap-3">
               {results.personas.map((persona, idx) => (
                 <div
                   key={idx}
-                  style={{
-                    padding: 12,
-                    background: "var(--surface)",
-                    borderRadius: 8,
-                    border: "1px solid var(--border)",
-                  }}
+                  className="p-3 bg-muted rounded-lg border"
                 >
-                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 14 }}>
+                  <div className="font-semibold mb-1 text-sm">
                     {persona.name} {persona.role && `(${persona.role})`}
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+                  <div className="text-[13px] text-muted-foreground mb-2">
                     {persona.summary}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                    <div style={{ marginBottom: 4 }}>
+                  <div className="text-xs text-muted-foreground">
+                    <div className="mb-1">
                       <strong>Pain points:</strong> {persona.pain_points.join(", ")}
                     </div>
                   </div>
@@ -557,21 +452,21 @@ export default function AutoPipelinePage() {
             isExpanded={expanding["keywords"]}
             onToggle={() => toggleExpand("keywords")}
           >
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px] border-collapse">
                 <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Keyword</th>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Score</th>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Source</th>
+                  <tr className="border-b">
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Keyword</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Score</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Source</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.keywords.map((kw, idx) => (
-                    <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px", color: "var(--ink)" }}>{kw.keyword}</td>
-                      <td style={{ padding: "8px", color: "var(--accent)", fontWeight: 600 }}>{kw.score}</td>
-                      <td style={{ padding: "8px", color: "var(--muted)" }}>{kw.source}</td>
+                    <tr key={idx} className="border-b">
+                      <td className="p-2 text-foreground">{kw.keyword}</td>
+                      <td className="p-2 text-primary font-semibold">{kw.score}</td>
+                      <td className="p-2 text-muted-foreground">{kw.source}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -585,21 +480,21 @@ export default function AutoPipelinePage() {
             isExpanded={expanding["subreddits"]}
             onToggle={() => toggleExpand("subreddits")}
           >
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px] border-collapse">
                 <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Subreddit</th>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Fit Score</th>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Subscribers</th>
+                  <tr className="border-b">
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Subreddit</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Fit Score</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Subscribers</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.subreddits.map((sub, idx) => (
-                    <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px", color: "var(--ink)", fontWeight: 500 }}>r/{sub.name}</td>
-                      <td style={{ padding: "8px", color: "var(--accent)", fontWeight: 600 }}>{sub.fit_score}</td>
-                      <td style={{ padding: "8px", color: "var(--muted)" }}>
+                    <tr key={idx} className="border-b">
+                      <td className="p-2 text-foreground font-medium">r/{sub.name}</td>
+                      <td className="p-2 text-primary font-semibold">{sub.fit_score}</td>
+                      <td className="p-2 text-muted-foreground">
                         {(sub.subscribers / 1000).toFixed(0)}k
                       </td>
                     </tr>
@@ -615,25 +510,25 @@ export default function AutoPipelinePage() {
             isExpanded={expanding["opportunities"]}
             onToggle={() => toggleExpand("opportunities")}
           >
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px] border-collapse">
                 <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Title</th>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Subreddit</th>
-                    <th style={{ padding: "8px", textAlign: "left", fontWeight: 600, color: "var(--muted)" }}>Score</th>
+                  <tr className="border-b">
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Title</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Subreddit</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Score</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.opportunities.slice(0, 10).map((opp, idx) => (
-                    <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px", color: "var(--ink)" }}>
-                        <div style={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <tr key={idx} className="border-b">
+                      <td className="p-2 text-foreground">
+                        <div className="max-w-[400px] overflow-hidden text-ellipsis whitespace-nowrap">
                           {opp.title}
                         </div>
                       </td>
-                      <td style={{ padding: "8px", color: "var(--muted)" }}>r/{opp.subreddit}</td>
-                      <td style={{ padding: "8px", color: "var(--accent)", fontWeight: 600 }}>{opp.score}</td>
+                      <td className="p-2 text-muted-foreground">r/{opp.subreddit}</td>
+                      <td className="p-2 text-primary font-semibold">{opp.score}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -647,27 +542,22 @@ export default function AutoPipelinePage() {
             isExpanded={expanding["drafts"]}
             onToggle={() => toggleExpand("drafts")}
           >
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="grid gap-3">
               {results.drafts.slice(0, 5).map((draft, idx) => (
                 <div
                   key={idx}
-                  style={{
-                    padding: 12,
-                    background: "var(--surface)",
-                    borderRadius: 8,
-                    border: "1px solid var(--border)",
-                  }}
+                  className="p-3 bg-muted rounded-lg border"
                 >
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                  <div className="text-xs text-muted-foreground mb-1.5">
                     Response to: <strong>{draft.opportunity_title}</strong>
                   </div>
-                  <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink)", marginBottom: 8 }}>
+                  <div className="text-[13px] leading-relaxed text-foreground mb-2">
                     {draft.content}
                   </div>
                 </div>
               ))}
               {results.drafts.length > 5 && (
-                <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
+                <p className="text-[13px] text-muted-foreground m-0">
                   +{results.drafts.length - 5} more drafts...
                 </p>
               )}
@@ -676,17 +566,8 @@ export default function AutoPipelinePage() {
         </div>
 
         {/* Action Buttons */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 16,
-            padding: "24px",
-            borderTop: "1px solid var(--border)",
-            marginTop: 32,
-          }}
-        >
-          <Button variant="secondary" onClick={() => router.push("/app/content")}>
+        <div className="grid grid-cols-2 gap-4 p-6 border-t mt-8">
+          <Button variant="outline" onClick={() => router.push("/app/content")}>
             Review Individually
           </Button>
           <Button onClick={handleExecuteAll}>Execute All & Publish</Button>
@@ -698,13 +579,13 @@ export default function AutoPipelinePage() {
   // Error State
   if (activeRun && activeRun.status === "error") {
     return (
-      <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
-        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Pipeline Failed</h2>
-        <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 16 }}>
+      <div className="max-w-[600px] mx-auto py-10 px-5 text-center">
+        <div className="text-5xl mb-4">&#x26A0;&#xFE0F;</div>
+        <h2 className="text-2xl font-bold mb-2">Pipeline Failed</h2>
+        <p className="text-sm text-muted-foreground mb-4">
           {activeRun.error_message || "An error occurred while running the pipeline."}
         </p>
-        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24, opacity: 0.7 }}>
+        <p className="text-[13px] text-muted-foreground mb-6 opacity-70">
           Tip: Make sure the URL is publicly accessible and includes the full address (e.g. https://example.com).
         </p>
         <Button onClick={() => setActiveRun(null)}>Try Again</Button>
@@ -719,40 +600,24 @@ export default function AutoPipelinePage() {
 
 function CounterCard({ label, value }: { label: string; value: number }) {
   return (
-    <div
-      style={{
-        padding: 16,
-        background: "var(--card)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        textAlign: "center",
-      }}
-    >
-      <div style={{ fontSize: 24, fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>
+    <Card className="p-4 text-center">
+      <div className="text-2xl font-bold text-primary mb-1">
         {value}
       </div>
-      <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>
+      <div className="text-xs text-muted-foreground font-medium">
         {label}
       </div>
-    </div>
+    </Card>
   );
 }
 
 function SummaryCard({ label, value }: { label: string; value: number }) {
   return (
-    <div
-      style={{
-        padding: 16,
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        textAlign: "center",
-      }}
-    >
-      <div style={{ fontSize: 28, fontWeight: 700, color: "var(--accent)", marginBottom: 6 }}>
+    <div className="p-4 bg-muted border rounded-[10px] text-center">
+      <div className="text-[28px] font-bold text-primary mb-1.5">
         {value}
       </div>
-      <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 500 }}>
+      <div className="text-[13px] text-muted-foreground font-medium">
         {label}
       </div>
     </div>
@@ -768,51 +633,19 @@ interface ExpandableSectionProps {
 
 function ExpandableSection({ title, isExpanded, onToggle, children }: ExpandableSectionProps) {
   return (
-    <div
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 12,
-        overflow: "hidden",
-        background: "var(--card)",
-      }}
-    >
+    <div className="border rounded-xl overflow-hidden bg-card">
       <button
         onClick={onToggle}
-        style={{
-          width: "100%",
-          padding: "16px",
-          background: "none",
-          border: "none",
-          textAlign: "left",
-          fontSize: 14,
-          fontWeight: 600,
-          color: "var(--ink)",
-          cursor: "pointer",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          transition: "background 0.2s",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "var(--surface)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "none";
-        }}
+        aria-expanded={isExpanded}
+        className="w-full px-4 py-4 bg-transparent border-none text-left text-sm font-semibold text-foreground cursor-pointer flex justify-between items-center transition-colors hover:bg-muted"
       >
         {title}
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>
-          {isExpanded ? "▼" : "▶"}
+        <span className="text-xs text-muted-foreground">
+          {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         </span>
       </button>
       {isExpanded && (
-        <div
-          style={{
-            padding: "16px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--surface)",
-          }}
-        >
+        <div className="px-4 py-4 border-t bg-muted">
           {children}
         </div>
       )}

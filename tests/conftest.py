@@ -9,6 +9,7 @@ In test mode, we mock Supabase auth by:
 import uuid
 from unittest.mock import patch
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -38,10 +39,13 @@ def _mock_verify_supabase_jwt(token: str) -> dict:
     """Mock JWT verifier for tests.
 
     Accepts tokens in the format 'test-token-<supabase_user_id>' and
-    returns a payload matching what Supabase would return.
+    returns a payload matching what Supabase would return. Raises
+    ``jwt.InvalidTokenError`` for unrecognized tokens so the route's
+    ``_verify_bearer`` helper maps them to 401, matching the real
+    ``verify_supabase_jwt`` behavior.
     """
     if not token.startswith("test-token-"):
-        raise ValueError("Invalid test token")
+        raise jwt.InvalidTokenError("Invalid test token")
     supabase_uid = token.removeprefix("test-token-")
     return {
         "sub": supabase_uid,
@@ -120,6 +124,7 @@ def mock_supabase_auth():
     """Keep the test suite offline by mocking auth verification + signup."""
     with (
         patch("app.api.v1.deps.verify_supabase_jwt", side_effect=_mock_verify_supabase_jwt),
+        patch("app.api.v1.routes.auth.verify_supabase_jwt", side_effect=_mock_verify_supabase_jwt),
         patch("app.api.v1.routes.auth.sign_up", side_effect=_make_mock_supabase_signup()),
     ):
         yield

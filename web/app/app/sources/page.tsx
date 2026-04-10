@@ -1,10 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
-import { EmptyState, KpiCard, Tabs, Skeleton } from "@/components/ui";
+import { Loader2 } from "lucide-react";
+
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getCitations, getSourceDomains, getSourceGaps, CitationItem, apiRequest, type BrandProfile } from "@/lib/api";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 interface SourceDomain {
   domain: string;
@@ -46,7 +51,7 @@ function isOwnedDomain(domain: string, ownedWebsiteHost: string | null) {
 
 export default function SourcesPage() {
   const { token } = useAuth();
-  const toast = useToast();
+  const { error } = useToast();
   const selectedProjectId = useSelectedProjectId();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
@@ -91,7 +96,7 @@ export default function SourcesPage() {
     } catch (e: any) {
       const msg = e?.message || "";
       if (!msg.includes("No active project") && !msg.includes("Not Found") && !msg.includes("404")) {
-        toast.error("Failed to load source data", msg);
+        error("Failed to load source data", msg);
       }
     }
     setLoading(false);
@@ -103,13 +108,13 @@ export default function SourcesPage() {
   if (loading) {
     return (
       <div>
-        <h2 className="page-title" style={{ marginBottom: 24 }}>Source Intelligence</h2>
-        <div className="data-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 32, gap: 16 }}>
+        <h2 className="text-2xl font-bold mb-6">Source Intelligence</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="card" style={{ padding: 16 }}>
-              <Skeleton height={32} width="60%" style={{ marginBottom: 8 }} />
-              <Skeleton height={12} width="100%" />
-            </div>
+            <Card key={i} className="p-4">
+              <Skeleton className="h-8 w-3/5 mb-2" />
+              <Skeleton className="h-3 w-full" />
+            </Card>
           ))}
         </div>
       </div>
@@ -118,66 +123,85 @@ export default function SourcesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <h2 className="page-title">Source Intelligence</h2>
-        <p className="text-muted">Understand which domains and URLs AI models cite when responding to prompts about your category.</p>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold">Source Intelligence</h2>
+        <p className="text-muted-foreground">Understand which domains and URLs AI models cite when responding to prompts about your category.</p>
       </div>
 
       {/* KPI Row - 4 cards */}
-      <div className="data-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 32, gap: 16 }}>
-        <KpiCard label="Unique Domains" value={uniqueDomains} />
-        <KpiCard label="Total Citations" value={citationTotal} />
-        <KpiCard label="Sources We Own" value={ownedSources} />
-        <KpiCard label="Source Gaps" value={gaps.length} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{uniqueDomains}</div>
+          <div className="text-xs text-muted-foreground">Unique Domains</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{citationTotal}</div>
+          <div className="text-xs text-muted-foreground">Total Citations</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{ownedSources}</div>
+          <div className="text-xs text-muted-foreground">Sources We Own</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-2xl font-bold">{gaps.length}</div>
+          <div className="text-xs text-muted-foreground">Source Gaps</div>
+        </Card>
       </div>
 
-      <Tabs
-        tabs={[
-          { key: "all", label: "All Citations", count: citationTotal },
-          { key: "owned", label: "Our Sources", count: ownedSources },
-          { key: "gaps", label: "Source Gaps", count: gaps.length },
-        ]}
-        active={activeTab}
-        onChange={setActiveTab}
-      />
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="all">
+            All Citations
+            <Badge variant="secondary" className="ml-1.5">{citationTotal}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="owned">
+            Our Sources
+            <Badge variant="secondary" className="ml-1.5">{ownedSources}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="gaps">
+            Source Gaps
+            <Badge variant="secondary" className="ml-1.5">{gaps.length}</Badge>
+          </TabsTrigger>
+        </TabsList>
 
-      <div style={{ marginTop: 20 }}>
         {/* Tab 1: All Citations */}
-        {activeTab === "all" && (
-          citations.length === 0 ? (
-            <EmptyState
-              icon="📝"
-              title="No citations found yet"
-              description="Citations are automatically extracted from AI model responses when you run prompt sets on the AI Visibility page."
-            />
+        <TabsContent value="all" className="mt-5">
+          {citations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="text-4xl mb-3">📝</div>
+              <h3 className="text-lg font-semibold mb-1">No citations found yet</h3>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Citations are automatically extracted from AI model responses when you run prompt sets on the AI Visibility page.
+              </p>
+            </div>
           ) : (
-            <div className="table-list">
-              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)", height: 40 }}>
-                    <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>Domain</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>URL</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>Platform</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>Type</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>First Seen</th>
+                  <tr className="border-b">
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Domain</th>
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">URL</th>
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Platform</th>
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Type</th>
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">First Seen</th>
                   </tr>
                 </thead>
                 <tbody>
                   {citations.slice(0, 50).map(c => (
-                    <tr key={c.id} style={{ borderBottom: "1px solid var(--border)", height: 40 }}>
-                      <td style={{ padding: "8px 12px", fontWeight: 600 }}>{c.domain}</td>
-                      <td style={{ padding: "8px 12px", maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>
+                    <tr key={c.id} className="border-b last:border-b-0 h-10">
+                      <td className="p-3 font-semibold">{c.domain}</td>
+                      <td className="p-3 max-w-[350px] overflow-hidden text-ellipsis whitespace-nowrap">
+                        <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                           {c.url}
                         </a>
                       </td>
-                      <td style={{ padding: "8px 12px" }}>
-                        <span className="badge" style={{ fontSize: 11 }}>AI Response</span>
+                      <td className="p-3">
+                        <Badge variant="secondary">AI Response</Badge>
                       </td>
-                      <td style={{ padding: "8px 12px" }}>
-                        <span className="badge" style={{ fontSize: 11 }}>{c.content_type || "Page"}</span>
+                      <td className="p-3">
+                        <Badge variant="secondary">{c.content_type || "Page"}</Badge>
                       </td>
-                      <td style={{ padding: "8px 12px", color: "var(--text-muted)", fontSize: 12 }}>
+                      <td className="p-3 text-xs text-muted-foreground">
                         {c.first_seen_at ? new Date(c.first_seen_at).toLocaleDateString() : "—"}
                       </td>
                     </tr>
@@ -185,104 +209,92 @@ export default function SourcesPage() {
                 </tbody>
               </table>
             </div>
-          )
-        )}
+          )}
+        </TabsContent>
 
         {/* Tab 2: Our Sources */}
-        {activeTab === "owned" && (
-          <div>
-            {ownedSources === 0 ? (
-              <EmptyState
-                icon="🏢"
-                title="No owned sources yet"
-                description="Sources you own are identified from your brand profile. Set up your brand to track which of the cited domains are yours."
-              />
-            ) : (
-              <div className="table-list">
-                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--border)", height: 40 }}>
-                      <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>Domain</th>
-                      <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>Citations</th>
-                      <th style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)" }}>Share</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ownedDomainItems.map(d => {
-                        const share = citationTotal > 0 ? Math.round((d.total_citations / citationTotal) * 100) : 0;
-                        return (
-                          <tr key={d.domain} style={{ borderBottom: "1px solid var(--border)", height: 40 }}>
-                            <td style={{ padding: "8px 12px", fontWeight: 600 }}>{d.domain}</td>
-                            <td style={{ padding: "8px 12px" }}>{d.total_citations}</td>
-                            <td style={{ padding: "8px 12px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div style={{
-                                  width: 60,
-                                  height: 6,
-                                  backgroundColor: "var(--surface)",
-                                  borderRadius: 3,
-                                  overflow: "hidden"
-                                }}>
-                                  <div style={{
-                                    width: `${share}%`,
-                                    height: "100%",
-                                    backgroundColor: "var(--accent)"
-                                  }} />
-                                </div>
-                                <span style={{ fontSize: 12 }}>{share}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+        <TabsContent value="owned" className="mt-5">
+          {ownedSources === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="text-4xl mb-3">🏢</div>
+              <h3 className="text-lg font-semibold mb-1">No owned sources yet</h3>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Sources you own are identified from your brand profile. Set up your brand to track which of the cited domains are yours.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Domain</th>
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Citations</th>
+                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ownedDomainItems.map(d => {
+                    const share = citationTotal > 0 ? Math.round((d.total_citations / citationTotal) * 100) : 0;
+                    return (
+                      <tr key={d.domain} className="border-b last:border-b-0 h-10">
+                        <td className="p-3 font-semibold">{d.domain}</td>
+                        <td className="p-3">{d.total_citations}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full"
+                                style={{ width: `${share}%` }}
+                              />
+                            </div>
+                            <span className="text-xs">{share}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabsContent>
 
         {/* Tab 3: Source Gaps */}
-        {activeTab === "gaps" && (
-          gaps.length === 0 ? (
-            <EmptyState
-              icon="🔍"
-              title="No source gaps detected"
-              description="Source gaps show where competitors are cited by AI but your brand is not. Run visibility tracking to discover gaps."
-            />
+        <TabsContent value="gaps" className="mt-5">
+          {gaps.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="text-4xl mb-3">🔍</div>
+              <h3 className="text-lg font-semibold mb-1">No source gaps detected</h3>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Source gaps show where competitors are cited by AI but your brand is not. Run visibility tracking to discover gaps.
+              </p>
+            </div>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
+            <div className="space-y-3">
               {gaps.map(g => (
                 <div
                   key={g.id}
-                  className="card"
-                  style={{
-                    padding: 14,
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    gap: 12,
-                    alignItems: "center"
-                  }}
+                  className="rounded-lg border bg-card p-4 grid grid-cols-[1fr_auto] gap-3 items-center"
                 >
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>
-                      <span style={{ color: "var(--accent)" }}>{g.competitor_name}</span> is cited on{" "}
-                      <span style={{ fontWeight: 700 }}>{g.domain}</span>
+                    <div className="text-sm font-semibold">
+                      <span className="text-primary">{g.competitor_name}</span> is cited on{" "}
+                      <span className="font-bold">{g.domain}</span>
                     </div>
-                    <p className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    <p className="text-xs text-muted-foreground mt-1">
                       Your brand is not cited on this domain. Consider creating content there to close the gap.
                     </p>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "var(--accent)" }}>{g.citation_count}</div>
-                    <div className="text-muted" style={{ fontSize: 11 }}>citation{g.citation_count !== 1 ? "s" : ""}</div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-primary">{g.citation_count}</div>
+                    <div className="text-xs text-muted-foreground">citation{g.citation_count !== 1 ? "s" : ""}</div>
                   </div>
                 </div>
               ))}
             </div>
-          )
-        )}
-      </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

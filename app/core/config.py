@@ -15,8 +15,8 @@ class Settings(BaseSettings):
 
     # Supabase Auth
     supabase_url: str = ""
-    supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""
+    supabase_publishable_key: str = ""
+    supabase_secret_key: str = ""
     supabase_jwt_secret: str = ""
 
     encryption_key: str | None = None
@@ -51,12 +51,12 @@ class Settings(BaseSettings):
         if self.environment == "production":
             if not self.supabase_url:
                 raise ValueError("SUPABASE_URL is required in production.")
+            if not self.supabase_secret_key:
+                raise ValueError("SUPABASE_SECRET_KEY is required in production.")
+            if not self.supabase_publishable_key:
+                raise ValueError("SUPABASE_PUBLISHABLE_KEY is required in production.")
             if not self.supabase_jwt_secret:
                 raise ValueError("SUPABASE_JWT_SECRET is required in production.")
-            if not self.supabase_service_role_key:
-                raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required in production.")
-            if not self.supabase_anon_key:
-                raise ValueError("SUPABASE_ANON_KEY is required in production.")
         return self
 
     @property

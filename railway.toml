@@ -7,8 +7,8 @@
 #   FRONTEND_URL          - URL of the frontend service (for CORS & password reset redirects)
 #   CORS_ORIGINS_RAW      - Comma-separated allowed origins
 #   SUPABASE_URL          - Supabase project URL
-#   SUPABASE_ANON_KEY     - Supabase anon/public key
-#   SUPABASE_SERVICE_ROLE_KEY - Supabase service role key
+#   SUPABASE_PUBLISHABLE_KEY - Supabase publishable key
+#   SUPABASE_SECRET_KEY   - Supabase secret key
 #   SUPABASE_JWT_SECRET   - Supabase JWT secret
 #   GEMINI_API_KEY        - Google Gemini API key (or set USE_MOCK_LLM=true)
 #

@@ -1,4 +1,4 @@
-from app.schemas.v1.auth import AuthLoginRequest, AuthRegisterRequest, AuthResponse, UserResponse, WorkspaceSummary
+from app.schemas.v1.auth import AuthRegisterRequest, AuthResponse, OAuthCompleteRequest, UserResponse, WorkspaceSummary
 from app.schemas.v1.billing import (
     BillingUpgradeRequest,
     PlanResponse,
@@ -50,9 +50,9 @@ from app.schemas.v1.webhooks import (
 from app.schemas.v1.workspace import WorkspaceResponse
 
 __all__ = [
-    "AuthLoginRequest",
     "AuthRegisterRequest",
     "AuthResponse",
+    "OAuthCompleteRequest",
     "UserResponse",
     "WorkspaceSummary",
     "BillingUpgradeRequest",

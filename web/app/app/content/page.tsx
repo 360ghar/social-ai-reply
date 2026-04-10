@@ -2,13 +2,39 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 
-import { useAuth } from "@/components/auth-provider";
-import { useToast } from "@/components/toast";
-import { Button, Drawer, EmptyState, PlatformIcon, Tabs } from "@/components/ui";
+import { useAuth } from "@/components/auth/auth-provider";
+import { useToast } from "@/stores/toast";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { type PostDraft, apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
-import { useSelectedProjectId } from "@/lib/use-selected-project";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PlatformIcon } from "@/components/shared/platform-icon";
+import { redditUrl, copyText } from "@/lib/reddit";
 
 interface ReplyDraftRow {
   id: number;
@@ -46,7 +72,7 @@ interface PublishedPost {
 
 export default function ContentPage() {
   const { token } = useAuth();
-  const toast = useToast();
+  const { success, error } = useToast();
   const selectedProjectId = useSelectedProjectId();
 
   const [activeTab, setActiveTab] = useState("replies");
@@ -103,7 +129,7 @@ export default function ContentPage() {
       setPostDrafts(postsRes.status === "fulfilled" ? postsRes.value : []);
       setRedditAccounts(accountsRes.status === "fulfilled" ? accountsRes.value : []);
       setPublishedPosts(publishedRes.status === "fulfilled" ? publishedRes.value : []);
-    } catch (error) {
+    } catch (err) {
       setDrafts([]);
       setPostedDrafts([]);
       setPostDrafts([]);
@@ -130,12 +156,12 @@ export default function ContentPage() {
         }),
       }, token);
 
-      toast.success("Posted to Reddit", "Your post has been published");
+      success("Posted to Reddit", "Your post has been published");
       setPostDrafts((rows) => rows.map((r) => (r.id === draftId ? { ...r, status: "posted" } : r)));
       setShowPostConfirm(false);
       await loadDrafts();
-    } catch (error: any) {
-      toast.error("Could not post to Reddit", error.message);
+    } catch (err: any) {
+      error("Could not post to Reddit", err.message);
     }
     setPostingReddit(false);
   }
@@ -154,12 +180,12 @@ export default function ContentPage() {
         },
         token
       );
-      toast.success("Original post drafted");
+      success("Original post drafted");
       setPostDrafts((rows) => [draft, ...rows]);
       openPostDraft(draft);
       setActiveTab("posts");
-    } catch (error: any) {
-      toast.error("Could not generate post draft", error.message);
+    } catch (err: any) {
+      error("Could not generate post draft", err.message);
     }
     setGeneratingPost(false);
   }
@@ -177,22 +203,24 @@ export default function ContentPage() {
     setPostBody(draft.body);
   }
 
-  function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard");
-  }
-
-  function redditUrl(permalink: string) {
-    if (permalink.startsWith("http")) {
-      return permalink;
+  async function copyToClipboard(text: string) {
+    try {
+      await copyText(text);
+      success("Copied to clipboard");
+    } catch {
+      error("Failed to copy", "Clipboard access was denied.");
     }
-    return `https://www.reddit.com${permalink}`;
   }
 
-  function copyAndOpenReddit(text: string, permalink: string) {
-    navigator.clipboard.writeText(text);
+  async function copyAndOpenReddit(text: string, permalink: string) {
+    try {
+      await copyText(text);
+    } catch {
+      error("Failed to copy", "Clipboard access was denied.");
+      return;
+    }
     window.open(redditUrl(permalink), "_blank");
-    toast.success("Draft copied. Reddit is opening so you can review and paste.");
+    success("Draft copied. Reddit is opening so you can review and paste.");
   }
 
   async function saveReplyDraft() {
@@ -214,9 +242,9 @@ export default function ContentPage() {
       );
       setDrafts((rows) => rows.map((row) => (row.id === updated.id ? { ...row, content: updated.content, rationale: updated.rationale || "" } : row)));
       setSelectedReply((current) => (current ? { ...current, content: updated.content, rationale: updated.rationale || "" } : current));
-      toast.success("Reply draft saved");
-    } catch (error: any) {
-      toast.error("Could not save reply draft", error.message);
+      success("Reply draft saved");
+    } catch (err: any) {
+      error("Could not save reply draft", err.message);
     }
     setSavingReply(false);
   }
@@ -241,9 +269,9 @@ export default function ContentPage() {
       );
       setPostDrafts((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
       setSelectedPost(updated);
-      toast.success("Post draft saved");
-    } catch (error: any) {
-      toast.error("Could not save post draft", error.message);
+      success("Post draft saved");
+    } catch (err: any) {
+      error("Could not save post draft", err.message);
     }
     setSavingPost(false);
   }
@@ -258,268 +286,363 @@ export default function ContentPage() {
         },
         token
       );
-      toast.success("Marked as posted");
+      success("Marked as posted");
       setSelectedReply(null);
       await loadDrafts();
-    } catch (error: any) {
-      toast.error("Could not update status", error.message);
+    } catch (err: any) {
+      error("Could not update status", err.message);
     }
   }
 
   return (
-    <div style={{ display: "grid", gap: 24 }}>
-      <div className="flex justify-between items-center" style={{ gap: 16, flexWrap: "wrap" }}>
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="eyebrow">Publishing Workspace</div>
-          <h2 className="page-title">Content Studio</h2>
-          <p className="text-muted">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Publishing Workspace</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Content Studio</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Manage reply drafts, original posts, and published activity from one workflow instead of treating every community interaction as a one-off Reddit action.
           </p>
         </div>
-        <Button onClick={generatePostDraft} loading={generatingPost} disabled={!project}>
+        <Button onClick={generatePostDraft} disabled={generatingPost || !project}>
+          {generatingPost && <Loader2 className="h-4 w-4 animate-spin" />}
           New Original Post
         </Button>
       </div>
 
-      <Tabs
-        tabs={[
-          { key: "replies", label: "Reply Queue", count: drafts.length },
-          { key: "posts", label: "Original Posts", count: postDrafts.length },
-          { key: "published", label: "Published", count: postedDrafts.length + publishedPosts.length },
-          { key: "templates", label: "Templates" },
-        ]}
-        active={activeTab}
-        onChange={setActiveTab}
-      />
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="replies">
+            Reply Queue
+            {drafts.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5">{drafts.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="posts">
+            Original Posts
+            {postDrafts.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5">{postDrafts.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="published">
+            Published
+            {(postedDrafts.length + publishedPosts.length) > 0 && (
+              <Badge variant="secondary" className="ml-1.5">{postedDrafts.length + publishedPosts.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+        </TabsList>
 
-      {loading && <p className="text-muted">Loading studio content...</p>}
+        {loading && <p className="text-sm text-muted-foreground">Loading studio content...</p>}
 
-      {!loading && activeTab === "replies" && (
-        drafts.length === 0 ? (
-          <EmptyState
-            icon="REP"
-            title="No reply drafts yet"
-            description="Generate response drafts from Engagement Radar. They will appear here for review, revision, and manual publishing."
-            action={<Link href="/app/discovery" className="primary-button" style={{ textDecoration: "none" }}>Open Engagement Radar</Link>}
-          />
-        ) : (
-          <div className="item-list">
-            {drafts.map((draft) => (
-              <div key={draft.id} className="list-row" style={{ cursor: "pointer" }} onClick={() => openReplyDraft(draft)}>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="flex items-center gap-sm">
-                      <PlatformIcon platform="reddit" />
-                      <span className="badge">Reply</span>
-                      {draft.opportunity_subreddit && <span className="badge">r/{draft.opportunity_subreddit}</span>}
-                    </div>
-                    <strong style={{ display: "block", marginTop: 10 }}>{draft.opportunity_title || "Reply Draft"}</strong>
-                  </div>
-                  <div className="flex gap-sm items-center">
-                    <span className="text-muted text-sm">v{draft.version}</span>
-                    <button
-                      className="ghost-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        copyToClipboard(draft.content);
-                      }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-                <p className="text-muted" style={{ marginTop: 8 }}>
-                  {draft.content.substring(0, 170)}...
+        {/* Replies Tab */}
+        {!loading && (
+          <TabsContent value="replies">
+            {drafts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <div className="text-4xl">REP</div>
+                <h3 className="mt-4 text-lg font-medium">No reply drafts yet</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Generate response drafts from Engagement Radar. They will appear here for review, revision, and manual publishing.
                 </p>
+                <Link href="/app/discovery" className={cn(buttonVariants({ variant: "outline" }), "mt-4")}>
+                  Open Engagement Radar
+                </Link>
               </div>
-            ))}
-          </div>
-        )
-      )}
-
-      {!loading && activeTab === "posts" && (
-        postDrafts.length === 0 ? (
-          <EmptyState
-            icon="PST"
-            title="No original post drafts yet"
-            description="Use the studio to draft community-native posts inspired by Quora-style answers, Reddit posts, or educational updates."
-            action={<Button onClick={generatePostDraft} loading={generatingPost} disabled={!project}>Generate First Post</Button>}
-          />
-        ) : (
-          <div className="item-list">
-            {postDrafts.map((draft) => (
-              <div key={draft.id} className="list-row">
-                <div className="flex justify-between items-center" style={{ cursor: "pointer" }} onClick={() => openPostDraft(draft)}>
-                  <div style={{ flex: 1 }}>
-                    <div className="badge-row">
-                      <span className="badge">Original Post</span>
-                      <span className="badge">v{draft.version}</span>
+            ) : (
+              <div className="space-y-3">
+                {drafts.map((draft) => (
+                  <div
+                    key={draft.id}
+                    className="rounded-lg border bg-card p-4 cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => openReplyDraft(draft)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <PlatformIcon platform="reddit" />
+                          <Badge variant="secondary">Reply</Badge>
+                          {draft.opportunity_subreddit && <Badge variant="outline">r/{draft.opportunity_subreddit}</Badge>}
+                        </div>
+                        <strong className="mt-2.5 block">{draft.opportunity_title || "Reply Draft"}</strong>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">v{draft.version}</span>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            copyToClipboard(draft.content);
+                          }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
                     </div>
-                    <strong style={{ display: "block", marginTop: 10 }}>{draft.title}</strong>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {draft.content.substring(0, 170)}...
+                    </p>
                   </div>
-                  <div className="flex gap-sm items-center">
-                    <button
-                      className="ghost-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        copyToClipboard(`${draft.title}\n\n${draft.body}`);
-                      }}
-                    >
-                      Copy
-                    </button>
-                    <button
-                      className="primary-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setPostingDraftId(draft.id);
-                        setShowPostConfirm(true);
-                      }}
-                      style={{ padding: "6px 12px", fontSize: 13 }}
-                    >
-                      Post to Reddit
-                    </button>
-                  </div>
-                </div>
-                <p className="text-muted" style={{ marginTop: 8 }}>
-                  {draft.body.substring(0, 170)}...
-                </p>
+                ))}
               </div>
-            ))}
-          </div>
-        )
-      )}
+            )}
+          </TabsContent>
+        )}
 
-      {!loading && activeTab === "published" && (
-        postedDrafts.length === 0 && publishedPosts.length === 0 ? (
-          <EmptyState icon="PUB" title="No published content yet" description="Your published replies and posts will appear here." />
-        ) : (
-          <div className="item-list">
-            {postedDrafts.map((draft) => (
-              <div key={`reply-${draft.id}`} className="list-row">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="flex items-center gap-sm">
-                      <PlatformIcon platform="reddit" />
-                      <span className="badge badge-success">Posted</span>
-                      {draft.opportunity_subreddit && <span className="badge">r/{draft.opportunity_subreddit}</span>}
+        {/* Posts Tab */}
+        {!loading && (
+          <TabsContent value="posts">
+            {postDrafts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <div className="text-4xl">PST</div>
+                <h3 className="mt-4 text-lg font-medium">No original post drafts yet</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Use the studio to draft community-native posts inspired by Quora-style answers, Reddit posts, or educational updates.
+                </p>
+                <Button
+                  className="mt-4"
+                  onClick={generatePostDraft}
+                  disabled={generatingPost || !project}
+                >
+                  {generatingPost && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Generate First Post
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {postDrafts.map((draft) => (
+                  <div key={draft.id} className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center justify-between cursor-pointer" onClick={() => openPostDraft(draft)}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="secondary">Original Post</Badge>
+                          <Badge variant="outline">v{draft.version}</Badge>
+                        </div>
+                        <strong className="mt-2.5 block">{draft.title}</strong>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            copyToClipboard(`${draft.title}\n\n${draft.body}`);
+                          }}
+                        >
+                          Copy
+                        </Button>
+                        <Button
+                          size="xs"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setPostingDraftId(draft.id);
+                            setShowPostConfirm(true);
+                          }}
+                        >
+                          Post to Reddit
+                        </Button>
+                      </div>
                     </div>
-                    <strong style={{ display: "block", marginTop: 10 }}>{draft.opportunity_title || "Published Reply"}</strong>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {draft.body.substring(0, 170)}...
+                    </p>
                   </div>
-                  {draft.permalink && (
-                    <a href={redditUrl(draft.permalink)} target="_blank" rel="noopener noreferrer" className="ghost-button" style={{ textDecoration: "none" }}>
-                      View Thread
-                    </a>
-                  )}
-                </div>
-                <p className="text-muted" style={{ marginTop: 8 }}>
-                  {draft.content.substring(0, 170)}...
-                </p>
+                ))}
               </div>
-            ))}
-            {publishedPosts.map((post) => (
-              <div key={`post-${post.id}`} className="list-row">
-                <div className="flex justify-between items-center">
-                  <div style={{ flex: 1 }}>
-                    <div className="flex items-center gap-sm">
-                      <PlatformIcon platform="reddit" />
-                      <span className="badge badge-success">{post.status}</span>
-                      <span className="badge">r/{post.subreddit}</span>
+            )}
+          </TabsContent>
+        )}
+
+        {/* Published Tab */}
+        {!loading && (
+          <TabsContent value="published">
+            {postedDrafts.length === 0 && publishedPosts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <div className="text-4xl">PUB</div>
+                <h3 className="mt-4 text-lg font-medium">No published content yet</h3>
+                <p className="mt-2 text-sm text-muted-foreground">Your published replies and posts will appear here.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {postedDrafts.map((draft) => (
+                  <div key={`reply-${draft.id}`} className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <PlatformIcon platform="reddit" />
+                          <Badge variant="default" className="bg-emerald-600 text-white">Posted</Badge>
+                          {draft.opportunity_subreddit && <Badge variant="outline">r/{draft.opportunity_subreddit}</Badge>}
+                        </div>
+                        <strong className="mt-2.5 block">{draft.opportunity_title || "Published Reply"}</strong>
+                      </div>
+                      {draft.permalink && (
+                        <a href={redditUrl(draft.permalink)} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" size="xs">View Thread</Button>
+                        </a>
+                      )}
                     </div>
-                    <strong style={{ display: "block", marginTop: 10 }}>Original Post</strong>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {draft.content.substring(0, 170)}...
+                    </p>
                   </div>
-                  {post.permalink && (
-                    <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="ghost-button" style={{ textDecoration: "none" }}>
-                      View Post
-                    </a>
-                  )}
-                </div>
-                <div style={{ marginTop: 8, display: "flex", gap: 12, fontSize: 12 }}>
-                  <span className="text-muted">Posted: {new Date(post.post_date).toLocaleDateString()}</span>
-                  {post.upvotes !== undefined && <span className="text-muted">Upvotes: {post.upvotes}</span>}
-                  {post.comments !== undefined && <span className="text-muted">Comments: {post.comments}</span>}
-                </div>
-                <p className="text-muted" style={{ marginTop: 8 }}>
-                  {post.content.substring(0, 170)}...
-                </p>
+                ))}
+                {publishedPosts.map((post) => (
+                  <div key={`post-${post.id}`} className="rounded-lg border bg-card p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <PlatformIcon platform="reddit" />
+                          <Badge variant="default" className="bg-emerald-600 text-white">{post.status}</Badge>
+                          <Badge variant="outline">r/{post.subreddit}</Badge>
+                        </div>
+                        <strong className="mt-2.5 block">Original Post</strong>
+                      </div>
+                      {post.permalink && (
+                        <a href={post.permalink} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" size="xs">View Post</Button>
+                        </a>
+                      )}
+                    </div>
+                    <div className="mt-2 flex gap-3 text-xs text-muted-foreground">
+                      <span>Posted: {new Date(post.post_date).toLocaleDateString()}</span>
+                      {post.upvotes !== undefined && <span>Upvotes: {post.upvotes}</span>}
+                      {post.comments !== undefined && <span>Comments: {post.comments}</span>}
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {post.content.substring(0, 170)}...
+                    </p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )
-      )}
+            )}
+          </TabsContent>
+        )}
 
-      {!loading && activeTab === "templates" && (
-        <EmptyState
-          icon="TPL"
-          title="Prompt Templates"
-          description="Manage reply, post, and analysis prompt systems from a single template library."
-          action={<Link href="/app/prompts" className="primary-button" style={{ textDecoration: "none" }}>Open Templates</Link>}
-        />
-      )}
+        {/* Templates Tab */}
+        {!loading && (
+          <TabsContent value="templates">
+            <div className="flex flex-col items-center justify-center p-8 text-center">
+              <div className="text-4xl">TPL</div>
+              <h3 className="mt-4 text-lg font-medium">Prompt Templates</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Manage reply, post, and analysis prompt systems from a single template library.
+              </p>
+              <Link href="/app/prompts" className={cn(buttonVariants({ variant: "outline" }), "mt-4")}>
+                Open Templates
+              </Link>
+            </div>
+          </TabsContent>
+        )}
+      </Tabs>
 
-      <Drawer
-        open={!!selectedReply}
-        onClose={() => setSelectedReply(null)}
-        title="Reply Draft"
-        footer={
-          <div className="flex gap-md" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-            <Button variant="secondary" onClick={saveReplyDraft} loading={savingReply}>
-              Save Draft
-            </Button>
-            <button className="secondary-button" onClick={() => copyToClipboard(replyContent)}>
-              Copy
-            </button>
+      {/* Reply Draft Sheet */}
+      <Sheet open={!!selectedReply} onOpenChange={(open) => !open && setSelectedReply(null)}>
+        <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Reply Draft</SheetTitle>
+            <SheetDescription>Review and edit your reply draft before publishing.</SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-4">
             {selectedReply?.permalink && (
-              <Button variant="primary" onClick={() => copyAndOpenReddit(replyContent, selectedReply.permalink || "")}>
-                Copy and Open on Reddit
-              </Button>
-            )}
-            {selectedReply && (
-              <Button variant="secondary" onClick={() => markAsPosted(selectedReply.opportunity_id)}>
-                Mark as Posted
-              </Button>
-            )}
-          </div>
-        }
-      >
-        {selectedReply && (
-          <>
-            {selectedReply.permalink && (
-              <div style={{ marginBottom: 16, padding: 12, background: "var(--surface)", borderRadius: 8 }}>
-                <a href={redditUrl(selectedReply.permalink)} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", fontWeight: 500, fontSize: 13 }}>
+              <div className="mb-4 rounded-lg bg-muted p-3">
+                <a
+                  href={redditUrl(selectedReply.permalink)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-primary hover:underline"
+                >
                   View original Reddit thread {"->"}
                 </a>
                 {selectedReply.body_excerpt && (
-                  <p className="text-muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.4 }}>
+                  <p className="mt-2 text-xs text-muted-foreground leading-snug">
                     {selectedReply.body_excerpt.substring(0, 220)}...
                   </p>
                 )}
               </div>
             )}
-            <div className="field">
-              <label className="field-label">Reply Content</label>
-              <textarea rows={12} value={replyContent} onChange={(event) => setReplyContent(event.target.value)} style={{ fontSize: 13, lineHeight: 1.5 }} />
-              <p className="field-help">{replyContent.length} characters</p>
+            <div className="space-y-2">
+              <Label>Reply Content</Label>
+              <Textarea
+                rows={12}
+                value={replyContent}
+                onChange={(event) => setReplyContent(event.target.value)}
+                className="text-sm leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground">{replyContent.length} characters</p>
             </div>
-            <div className="card" style={{ backgroundColor: "var(--surface)", marginTop: 16 }}>
-              <h4 className="field-label">Why this response works</h4>
-              <p className="text-muted" style={{ fontSize: 13 }}>{selectedReply.rationale}</p>
+            <div className="mt-4 rounded-lg bg-muted p-4">
+              <h4 className="text-sm font-medium">Why this response works</h4>
+              <p className="mt-1 text-sm text-muted-foreground">{selectedReply?.rationale}</p>
             </div>
-          </>
-        )}
-      </Drawer>
+          </div>
 
-      <Drawer
-        open={!!selectedPost}
-        onClose={() => setSelectedPost(null)}
-        title="Original Post Draft"
-        footer={
-          <div className="flex gap-md" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-            <Button variant="secondary" onClick={savePostDraft} loading={savingPost}>
+          <SheetFooter className="flex-row flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={saveReplyDraft} disabled={savingReply}>
+              {savingReply && <Loader2 className="h-4 w-4 animate-spin" />}
               Save Draft
             </Button>
-            <button className="secondary-button" onClick={() => copyToClipboard(`${postTitle}\n\n${postBody}`)}>
+            <Button variant="outline" onClick={() => copyToClipboard(replyContent)}>
               Copy
-            </button>
+            </Button>
+            {selectedReply?.permalink && (
+              <Button onClick={() => copyAndOpenReddit(replyContent, selectedReply.permalink || "")}>
+                Copy and Open on Reddit
+              </Button>
+            )}
+            {selectedReply && (
+              <Button variant="outline" onClick={() => markAsPosted(selectedReply.opportunity_id)}>
+                Mark as Posted
+              </Button>
+            )}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Post Draft Sheet */}
+      <Sheet open={!!selectedPost} onOpenChange={(open) => !open && setSelectedPost(null)}>
+        <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Original Post Draft</SheetTitle>
+            <SheetDescription>Edit and manage your original post draft.</SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-4">
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input
+                type="text"
+                value={postTitle}
+                onChange={(event) => setPostTitle(event.target.value)}
+              />
+            </div>
+            <div className="mt-4 space-y-2">
+              <Label>Post Body</Label>
+              <Textarea
+                rows={14}
+                value={postBody}
+                onChange={(event) => setPostBody(event.target.value)}
+                className="text-sm leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground">{postBody.length} characters</p>
+            </div>
+            <div className="mt-4 rounded-lg bg-muted p-4">
+              <h4 className="text-sm font-medium">Why this post works</h4>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {selectedPost?.rationale || "Educational, useful, and structured for community-native publishing."}
+              </p>
+            </div>
+          </div>
+
+          <SheetFooter className="flex-row flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={savePostDraft} disabled={savingPost}>
+              {savingPost && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Draft
+            </Button>
+            <Button variant="outline" onClick={() => copyToClipboard(`${postTitle}\n\n${postBody}`)}>
+              Copy
+            </Button>
             <Button
               onClick={() => {
                 setPostingDraftId(selectedPost?.id || null);
@@ -528,80 +651,55 @@ export default function ContentPage() {
             >
               Post to Reddit
             </Button>
-          </div>
-        }
-      >
-        {selectedPost && (
-          <>
-            <div className="field">
-              <label className="field-label">Title</label>
-              <input type="text" value={postTitle} onChange={(event) => setPostTitle(event.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label">Post Body</label>
-              <textarea rows={14} value={postBody} onChange={(event) => setPostBody(event.target.value)} style={{ fontSize: 13, lineHeight: 1.6 }} />
-              <p className="field-help">{postBody.length} characters</p>
-            </div>
-            <div className="card" style={{ backgroundColor: "var(--surface)", marginTop: 16 }}>
-              <h4 className="field-label">Why this post works</h4>
-              <p className="text-muted" style={{ fontSize: 13 }}>{selectedPost.rationale || "Educational, useful, and structured for community-native publishing."}</p>
-            </div>
-          </>
-        )}
-      </Drawer>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
-      {showPostConfirm && postingDraftId && (
-        <div className="modal-overlay" onClick={() => setShowPostConfirm(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Post to Reddit</h3>
-              <button className="ghost-button modal-close" onClick={() => setShowPostConfirm(false)}>
-                x
-              </button>
-            </div>
-            <div className="modal-body">
-              {postDrafts.find((d) => d.id === postingDraftId) && (
-                <>
-                  <div style={{ marginBottom: 20, padding: 16, backgroundColor: "var(--surface)", borderRadius: 8 }}>
-                    <strong style={{ display: "block", marginBottom: 8 }}>
-                      {postDrafts.find((d) => d.id === postingDraftId)?.title}
-                    </strong>
-                    <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-                      {postDrafts.find((d) => d.id === postingDraftId)?.body.substring(0, 200)}...
-                    </p>
-                  </div>
-                  <div style={{ marginBottom: 20 }}>
-                    <label className="field-label">Target Subreddit</label>
-                    <input type="text" placeholder="e.g., r/community" disabled style={{ opacity: 0.6 }} />
-                  </div>
-                  <div style={{ marginBottom: 20, padding: 12, backgroundColor: "var(--surface)", borderRadius: 8 }}>
-                    <span className="field-label">Connected Reddit Account</span>
-                    <p style={{ fontSize: 13, marginTop: 6 }}>
-                      {redditAccounts.length > 0
-                        ? `@${redditAccounts[0].username}`
-                        : <a href="/app/settings" style={{ color: "var(--accent)" }}>Connect Reddit Account</a>}
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="modal-footer">
-              <div className="flex gap-md" style={{ justifyContent: "flex-end" }}>
-                <button className="secondary-button" onClick={() => setShowPostConfirm(false)}>
-                  Cancel
-                </button>
-                <Button
-                  loading={postingReddit}
-                  disabled={redditAccounts.length === 0}
-                  onClick={() => void postToReddit(postingDraftId)}
-                >
-                  Post Now
-                </Button>
+      {/* Post to Reddit Confirm Dialog */}
+      <Dialog open={showPostConfirm} onOpenChange={setShowPostConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Post to Reddit</DialogTitle>
+            <DialogDescription>Review your post before publishing to Reddit.</DialogDescription>
+          </DialogHeader>
+          {postingDraftId && postDrafts.find((d) => d.id === postingDraftId) && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted p-4">
+                <strong className="block mb-2">
+                  {postDrafts.find((d) => d.id === postingDraftId)?.title}
+                </strong>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {postDrafts.find((d) => d.id === postingDraftId)?.body.substring(0, 200)}...
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Target Subreddit</Label>
+                <Input type="text" placeholder="e.g., r/community" disabled className="opacity-60" />
+              </div>
+              <div className="rounded-lg bg-muted p-3">
+                <Label>Connected Reddit Account</Label>
+                <p className="mt-1.5 text-sm">
+                  {redditAccounts.length > 0
+                    ? `@${redditAccounts[0].username}`
+                    : <a href="/app/settings" className="text-primary hover:underline">Connect Reddit Account</a>}
+                </p>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPostConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={postingReddit || redditAccounts.length === 0}
+              onClick={() => void postToReddit(postingDraftId!)}
+            >
+              {postingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
+              Post Now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

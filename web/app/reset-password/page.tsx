@@ -1,12 +1,19 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
-import { Button, Spinner } from "@/components/ui";
-import { ToastProvider, useToast } from "@/components/toast";
+import { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useToast } from "@/stores/toast";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 import { forgotPassword, resetPassword } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function ResetPasswordContent() {
-  const toast = useToast();
+  const { success, error } = useToast();
+  const emailRef = useRef<HTMLInputElement>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,120 +24,264 @@ function ResetPasswordContent() {
   const [hasSession, setHasSession] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  // Check if Supabase established a session from the reset link
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [confirmError, setConfirmError] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [confirmTouched, setConfirmTouched] = useState(false);
+
   useEffect(() => {
     async function checkSession() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setHasSession(true);
-      }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) setHasSession(true);
       setChecking(false);
     }
     checkSession();
 
-    // Listen for auth events — Supabase fires PASSWORD_RECOVERY when user clicks reset link
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (event === "PASSWORD_RECOVERY" && session) {
-          setHasSession(true);
-          setChecking(false);
-        }
+    // Supabase fires PASSWORD_RECOVERY when the user clicks the reset link.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY" && session) {
+        setHasSession(true);
+        setChecking(false);
       }
-    );
+    });
 
-    return () => { subscription.unsubscribe(); };
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
+  useEffect(() => {
+    if (!checking && !hasSession && !sent) emailRef.current?.focus();
+  }, [checking, hasSession, sent]);
+
+  function validateEmail(v: string): string {
+    if (!v.trim()) return "Email is required.";
+    if (!EMAIL_RE.test(v.trim())) return "Please enter a valid email.";
+    return "";
+  }
+
+  function validatePassword(v: string): string {
+    if (!v) return "Password is required.";
+    if (v.length < 8) return "Must be at least 8 characters.";
+    return "";
+  }
+
+  function validateConfirm(v: string): string {
+    if (!v) return "Please confirm your password.";
+    if (v !== password) return "Passwords do not match.";
+    return "";
+  }
+
   async function handleRequest() {
-    if (!email.trim()) { toast.warning("Please enter your email."); return; }
+    const err = validateEmail(email);
+    setEmailError(err);
+    setEmailTouched(true);
+    if (err) return;
     setLoading(true);
     try {
       await forgotPassword(email.trim().toLowerCase());
       setSent(true);
-      toast.success("Reset link sent!", "Check your email for the password reset link.");
+      success(
+        "Reset link sent!",
+        "Check your email for the password reset link.",
+      );
     } catch (e: any) {
-      toast.error("Could not send reset email", e.message);
+      error("Could not send reset email", e.message);
     }
     setLoading(false);
   }
 
   async function handleReset() {
-    if (password.length < 8) { toast.warning("Password must be at least 8 characters."); return; }
-    if (password !== confirm) { toast.warning("Passwords do not match."); return; }
+    const pErr = validatePassword(password);
+    const cErr = validateConfirm(confirm);
+    setPasswordError(pErr);
+    setConfirmError(cErr);
+    setPasswordTouched(true);
+    setConfirmTouched(true);
+    if (pErr || cErr) return;
     setLoading(true);
     try {
       await resetPassword(password);
       setDone(true);
-      toast.success("Password updated!", "You can now log in with your new password.");
+      success("Password updated!", "You can now log in with your new password.");
     } catch (e: any) {
-      toast.error("Reset failed", e.message);
+      error("Reset failed", e.message);
     }
     setLoading(false);
   }
 
   if (checking) {
     return (
-      <div className="auth-shell">
-        <div className="auth-card" style={{ display: "flex", justifyContent: "center", padding: 32 }}>
-          <Spinner />
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="flex w-full max-w-md justify-center rounded-xl border bg-card p-8 shadow-sm">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="auth-shell">
-      <div className="auth-card">
-        <h2 style={{ marginBottom: 8 }}>
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-sm">
+        <h2 className="mb-2 text-xl font-semibold">
           {hasSession ? "Set New Password" : "Reset Password"}
         </h2>
 
         {!hasSession && !sent && (
           <>
-            <p className="text-muted" style={{ marginBottom: 20 }}>Enter your email and we&apos;ll send you a reset link.</p>
-            <div className="field">
-              <label className="field-label">Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+            <p className="mb-5 text-muted-foreground">
+              Enter your email and we&apos;ll send you a reset link.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">Email</Label>
+              <Input
+                ref={emailRef}
+                id="reset-email"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (emailTouched)
+                    setEmailError(validateEmail(e.target.value));
+                }}
+                onBlur={() => {
+                  setEmailTouched(true);
+                  setEmailError(validateEmail(email));
+                }}
+                placeholder="you@example.com"
+                aria-invalid={emailTouched && !!emailError}
+              />
+              {emailTouched && emailError && (
+                <p className="text-xs text-destructive">{emailError}</p>
+              )}
             </div>
-            <Button loading={loading} onClick={handleRequest} style={{ width: "100%" }}>Send Reset Link</Button>
-            <p style={{ marginTop: 16, textAlign: "center" }}>
-              <a href="/login" className="text-muted">Back to login</a>
+            <Button
+              disabled={loading}
+              onClick={handleRequest}
+              className="mt-4 w-full"
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Send Reset Link
+            </Button>
+            <p className="mt-4 text-center">
+              <Link
+                href="/login"
+                className="text-sm text-muted-foreground hover:underline"
+              >
+                Back to login
+              </Link>
             </p>
           </>
         )}
 
         {!hasSession && sent && (
-          <div style={{ textAlign: "center", padding: 20 }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>&#x1f4e7;</div>
-            <h3>Check Your Email</h3>
-            <p className="text-muted">We sent a password reset link to <strong>{email}</strong>.</p>
-            <p style={{ marginTop: 16 }}>
-              <a href="/login" className="text-muted">Back to login</a>
+          <div className="py-5 text-center">
+            <div className="mb-4 text-5xl">&#x2709;&#xfe0f;</div>
+            <h3 className="text-lg font-semibold">Check Your Email</h3>
+            <p className="mt-2 text-muted-foreground">
+              We sent a password reset link to <strong>{email}</strong>.
+            </p>
+            <p className="mt-4">
+              <Link
+                href="/login"
+                className="text-sm text-muted-foreground hover:underline"
+              >
+                Back to login
+              </Link>
             </p>
           </div>
         )}
 
         {hasSession && !done && (
           <>
-            <p className="text-muted" style={{ marginBottom: 20 }}>Enter your new password below.</p>
-            <div className="field">
-              <label className="field-label">New Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" />
+            <p className="mb-5 text-muted-foreground">
+              Enter your new password below.
+            </p>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPassword(v);
+                    if (passwordTouched) setPasswordError(validatePassword(v));
+                    if (confirmTouched && confirm)
+                      setConfirmError(
+                        confirm !== v ? "Passwords do not match." : "",
+                      );
+                  }}
+                  onBlur={() => {
+                    setPasswordTouched(true);
+                    setPasswordError(validatePassword(password));
+                  }}
+                  placeholder="Min 8 characters"
+                  autoComplete="new-password"
+                  aria-invalid={passwordTouched && !!passwordError}
+                />
+                {passwordTouched && passwordError && (
+                  <p className="text-xs text-destructive">{passwordError}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirm Password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setConfirm(v);
+                    if (confirmTouched)
+                      setConfirmError(
+                        v !== password ? "Passwords do not match." : "",
+                      );
+                  }}
+                  onBlur={() => {
+                    setConfirmTouched(true);
+                    setConfirmError(validateConfirm(confirm));
+                  }}
+                  placeholder="Type password again"
+                  autoComplete="new-password"
+                  aria-invalid={confirmTouched && !!confirmError}
+                />
+                {confirmTouched && confirmError && (
+                  <p className="text-xs text-destructive">{confirmError}</p>
+                )}
+              </div>
             </div>
-            <div className="field">
-              <label className="field-label">Confirm Password</label>
-              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Type password again" />
-            </div>
-            <Button loading={loading} onClick={handleReset} style={{ width: "100%" }}>Update Password</Button>
+            <Button
+              disabled={loading}
+              onClick={handleReset}
+              className="mt-4 w-full"
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Update Password
+            </Button>
           </>
         )}
 
         {hasSession && done && (
-          <div style={{ textAlign: "center", padding: 20 }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>&#x2705;</div>
-            <h3>Password Updated!</h3>
-            <p className="text-muted">Your password has been changed. You can now log in.</p>
-            <a href="/login" className="primary-button" style={{ display: "inline-block", marginTop: 16, textDecoration: "none" }}>Go to Login</a>
+          <div className="py-5 text-center">
+            <div className="mb-4 text-5xl">&#x2705;</div>
+            <h3 className="text-lg font-semibold">Password Updated!</h3>
+            <p className="mt-2 text-muted-foreground">
+              Your password has been changed. You can now log in.
+            </p>
+            <Link
+              href="/login"
+              className={`${buttonVariants()} mt-4 inline-flex`}
+            >
+              Go to Login
+            </Link>
           </div>
         )}
       </div>
@@ -140,10 +291,16 @@ function ResetPasswordContent() {
 
 export default function ResetPasswordPage() {
   return (
-    <ToastProvider>
-      <Suspense fallback={<div className="auth-shell"><div className="auth-card" style={{ display: "flex", justifyContent: "center", padding: 32 }}><Spinner /></div></div>}>
-        <ResetPasswordContent />
-      </Suspense>
-    </ToastProvider>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background p-4">
+          <div className="flex w-full max-w-md justify-center rounded-xl border bg-card p-8 shadow-sm">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        </div>
+      }
+    >
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

@@ -6,18 +6,20 @@ while Supabase handles credentials, sessions, password resets, and email verific
 
 import hashlib
 import logging
-import secrets
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import (
+    _is_token_revoked,
     bearer_scheme,
     ensure_default_project,
     get_current_user,
-    get_current_workspace,
     workspace_summary,
 )
 from app.db.models import (
@@ -28,12 +30,9 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.schemas.v1.auth import (
-    AuthLoginRequest,
     AuthRegisterRequest,
     AuthResponse,
-    ForgotPasswordRequest,
-    RefreshTokenRequest,
-    ResetPasswordRequest,
+    OAuthCompleteRequest,
     UserResponse,
 )
 from app.services.product.entitlements import get_or_create_subscription, seed_plan_entitlements
@@ -41,12 +40,9 @@ from app.services.product.supabase_auth import (
     SupabaseAuthError,
     admin_delete_user,
     extract_user_from_response,
-    refresh_session,
-    reset_password_for_email,
-    sign_in_with_password,
     sign_out,
     sign_up,
-    update_user_password,
+    verify_supabase_jwt,
 )
 from app.utils.datetime import utc_now
 from app.utils.slug import unique_slug as _unique_slug
@@ -56,28 +52,63 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["auth"])
 
 
-def _legacy_password_placeholder() -> str:
-    """Populate legacy DB schemas that still require a non-null password hash."""
-    return f"supabase-managed:{secrets.token_hex(32)}"
-
-
 def _workspace_for_user(db: Session, user_id: int) -> Workspace | None:
-    return db.scalar(select(Workspace).join(Membership).where(Membership.user_id == user_id).order_by(Workspace.id.asc()))
+    """Return the user's canonical (first-joined) workspace.
 
-
-def _legacy_user_by_email(db: Session, email: str) -> AccountUser | None:
-    return db.scalar(
-        select(AccountUser).where(
-            AccountUser.email == email,
-            AccountUser.supabase_user_id.is_(None),
-            AccountUser.is_active.is_(True),
-        )
+    Ordering by ``Membership.id`` matches ``deps.get_current_workspace`` so
+    that ``/auth/me``, ``/auth/oauth-complete`` and every subsequent
+    authenticated request agree on which workspace is the default tenant for
+    a multi-workspace user.
+    """
+    membership = db.scalar(
+        select(Membership)
+        .where(Membership.user_id == user_id)
+        .order_by(Membership.id.asc())
     )
+    if membership is None:
+        return None
+    return db.scalar(select(Workspace).where(Workspace.id == membership.workspace_id))
+
+
+def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> tuple[str, dict]:
+    """Verify the bearer token and return (raw_token, jwt_payload)."""
+    if not credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    try:
+        payload = verify_supabase_jwt(credentials.credentials)
+    except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
+    except ValueError as exc:
+        logger.error("JWT verification is misconfigured: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable.",
+        ) from exc
+    except Exception as exc:
+        logger.error("Unexpected error verifying JWT: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
+    return credentials.credentials, payload
+
+
+def _provision_workspace(db: Session, user: AccountUser, workspace_name: str) -> Workspace:
+    """Create workspace, membership, subscription, and default project for a user."""
+    workspace = Workspace(
+        name=workspace_name.strip(),
+        slug=_unique_slug(db, Workspace, workspace_name),
+        owner_user_id=user.id,
+    )
+    db.add(workspace)
+    db.flush()
+    db.add(Membership(workspace_id=workspace.id, user_id=user.id, role=MembershipRole.OWNER))
+    seed_plan_entitlements(db)
+    get_or_create_subscription(db, workspace)
+    ensure_default_project(db, workspace)
+    return workspace
 
 
 @router.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    """Register a new user.
+    """Register a new user with email and password.
 
     1. Create the identity in Supabase Auth.
     2. Create a local AccountUser record linked by supabase_user_id.
@@ -86,16 +117,10 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     """
     email = payload.email.lower()
 
-    # Short-circuit on ANY existing email — legacy users must use /auth/login
-    # to link their account, which requires proving ownership via password.
     existing = db.scalar(select(AccountUser).where(AccountUser.email == email))
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail="Email already registered. Please sign in to link your account.",
-        )
+        raise HTTPException(status_code=409, detail="Email already registered.")
 
-    # Create user in Supabase
     try:
         supabase_data = sign_up(email, payload.password, payload.full_name.strip())
     except SupabaseAuthError as exc:
@@ -108,33 +133,27 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     access_token = supabase_data.get("access_token", "")
     refresh_token = supabase_data.get("refresh_token")
 
-    # Create local user + workspace. If anything fails, clean up the
-    # Supabase user so we don't leave an orphaned remote identity.
     try:
         user = AccountUser(
             supabase_user_id=sb_user.id,
             email=email,
-            password_hash=_legacy_password_placeholder(),
             full_name=payload.full_name.strip(),
         )
         db.add(user)
         db.flush()
 
-        workspace = Workspace(
-            name=payload.workspace_name.strip(),
-            slug=_unique_slug(db, Workspace, payload.workspace_name),
-            owner_user_id=user.id,
-        )
-        db.add(workspace)
-        db.flush()
-        db.add(Membership(workspace_id=workspace.id, user_id=user.id, role=MembershipRole.OWNER))
-
-        # Provision entitlements, subscription, and default project BEFORE
-        # committing so a failure rolls back the entire registration atomically.
-        seed_plan_entitlements(db)
-        get_or_create_subscription(db, workspace)
-        ensure_default_project(db, workspace)
+        workspace = _provision_workspace(db, user, payload.workspace_name)
         db.commit()
+    except IntegrityError as exc:
+        # Two concurrent registrations with the same email raced past the
+        # pre-check. The Supabase identity we just minted is orphaned — clean
+        # it up and surface 409 so the client sees a consistent error.
+        db.rollback()
+        try:
+            admin_delete_user(sb_user.id)
+        except Exception:
+            logger.error("Failed to clean up Supabase user %s after integrity error", sb_user.id)
+        raise HTTPException(status_code=409, detail="Email already registered.") from exc
     except Exception:
         db.rollback()
         try:
@@ -151,122 +170,178 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
     )
 
 
-@router.post("/auth/login", response_model=AuthResponse)
-def login(payload: AuthLoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    """Sign in via Supabase Auth, return session tokens + local user/workspace."""
-    email = payload.email.lower()
-
-    try:
-        supabase_data = sign_in_with_password(email, payload.password)
-    except SupabaseAuthError as exc:
-        if exc.status_code == 400:
-            raise HTTPException(status_code=401, detail="Invalid email or password.") from exc
-        logger.error("Supabase sign_in failed: %s", exc)
-        raise HTTPException(status_code=502, detail="Authentication service error.") from exc
-
-    sb_user = extract_user_from_response(supabase_data)
-    access_token = supabase_data.get("access_token", "")
-    refresh_token = supabase_data.get("refresh_token")
-
-    # Look up local user by Supabase ID (active users only)
-    user = db.scalar(
-        select(AccountUser).where(AccountUser.supabase_user_id == sb_user.id, AccountUser.is_active.is_(True))
-    )
-    if not user:
-        user = _legacy_user_by_email(db, email)
-        if user:
-            user.supabase_user_id = sb_user.id
-            if sb_user.full_name:
-                user.full_name = sb_user.full_name
-            if not user.password_hash:
-                user.password_hash = _legacy_password_placeholder()
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found. Please register first.")
-
-    workspace = _workspace_for_user(db, user.id)
-    if not workspace:
-        raise HTTPException(status_code=403, detail="User has no workspace.")
-
-    return AuthResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user=UserResponse.model_validate(user),
-        workspace=workspace_summary(db, workspace, user.id),
-    )
-
-
 @router.get("/auth/me", response_model=AuthResponse)
 def me(
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> AuthResponse:
     """Return the current user's profile and workspace.
 
-    The access_token is echoed back (it's still valid since the dependency
-    validated it). Frontend uses this to confirm session validity on mount.
+    Returns 404 if the user has no local account (e.g. first-time OAuth user
+    needing workspace setup).
     """
-    # The frontend keeps its own Supabase token; we don't need to return it
-    return AuthResponse(
-        access_token="",  # Frontend keeps the Supabase token it already has
-        user=UserResponse.model_validate(current_user),
-        workspace=workspace_summary(db, workspace, current_user.id),
-    )
+    raw_token, payload = _verify_bearer(credentials)
+    supabase_uid = payload["sub"]
 
-
-@router.post("/auth/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest) -> dict:
-    """Send a password reset email via Supabase.
-
-    Always returns ok: true to avoid revealing whether the email exists.
-    """
-    reset_password_for_email(payload.email.lower())
-    return {"ok": True}
-
-
-@router.post("/auth/reset-password")
-def reset_password_endpoint(payload: ResetPasswordRequest) -> dict:
-    """Update the user's password using the Supabase access token.
-
-    After Supabase redirects the user back with a session, the frontend
-    sends the access_token + new password here. We call Supabase to update.
-    """
-    try:
-        update_user_password(payload.access_token, payload.password)
-    except SupabaseAuthError as exc:
-        raise HTTPException(status_code=400, detail="Could not reset password. Link may have expired.") from exc
-    return {"ok": True, "message": "Password updated. You can now log in."}
-
-
-@router.post("/auth/refresh")
-def refresh_token_endpoint(payload: RefreshTokenRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    """Exchange a Supabase refresh token for a new access token."""
-    try:
-        supabase_data = refresh_session(payload.refresh_token)
-    except SupabaseAuthError as exc:
-        raise HTTPException(status_code=401, detail="Session expired. Please sign in again.") from exc
-
-    sb_user = extract_user_from_response(supabase_data)
     user = db.scalar(
-        select(AccountUser).where(AccountUser.supabase_user_id == sb_user.id, AccountUser.is_active.is_(True))
+        select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
     )
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found.")
 
-    workspace = db.scalar(
-        select(Workspace).join(Membership).where(Membership.user_id == user.id).order_by(Workspace.id.asc())
-    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no_local_account")
+
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
+
+    if _is_token_revoked(user, payload, raw_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
+
+    workspace = _workspace_for_user(db, user.id)
     if not workspace:
-        raise HTTPException(status_code=403, detail="User has no workspace.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User has no workspace.")
 
     return AuthResponse(
-        access_token=supabase_data.get("access_token", ""),
-        refresh_token=supabase_data.get("refresh_token"),
+        access_token="",
         user=UserResponse.model_validate(user),
         workspace=workspace_summary(db, workspace, user.id),
+    )
+
+
+@router.post("/auth/oauth-complete", response_model=AuthResponse)
+def oauth_complete(
+    payload: OAuthCompleteRequest,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    """Complete OAuth registration by creating a local account and workspace.
+
+    Called after a first-time OAuth user (e.g. Google sign-in) authenticates
+    with Supabase but has no local AccountUser record yet.
+
+    Idempotent: if called twice concurrently for the same Supabase user, the
+    losing request catches ``IntegrityError``, rolls back, re-queries by
+    ``supabase_user_id``, and returns the winning row with 200.
+    """
+    raw_token, jwt_payload = _verify_bearer(credentials)
+    supabase_uid = jwt_payload["sub"]
+    email = jwt_payload.get("email", "")
+    metadata = jwt_payload.get("user_metadata") or {}
+    full_name = (
+        metadata.get("full_name")
+        or metadata.get("name")
+        or (email.split("@")[0] if email else "")
+    )
+
+    def _respond_existing(existing_user: AccountUser) -> JSONResponse:
+        """Return the 200 response for a user that already has a local row.
+
+        Validates the token against revocation, syncs an updated email from
+        Supabase, and lazy-provisions a workspace for legacy rows missing
+        one. Also invoked from the IntegrityError recovery path below.
+        """
+        if not existing_user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
+        if _is_token_revoked(existing_user, jwt_payload, raw_token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+        # Sync email if changed in Supabase (e.g. via account settings)
+        if email and email != existing_user.email:
+            conflict = db.scalar(
+                select(AccountUser).where(
+                    AccountUser.email == email,
+                    AccountUser.id != existing_user.id,
+                )
+            )
+            if conflict:
+                raise HTTPException(status_code=409, detail="Email already registered.")
+            existing_user.email = email
+            db.add(existing_user)
+            try:
+                db.commit()
+                db.refresh(existing_user)
+            except IntegrityError as exc:
+                # Concurrent sync raced us to the same email — rollback and
+                # reload to pick up the committed value.
+                db.rollback()
+                db.refresh(existing_user)
+                if existing_user.email != email:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Email already registered.",
+                    ) from exc
+        workspace = _workspace_for_user(db, existing_user.id)
+        if not workspace:
+            workspace = _provision_workspace(db, existing_user, payload.workspace_name)
+            db.commit()
+        return JSONResponse(
+            content=AuthResponse(
+                access_token="",
+                user=UserResponse.model_validate(existing_user),
+                workspace=workspace_summary(db, workspace, existing_user.id),
+            ).model_dump(),
+            status_code=status.HTTP_200_OK,
+        )
+
+    # Return existing account if already provisioned
+    existing = db.scalar(
+        select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+    )
+    if existing:
+        return _respond_existing(existing)
+
+    # Provisioning path: require a usable email from the OAuth provider.
+    # NOTE: this guard runs AFTER the existing-account lookup so a
+    # previously-provisioned user whose provider later stopped returning an
+    # email (e.g. GitHub making it private) can still sign in via the
+    # existing-user path.
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="OAuth provider did not return an email address.",
+        )
+
+    # Fast-path: reject if email is already taken by a different account.
+    # Also caught by the IntegrityError branch below — this just gives a
+    # clearer error in the common case and avoids a wasted INSERT.
+    email_taken = db.scalar(select(AccountUser).where(AccountUser.email == email))
+    if email_taken:
+        raise HTTPException(status_code=409, detail="Email already registered.")
+
+    try:
+        user = AccountUser(
+            supabase_user_id=supabase_uid,
+            email=email,
+            full_name=full_name,
+        )
+        db.add(user)
+        db.flush()
+        workspace = _provision_workspace(db, user, payload.workspace_name)
+        db.commit()
+    except IntegrityError as exc:
+        # Race: another request wrote the same supabase_user_id or email
+        # between our pre-check and flush. Distinguish:
+        #   (a) winner keyed by our supabase_uid -> idempotent 200
+        #   (b) winner is a different Supabase identity with our email -> 409
+        db.rollback()
+        winner = db.scalar(
+            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+        )
+        if winner is not None:
+            return _respond_existing(winner)
+        raise HTTPException(status_code=409, detail="Email already registered.") from exc
+    except Exception:
+        db.rollback()
+        raise
+
+    return JSONResponse(
+        content=AuthResponse(
+            access_token="",
+            user=UserResponse.model_validate(user),
+            workspace=workspace_summary(db, workspace, user.id),
+        ).model_dump(),
+        status_code=status.HTTP_201_CREATED,
     )
 
 
@@ -276,10 +351,7 @@ def logout(
     current_user: AccountUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Sign out — invalidate the session on Supabase side.
-
-    The frontend should also clear its local storage.
-    """
+    """Sign out — invalidate the session on Supabase side."""
     if not credentials:
         raise HTTPException(status_code=401, detail="Authentication required.")
 
