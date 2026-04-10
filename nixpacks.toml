@@ -1,0 +1,10 @@
+# Nixpacks configuration for the Railway backend deployment.
+#
+# This file explicitly pins the Python provider so Nixpacks cannot
+# misdetect the project as Node.js if any JS-adjacent file appears at
+# the repo root in the future. The frontend (web/) is deployed
+# separately on Netlify and is NOT built by this provider.
+#
+# The actual build and start commands live in railway.toml.
+
+providers = ["python"]
