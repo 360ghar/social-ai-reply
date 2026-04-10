@@ -58,18 +58,44 @@ export function SocialProof() {
   return (
     <section className="py-16 md:py-20">
       <div className="mx-auto max-w-7xl px-6">
+        {/* Desktop grid layout */}
         <m.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.6 }}
-          className="grid grid-cols-2 gap-8 rounded-2xl border border-border bg-background p-8 md:grid-cols-4 md:gap-12"
+          className="hidden md:grid md:grid-cols-4 gap-8 rounded-2xl border border-border bg-background p-8 md:gap-12"
         >
           {stats.map((stat) => (
             <AnimatedStat key={stat.label} {...stat} />
           ))}
         </m.div>
+
+        {/* Mobile horizontal scroll layout */}
+        <m.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+          className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:hidden no-scrollbar"
+        >
+          {stats.map((stat) => (
+            <div key={stat.label} className="min-w-[200px] snap-center flex-shrink-0 rounded-2xl border border-border bg-background p-6">
+              <AnimatedStat {...stat} />
+            </div>
+          ))}
+        </m.div>
       </div>
+
+      <style jsx>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </section>
   );
 }

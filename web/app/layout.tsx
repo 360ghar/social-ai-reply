@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import "../styles/globals.css";
 import { AuthProvider } from "../components/auth/auth-provider";
+import { ErrorBoundary } from "@/components/shared/error-boundary";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
@@ -27,12 +28,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
           storageKey="rf-theme"
         >
-          <AuthProvider>
-            <TooltipProvider>
-              {children}
-              <Toaster richColors position="bottom-right" />
-            </TooltipProvider>
-          </AuthProvider>
+          <ErrorBoundary>
+            <AuthProvider>
+              <TooltipProvider>
+                {children}
+                <Toaster richColors position="bottom-right" />
+              </TooltipProvider>
+            </AuthProvider>
+          </ErrorBoundary>
         </ThemeProvider>
       </body>
     </html>

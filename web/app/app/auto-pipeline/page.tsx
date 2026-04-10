@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ChevronDown, ChevronRight, Check } from "lucide-react";
+import { Loader2, ChevronDown, ChevronRight, Check, Zap } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PageHeader } from "@/components/shared/page-header";
 
 // Types
 interface PipelineRun {
@@ -214,18 +215,22 @@ export default function AutoPipelinePage() {
   // State 1: Input State
   if (!activeRun) {
     return (
-      <div className="grid gap-10 max-w-[1000px] mx-auto">
-        {/* Hero Section */}
-        <div className="text-center py-[60px] px-10 bg-gradient-to-br from-muted/50 to-card rounded-[20px] border">
-          <h1 className="text-[44px] font-bold mb-3 text-foreground">
-            Auto-Pipeline
-          </h1>
-          <p className="text-base text-muted-foreground mb-10 max-w-[600px] mx-auto">
-            Enter any website URL and we'll build your complete engagement strategy
-          </p>
+      <div className="grid gap-6 max-w-[1000px] mx-auto">
+        <PageHeader
+          title="Auto Pipeline"
+          description="Enter any website URL and we'll build your complete engagement strategy"
+        />
 
-          {/* URL Input */}
-          <div className="grid gap-3 mb-6">
+        {/* Hero Input Section */}
+        <div className="py-12 px-8 bg-gradient-to-br from-muted/50 to-card rounded-xl border">
+          <div className="flex items-center gap-3 mb-6 justify-center">
+            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <Zap className="h-5 w-5 text-primary" />
+            </div>
+            <h2 className="text-lg font-semibold">Launch a new pipeline</h2>
+          </div>
+
+          <div className="grid gap-3 max-w-lg mx-auto">
             <Input
               type="text"
               value={urlInput}
@@ -249,7 +254,7 @@ export default function AutoPipelinePage() {
         {/* Previous Runs */}
         {!loading && previousRuns.length > 0 && (
           <section>
-            <h3 className="text-base font-semibold mb-4 text-foreground">
+            <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
               Previous Pipeline Runs
             </h3>
             <div className="grid gap-2.5">
@@ -257,7 +262,7 @@ export default function AutoPipelinePage() {
                 <div
                   key={run.id}
                   onClick={() => setActiveRun(run)}
-                  className="p-4 border rounded-xl bg-card cursor-pointer transition-all grid grid-cols-[1fr_auto_auto] items-center gap-4 hover:bg-muted hover:border-primary"
+                  className="p-4 border rounded-xl bg-card cursor-pointer transition-all grid grid-cols-[1fr_auto_auto] items-center gap-4 hover:bg-muted hover:border-primary/30"
                 >
                   <div>
                     <div className="font-semibold text-foreground text-sm mb-1">
@@ -300,15 +305,15 @@ export default function AutoPipelinePage() {
     const completedSteps = currentStepIndex >= 0 ? currentStepIndex : 0;
 
     return (
-      <div className="max-w-[800px] mx-auto py-10 px-5">
+      <div className="max-w-[800px] mx-auto py-6 px-5">
         {/* Header */}
-        <div className="text-center mb-10">
-          <h2 className="text-[32px] font-bold mb-2">Building Your Sales Package</h2>
-          <p className="text-sm text-muted-foreground">{activeRun.website_url}</p>
+        <div className="mb-8">
+          <PageHeader title="Building Your Sales Package" />
+          <p className="text-sm text-muted-foreground mt-2">{activeRun.website_url}</p>
         </div>
 
         {/* Progress Bar */}
-        <div className="mb-10">
+        <div className="mb-8">
           <div className="flex justify-between mb-2">
             <div className="text-xs font-semibold text-muted-foreground">Progress</div>
             <div className="text-xs font-semibold text-primary">{progressPercent}%</div>
@@ -317,7 +322,7 @@ export default function AutoPipelinePage() {
         </div>
 
         {/* Steps Checklist */}
-        <Card className="mb-8">
+        <Card className="mb-6">
           <CardContent className="p-5">
             <div className="text-xs font-bold text-muted-foreground uppercase mb-4">
               Pipeline Steps
@@ -334,15 +339,15 @@ export default function AutoPipelinePage() {
                     style={{ opacity: isDone || isCurrent ? 1 : 0.4 }}
                   >
                     <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                         isDone
                           ? "bg-primary text-primary-foreground"
                           : isCurrent
-                            ? "bg-muted text-primary border-2 border-primary"
+                            ? "bg-primary/10 text-primary border-2 border-primary"
                             : "bg-border text-muted-foreground"
                       }`}
                     >
-                      {isDone ? <Check className="h-3 w-3" /> : isCurrent ? <Loader2 className="h-3 w-3 animate-spin" /> : idx + 1}
+                      {isDone ? <Check className="h-3.5 w-3.5" /> : isCurrent ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : idx + 1}
                     </div>
                     <div className={`text-sm ${isDone || isCurrent ? "font-semibold" : "font-normal"} text-foreground`}>
                       {step.label}
@@ -355,7 +360,7 @@ export default function AutoPipelinePage() {
         </Card>
 
         {/* Live Counters */}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3 mb-8">
           <CounterCard label="Personas" value={activeRun.personas_count} />
           <CounterCard label="Keywords" value={activeRun.keywords_count} />
           <CounterCard label="Subreddits" value={activeRun.subreddits_count} />
@@ -384,9 +389,9 @@ export default function AutoPipelinePage() {
     const results = activeRun.results;
 
     return (
-      <div className="max-w-[1000px] mx-auto py-10 px-5">
+      <div className="max-w-[1000px] mx-auto py-6 px-5">
         {/* Success Banner */}
-        <div className="p-6 bg-emerald-500/10 border border-emerald-500/30 rounded-xl mb-8 text-center">
+        <div className="p-5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl mb-8 text-center">
           <div className="text-base font-bold text-emerald-600 mb-1">
             <Check className="inline h-4 w-4 mr-1" />
             Your Sales Package is Ready!
@@ -397,7 +402,7 @@ export default function AutoPipelinePage() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 mb-8">
           <SummaryCard label="Personas" value={results.personas.length} />
           <SummaryCard label="Keywords" value={results.keywords.length} />
           <SummaryCard label="Subreddits" value={results.subreddits.length} />
@@ -428,7 +433,7 @@ export default function AutoPipelinePage() {
               {results.personas.map((persona, idx) => (
                 <div
                   key={idx}
-                  className="p-3 bg-muted rounded-lg border"
+                  className="p-3 bg-card rounded-lg border"
                 >
                   <div className="font-semibold mb-1 text-sm">
                     {persona.name} {persona.role && `(${persona.role})`}
@@ -546,7 +551,7 @@ export default function AutoPipelinePage() {
               {results.drafts.slice(0, 5).map((draft, idx) => (
                 <div
                   key={idx}
-                  className="p-3 bg-muted rounded-lg border"
+                  className="p-3 bg-card rounded-lg border"
                 >
                   <div className="text-xs text-muted-foreground mb-1.5">
                     Response to: <strong>{draft.opportunity_title}</strong>
@@ -613,7 +618,7 @@ function CounterCard({ label, value }: { label: string; value: number }) {
 
 function SummaryCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="p-4 bg-muted border rounded-[10px] text-center">
+    <div className="p-4 bg-card border rounded-xl text-center">
       <div className="text-[28px] font-bold text-primary mb-1.5">
         {value}
       </div>
@@ -633,7 +638,7 @@ interface ExpandableSectionProps {
 
 function ExpandableSection({ title, isExpanded, onToggle, children }: ExpandableSectionProps) {
   return (
-    <div className="border rounded-xl overflow-hidden bg-card">
+    <Card className="overflow-hidden">
       <button
         onClick={onToggle}
         aria-expanded={isExpanded}
@@ -645,10 +650,10 @@ function ExpandableSection({ title, isExpanded, onToggle, children }: Expandable
         </span>
       </button>
       {isExpanded && (
-        <div className="px-4 py-4 border-t bg-muted">
+        <div className="px-4 py-4 border-t bg-muted/50">
           {children}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

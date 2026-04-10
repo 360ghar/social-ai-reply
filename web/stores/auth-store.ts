@@ -33,6 +33,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (typeof window !== "undefined") {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      // Routing hint cookie — real auth is validated server-side via JWT Bearer tokens
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `rf_has_session=1; path=/; max-age=2592000; SameSite=Lax${secure}`;
     }
   },
 
@@ -41,6 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
       window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      document.cookie = "rf_has_session=; path=/; max-age=0";
     }
   },
 
@@ -62,7 +66,8 @@ export const useAuthStore = create<AuthState>((set) => ({
           stored.access_token = token;
           window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
         } catch {
-          // ignore
+          // Corrupted localStorage — clear stale data so next load triggers fresh auth
+          window.localStorage.removeItem(STORAGE_KEY);
         }
       }
     }

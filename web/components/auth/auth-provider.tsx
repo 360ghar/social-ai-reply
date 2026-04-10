@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
   apiRequest,
@@ -16,6 +17,7 @@ import {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { persist, clearAuth, setLoading, setError, setToken } = useAuthStore();
+  const router = useRouter();
 
   useEffect(() => {
     async function init() {
@@ -35,10 +37,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               clearAuth();
             } else if (isSetupRequired(err)) {
               // User is authenticated with Supabase but has no local
-              // account yet (first-time OAuth user). Do NOT sign them
-              // out of Supabase — /auth/setup needs the live session
+              // account (first-time OAuth user or DB reset). Do NOT sign
+              // them out of Supabase — /auth/setup needs the live session
               // to complete workspace provisioning.
               clearAuth();
+              router.replace("/auth/setup");
             } else {
               clearAuth();
             }
@@ -64,7 +67,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === "SIGNED_OUT" || !session) {
           clearAuth();
         } else if (event === "TOKEN_REFRESHED" && session?.access_token) {
-          setToken(session.access_token);
+          // Re-validate with backend to catch deactivation or other server-side changes
+          try {
+            const payload = await apiRequest<AuthPayload>(
+              "/v1/auth/me",
+              {},
+              session.access_token,
+            );
+            persist({ ...payload, access_token: session.access_token });
+          } catch (err) {
+            if (isAuthError(err)) {
+              await supabase.auth.signOut();
+              clearAuth();
+            } else if (isSetupRequired(err)) {
+              clearAuth();
+              router.replace("/auth/setup");
+            }
+            // Non-auth errors (network) — keep the token, next API call will handle it
+          }
         }
       },
     );
@@ -103,12 +123,21 @@ export function useAuth() {
         // The backend /v1/auth/login route was removed; /v1/auth/me
         // returns the same user + workspace payload and validates the
         // Supabase JWT directly.
-        const payload = await apiRequest<AuthPayload>(
-          "/v1/auth/me",
-          {},
-          data.session.access_token,
-        );
-        storePersist({ ...payload, access_token: data.session.access_token });
+        try {
+          const payload = await apiRequest<AuthPayload>(
+            "/v1/auth/me",
+            {},
+            data.session.access_token,
+          );
+          storePersist({ ...payload, access_token: data.session.access_token });
+        } catch (err) {
+          if (isSetupRequired(err)) {
+            // Local account missing (e.g., DB reset). Keep Supabase session
+            // alive so /auth/setup can complete provisioning.
+            throw new Error("SETUP_REQUIRED");
+          }
+          throw err;
+        }
       },
       loginWithGoogle: async () => {
         storeSetError(null);

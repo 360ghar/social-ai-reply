@@ -44,6 +44,17 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  /* Semantic status colors */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  /* Brand colors — coral is the primary accent (#FF6B6B).
+     --primary maps to the same value; use primary for semantic contexts
+     and coral-* for decorative/landing-page-specific contexts where the
+     brand identity needs to be distinct from semantic "primary" usage. */
   --color-coral: #FF6B6B;
   --color-coral-hover: #FF4757;
   --color-coral-glow: rgba(255, 107, 107, 0.15);
@@ -84,6 +95,13 @@
   --input: #e4e4e7;
   --ring: #FF6B6B;
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.08);
+  /* Semantic status colors — light */
+  --success: #10B981;
+  --success-foreground: #ffffff;
+  --warning: #F59E0B;
+  --warning-foreground: #ffffff;
+  --info: #3B82F6;
+  --info-foreground: #ffffff;
   /* Sidebar — always dark (design identity) */
   --sidebar: #0e1930;
   --sidebar-foreground: #fafafa;
@@ -125,6 +143,13 @@
   --input: #2a2a30;
   --ring: #FF6B6B;
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.4);
+  /* Semantic status colors — dark */
+  --success: #34D399;
+  --success-foreground: #064E3B;
+  --warning: #FBBF24;
+  --warning-foreground: #78350F;
+  --info: #60A5FA;
+  --info-foreground: #1E3A5F;
   --sidebar: #0b1223;
   --sidebar-foreground: #fafafa;
   --sidebar-primary: #FF6B6B;

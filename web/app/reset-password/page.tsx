@@ -5,11 +5,27 @@ import { useToast } from "@/stores/toast";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Loader2, Mail, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { forgotPassword, resetPassword } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/* ---------- Branded left panel ---------- */
+function BrandPanel() {
+  return (
+    <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-gradient-to-br from-[#0e1930] to-[#1a2744] p-12 text-center">
+      <Link href="/" className="mb-4 text-2xl font-bold text-white">
+        RedditFlow
+      </Link>
+      <p className="max-w-xs text-base leading-relaxed text-white/70">
+        Find your audience. Engage authentically. Grow on Reddit.
+      </p>
+      <div className="pointer-events-none absolute bottom-0 left-0 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
+      <div className="pointer-events-none absolute right-0 top-0 h-48 w-48 rounded-full bg-white/5 blur-3xl" />
+    </div>
+  );
+}
 
 function ResetPasswordContent() {
   const { success, error } = useToast();
@@ -23,6 +39,8 @@ function ResetPasswordContent() {
   const [done, setDone] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
@@ -116,176 +134,254 @@ function ResetPasswordContent() {
     setLoading(false);
   }
 
+  /* ---------- Checking session spinner ---------- */
   if (checking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <div className="flex w-full max-w-md justify-center rounded-xl border bg-card p-8 shadow-sm">
+      <div className="flex min-h-screen">
+        <BrandPanel />
+        <div className="flex w-full items-center justify-center md:w-1/2">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-sm">
-        <h2 className="mb-2 text-xl font-semibold">
-          {hasSession ? "Set New Password" : "Reset Password"}
-        </h2>
-
-        {!hasSession && !sent && (
-          <>
-            <p className="mb-5 text-muted-foreground">
-              Enter your email and we&apos;ll send you a reset link.
-            </p>
-            <div className="space-y-2">
-              <Label htmlFor="reset-email">Email</Label>
-              <Input
-                ref={emailRef}
-                id="reset-email"
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (emailTouched)
-                    setEmailError(validateEmail(e.target.value));
-                }}
-                onBlur={() => {
-                  setEmailTouched(true);
-                  setEmailError(validateEmail(email));
-                }}
-                placeholder="you@example.com"
-                aria-invalid={emailTouched && !!emailError}
-              />
-              {emailTouched && emailError && (
-                <p className="text-xs text-destructive">{emailError}</p>
-              )}
-            </div>
-            <Button
-              disabled={loading}
-              onClick={handleRequest}
-              className="mt-4 w-full"
-            >
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Send Reset Link
-            </Button>
-            <p className="mt-4 text-center">
-              <Link
-                href="/login"
-                className="text-sm text-muted-foreground hover:underline"
-              >
-                Back to login
-              </Link>
-            </p>
-          </>
-        )}
-
-        {!hasSession && sent && (
-          <div className="py-5 text-center">
-            <div className="mb-4 text-5xl">&#x2709;&#xfe0f;</div>
-            <h3 className="text-lg font-semibold">Check Your Email</h3>
-            <p className="mt-2 text-muted-foreground">
-              We sent a password reset link to <strong>{email}</strong>.
-            </p>
-            <p className="mt-4">
-              <Link
-                href="/login"
-                className="text-sm text-muted-foreground hover:underline"
-              >
-                Back to login
-              </Link>
-            </p>
-          </div>
-        )}
-
-        {hasSession && !done && (
-          <>
-            <p className="mb-5 text-muted-foreground">
-              Enter your new password below.
-            </p>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="new-password">New Password</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setPassword(v);
-                    if (passwordTouched) setPasswordError(validatePassword(v));
-                    if (confirmTouched && confirm)
-                      setConfirmError(
-                        confirm !== v ? "Passwords do not match." : "",
-                      );
-                  }}
-                  onBlur={() => {
-                    setPasswordTouched(true);
-                    setPasswordError(validatePassword(password));
-                  }}
-                  placeholder="Min 8 characters"
-                  autoComplete="new-password"
-                  aria-invalid={passwordTouched && !!passwordError}
-                />
-                {passwordTouched && passwordError && (
-                  <p className="text-xs text-destructive">{passwordError}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm Password</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  value={confirm}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setConfirm(v);
-                    if (confirmTouched)
-                      setConfirmError(
-                        v !== password ? "Passwords do not match." : "",
-                      );
-                  }}
-                  onBlur={() => {
-                    setConfirmTouched(true);
-                    setConfirmError(validateConfirm(confirm));
-                  }}
-                  placeholder="Type password again"
-                  autoComplete="new-password"
-                  aria-invalid={confirmTouched && !!confirmError}
-                />
-                {confirmTouched && confirmError && (
-                  <p className="text-xs text-destructive">{confirmError}</p>
-                )}
-              </div>
-            </div>
-            <Button
-              disabled={loading}
-              onClick={handleReset}
-              className="mt-4 w-full"
-            >
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Update Password
-            </Button>
-          </>
-        )}
-
-        {hasSession && done && (
-          <div className="py-5 text-center">
-            <div className="mb-4 text-5xl">&#x2705;</div>
-            <h3 className="text-lg font-semibold">Password Updated!</h3>
-            <p className="mt-2 text-muted-foreground">
-              Your password has been changed. You can now log in.
-            </p>
-            <Link
-              href="/login"
-              className={`${buttonVariants()} mt-4 inline-flex`}
-            >
-              Go to Login
+  /* ---------- Main layout ---------- */
+  function formWrapper(children: React.ReactNode) {
+    return (
+      <div className="flex min-h-screen">
+        <BrandPanel />
+        <div className="flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2">
+          {/* Mobile-only slim header */}
+          <div className="mb-8 md:hidden">
+            <Link href="/" className="text-xl font-bold text-primary">
+              RedditFlow
             </Link>
           </div>
-        )}
+          <div className="w-full max-w-sm">{children}</div>
+        </div>
       </div>
-    </div>
+    );
+  }
+
+  /* State 1: Request reset */
+  if (!hasSession && !sent) {
+    return formWrapper(
+      <>
+        <div className="mb-8 text-center">
+          <h1 className="text-2xl font-bold tracking-tight">Reset Password</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Enter your email and we&apos;ll send you a reset link.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="reset-email">Email</Label>
+          <Input
+            ref={emailRef}
+            id="reset-email"
+            type="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailTouched)
+                setEmailError(validateEmail(e.target.value));
+            }}
+            onBlur={() => {
+              setEmailTouched(true);
+              setEmailError(validateEmail(email));
+            }}
+            placeholder="you@example.com"
+            aria-invalid={emailTouched && !!emailError}
+          />
+          {emailTouched && emailError && (
+            <p className="text-xs text-destructive">{emailError}</p>
+          )}
+        </div>
+        <Button
+          disabled={loading}
+          onClick={handleRequest}
+          className="mt-6 w-full"
+          size="lg"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Sending...
+            </>
+          ) : (
+            "Send Reset Link"
+          )}
+        </Button>
+        <p className="mt-6 text-center">
+          <Link
+            href="/login"
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            Back to login
+          </Link>
+        </p>
+      </>,
+    );
+  }
+
+  /* State 2: Confirmation email sent */
+  if (!hasSession && sent) {
+    return formWrapper(
+      <div className="py-8 text-center">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+          <Mail className="h-7 w-7 text-primary" />
+        </div>
+        <h3 className="text-xl font-semibold">Check Your Email</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          We sent a password reset link to <strong>{email}</strong>.
+        </p>
+        <p className="mt-6">
+          <Link
+            href="/login"
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            Back to login
+          </Link>
+        </p>
+      </div>,
+    );
+  }
+
+  /* State 3: Set new password */
+  if (hasSession && !done) {
+    return formWrapper(
+      <>
+        <div className="mb-8 text-center">
+          <h1 className="text-2xl font-bold tracking-tight">
+            Set New Password
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Enter your new password below.
+          </p>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="new-password">New Password</Label>
+            <div className="relative">
+              <Input
+                id="new-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPassword(v);
+                  if (passwordTouched) setPasswordError(validatePassword(v));
+                  if (confirmTouched && confirm)
+                    setConfirmError(
+                      confirm !== v ? "Passwords do not match." : "",
+                    );
+                }}
+                onBlur={() => {
+                  setPasswordTouched(true);
+                  setPasswordError(validatePassword(password));
+                }}
+                placeholder="Min 8 characters"
+                autoComplete="new-password"
+                aria-invalid={passwordTouched && !!passwordError}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            {passwordTouched && passwordError && (
+              <p className="text-xs text-destructive">{passwordError}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">Confirm Password</Label>
+            <div className="relative">
+              <Input
+                id="confirm-password"
+                type={showConfirm ? "text" : "password"}
+                value={confirm}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setConfirm(v);
+                  if (confirmTouched)
+                    setConfirmError(
+                      v !== password ? "Passwords do not match." : "",
+                    );
+                }}
+                onBlur={() => {
+                  setConfirmTouched(true);
+                  setConfirmError(validateConfirm(confirm));
+                }}
+                placeholder="Type password again"
+                autoComplete="new-password"
+                aria-invalid={confirmTouched && !!confirmError}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowConfirm((v) => !v)}
+                aria-label={showConfirm ? "Hide password" : "Show password"}
+              >
+                {showConfirm ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            {confirmTouched && confirmError && (
+              <p className="text-xs text-destructive">{confirmError}</p>
+            )}
+          </div>
+        </div>
+        <Button
+          disabled={loading}
+          onClick={handleReset}
+          className="mt-6 w-full"
+          size="lg"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Updating...
+            </>
+          ) : (
+            "Update Password"
+          )}
+        </Button>
+      </>,
+    );
+  }
+
+  /* State 4: Done */
+  return formWrapper(
+    <div className="py-8 text-center">
+      <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10">
+        <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+      </div>
+      <h3 className="text-xl font-semibold">Password Updated!</h3>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Your password has been changed. You can now log in.
+      </p>
+      <Link
+        href="/login"
+        className={`${buttonVariants({ size: "lg" })} mt-6 inline-flex w-full justify-center`}
+      >
+        Go to Login
+      </Link>
+    </div>,
   );
 }
 
@@ -293,8 +389,9 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background p-4">
-          <div className="flex w-full max-w-md justify-center rounded-xl border bg-card p-8 shadow-sm">
+        <div className="flex min-h-screen">
+          <BrandPanel />
+          <div className="flex w-full items-center justify-center md:w-1/2">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         </div>

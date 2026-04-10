@@ -6,8 +6,11 @@ import { useToast } from "@/stores/toast";
 import { apiRequest } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { withProjectId } from "@/lib/project";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/shared/page-header";
+import { KPIGrid, type KPICardProps } from "@/components/shared/kpi-card";
+import { EmptyState } from "@/components/shared/empty-state";
 
 interface AnalyticsOverview {
   visibility_score: number;
@@ -129,9 +132,9 @@ export default function AnalyticsPage() {
 
   if (loading) {
     return (
-      <div>
-        <h2 className="text-2xl font-semibold mb-6">Analytics</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="flex flex-col gap-8">
+        <PageHeader title="Analytics" description="Track visibility trends, engagement funnel, and performance metrics." />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map(i => (
             <Card key={i} className="p-4">
               <Skeleton className="h-8 w-3/5 mb-2" />
@@ -146,8 +149,6 @@ export default function AnalyticsPage() {
   const firstTrendPoint = trendData[0]?.visibility_score ?? overview?.visibility_score ?? 0;
   const lastTrendPoint = trendData[trendData.length - 1]?.visibility_score ?? overview?.visibility_score ?? 0;
   const visibilityTrend = Math.round((lastTrendPoint - firstTrendPoint) * 10) / 10;
-  const trendDir = visibilityTrend >= 0 ? "↑" : "↓";
-  const trendColor = visibilityTrend >= 0 ? "text-emerald-600" : "text-destructive";
 
   // Max values for bar heights — use reduce to avoid stack overflow on large arrays
   const trendScores = trendData.map(d => d.visibility_score);
@@ -167,84 +168,132 @@ export default function AnalyticsPage() {
   const conv2 = funnelSaved > 0 ? Math.round((funnelDraft / funnelSaved) * 100) : 0;
   const conv3 = funnelDraft > 0 ? Math.round((funnelPost / funnelDraft) * 100) : 0;
 
+  // KPI cards
+  const kpiCards: KPICardProps[] = [
+    {
+      label: "Visibility Score",
+      value: `${overview?.visibility_score || 0}%`,
+      trend: visibilityTrend !== 0
+        ? { value: Math.abs(visibilityTrend), direction: visibilityTrend >= 0 ? "up" : "down" }
+        : undefined,
+    },
+    { label: "Opportunities Found", value: overview?.total_opportunities || 0 },
+    { label: "Drafts Created", value: overview?.total_drafts || 0 },
+    { label: "Posts Published", value: overview?.total_published || 0 },
+  ];
+
+  // SVG chart data (last 30 points)
+  const chartData = trendData.slice(-30);
+  const chartHeight = 200;
+  const chartPadding = { top: 10, right: 10, bottom: 30, left: 40 };
+  const plotWidth = 100 - chartPadding.left - chartPadding.right;
+  const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom;
+  const barWidth = chartData.length > 1 ? plotWidth / chartData.length : plotWidth;
+  const barGap = barWidth * 0.2;
+  const barActualWidth = barWidth - barGap;
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-semibold">Analytics Dashboard</h2>
-          <p className="text-muted-foreground">Track visibility trends, engagement funnel, and performance metrics.</p>
-        </div>
-        <select
-          value={dateRange}
-          onChange={e => setDateRange(e.target.value as any)}
-          className="rounded-lg border px-3 py-2 text-[13px]"
-        >
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="all">All time</option>
-        </select>
-      </div>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title="Analytics"
+        description="Track visibility trends, engagement funnel, and performance metrics."
+        actions={
+          <select
+            value={dateRange}
+            onChange={e => setDateRange(e.target.value as any)}
+            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+          >
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+            <option value="all">All time</option>
+          </select>
+        }
+      />
 
       {/* KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Card className="p-4">
-          <div className="text-[28px] font-bold text-primary mb-1">
-            {overview?.visibility_score || 0}%
-            <span className={`text-base ml-2 ${trendColor}`}>
-              {trendDir} {Math.abs(visibilityTrend)} pts
-            </span>
-          </div>
-          <div className="text-[13px] text-muted-foreground">Visibility Score</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{overview?.total_opportunities || 0}</div>
-          <div className="text-xs text-muted-foreground">Opportunities Found</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{overview?.total_drafts || 0}</div>
-          <div className="text-xs text-muted-foreground">Drafts Created</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{overview?.total_published || 0}</div>
-          <div className="text-xs text-muted-foreground">Posts Published</div>
-        </Card>
-      </div>
+      <KPIGrid cards={kpiCards} columns={4} className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" />
 
-      {/* Section 1: Visibility Trend Chart (CSS bars) */}
-      <Card className="p-5 mb-6">
+      {/* Section 1: Visibility Trend Chart (SVG) */}
+      <Card className="p-5">
         <h3 className="text-sm font-semibold mb-4">Visibility Score Trend</h3>
-        {trendData.length === 0 ? (
-          <div className="text-center py-10 text-muted-foreground">
-            <p className="text-[13px]">No trend data available yet</p>
-          </div>
+        {chartData.length === 0 ? (
+          <EmptyState
+            title="No trend data available yet"
+            description="Run visibility checks to start building your trend chart."
+          />
         ) : (
-          <div className="grid grid-cols-[auto_1fr] gap-4 items-end h-[200px]">
+          <svg
+            viewBox={`0 0 100 ${chartHeight}`}
+            preserveAspectRatio="none"
+            className="w-full"
+            style={{ height: chartHeight }}
+            role="img"
+            aria-label="Visibility score trend chart"
+          >
             {/* Y-axis labels */}
-            <div className="flex flex-col-reverse justify-between text-[11px] text-muted-foreground">
-              <span>0</span>
-              <span>25</span>
-              <span>50</span>
-              <span>75</span>
-              <span>100</span>
-            </div>
-            {/* Chart bars */}
-            <div className="flex gap-3 items-end h-full border-b pb-2">
-              {trendData.slice(-30).map((d, i) => (
-                <div
+            {[0, 25, 50, 75, 100].map(val => {
+              const y = chartPadding.top + plotHeight - (val / maxTrendScore) * plotHeight;
+              return (
+                <g key={val}>
+                  <text
+                    x={chartPadding.left - 4}
+                    y={y + 3}
+                    textAnchor="end"
+                    className="fill-muted-foreground"
+                    style={{ fontSize: "2.5px" }}
+                  >
+                    {val}
+                  </text>
+                  <line
+                    x1={chartPadding.left}
+                    y1={y}
+                    x2={100 - chartPadding.right}
+                    y2={y}
+                    stroke="var(--color-border)"
+                    strokeWidth="0.15"
+                    strokeDasharray="1,1"
+                  />
+                </g>
+              );
+            })}
+
+            {/* Bars */}
+            {chartData.map((d, i) => {
+              const x = chartPadding.left + i * barWidth + barGap / 2;
+              const barHeight = maxTrendScore > 0 ? (d.visibility_score / maxTrendScore) * plotHeight : 0;
+              const y = chartPadding.top + plotHeight - barHeight;
+              return (
+                <rect
                   key={i}
-                  title={`${d.date || "Unknown date"}: ${d.visibility_score}`}
-                  className="flex-1 min-w-0 min-h-[2px] bg-primary/80 rounded-t-sm"
-                  style={{ height: `${(d.visibility_score / maxTrendScore) * 100}%` }}
-                />
-              ))}
-            </div>
-          </div>
+                  x={x}
+                  y={y}
+                  width={Math.max(barActualWidth, 0.5)}
+                  height={barHeight}
+                  fill="var(--color-primary)"
+                  rx="0.4"
+                  opacity={0.85}
+                >
+                  <title>{`${d.date || "Unknown date"}: ${d.visibility_score}`}</title>
+                </rect>
+              );
+            })}
+
+            {/* Baseline */}
+            <line
+              x1={chartPadding.left}
+              y1={chartPadding.top + plotHeight}
+              x2={100 - chartPadding.right}
+              y2={chartPadding.top + plotHeight}
+              stroke="var(--color-border)"
+              strokeWidth="0.3"
+            />
+          </svg>
         )}
       </Card>
 
       {/* Section 2: Engagement Funnel */}
-      <Card className="p-5 mb-6">
+      <Card className="p-5">
         <h3 className="text-sm font-semibold mb-4">Engagement Funnel</h3>
         <p className="text-xs text-muted-foreground mb-4">
           Based on opportunity status counts and {engagementData?.total_scans || 0} total scans.
@@ -258,7 +307,7 @@ export default function AnalyticsPage() {
           ].map((stage, i) => (
             <div key={i}>
               <div className="flex justify-between mb-1.5">
-                <span className="text-[13px] font-semibold">{stage.label}</span>
+                <span className="text-sm font-semibold">{stage.label}</span>
                 <div className="flex gap-2 text-xs">
                   <span><strong>{stage.value}</strong></span>
                   {stage.conv !== undefined && <span className="text-muted-foreground">{stage.conv}% conversion</span>}
@@ -278,20 +327,21 @@ export default function AnalyticsPage() {
       </Card>
 
       {/* Section 3: Two columns - Keywords & Subreddits */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Top Keywords */}
         <Card className="p-5">
           <h3 className="text-sm font-semibold mb-4">Top Keywords by Priority Score</h3>
           {keywords.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p className="text-[13px]">No keyword data yet</p>
-            </div>
+            <EmptyState
+              title="No keyword data yet"
+              description="Keyword data will appear as you scan for opportunities."
+            />
           ) : (
             <div className="space-y-3">
               {keywords.slice(0, 8).map((k, i) => (
-                <div key={i} className="flex items-center gap-3 text-[13px]">
+                <div key={i} className="flex items-center gap-3 text-sm">
                   <span className="font-semibold min-w-[30px]">{i + 1}</span>
-                  <span className="flex-1">{k.keyword}</span>
+                  <span className="flex-1 truncate">{k.keyword}</span>
                   <div className="w-[60px] h-6 bg-muted rounded flex items-center justify-center overflow-hidden">
                     <div
                       className="h-full bg-primary flex items-center justify-center text-white text-[11px] font-semibold"
@@ -310,15 +360,16 @@ export default function AnalyticsPage() {
         <Card className="p-5">
           <h3 className="text-sm font-semibold mb-4">Top Subreddits by Fit Score</h3>
           {subreddits.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p className="text-[13px]">No subreddit data yet</p>
-            </div>
+            <EmptyState
+              title="No subreddit data yet"
+              description="Subreddit data will appear as you run scans."
+            />
           ) : (
             <div className="space-y-3">
               {subreddits.slice(0, 8).map((s, i) => (
-                <div key={i} className="flex items-center gap-3 text-[13px]">
+                <div key={i} className="flex items-center gap-3 text-sm">
                   <span className="font-semibold min-w-[30px]">{i + 1}</span>
-                  <span className="flex-1">r/{s.name}</span>
+                  <span className="flex-1 truncate">r/{s.name}</span>
                   <div className="w-[60px] h-6 bg-muted rounded flex items-center justify-center overflow-hidden">
                     <div
                       className="h-full bg-primary flex items-center justify-center text-white text-[11px] font-semibold"
@@ -338,17 +389,16 @@ export default function AnalyticsPage() {
       <Card className="p-5">
         <h3 className="text-sm font-semibold mb-4">Recent Activity</h3>
         {activity.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 text-center">
-            <span className="text-2xl mb-2">📊</span>
-            <p className="font-medium">No activity yet</p>
-            <p className="text-sm text-muted-foreground mt-1">Analytics data will appear as you use the platform. Run your first scan to get started.</p>
-          </div>
+          <EmptyState
+            title="No activity yet"
+            description="Analytics data will appear as you use the platform. Run your first scan to get started."
+          />
         ) : (
           <div className="space-y-3">
             {activity.slice(0, 12).map(evt => (
               <div
                 key={evt.id}
-                className="flex items-center gap-3 p-3 bg-muted rounded-lg text-[13px]"
+                className="flex items-center gap-3 p-3 bg-muted rounded-lg text-sm"
               >
                 <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
                 <div className="flex-1">

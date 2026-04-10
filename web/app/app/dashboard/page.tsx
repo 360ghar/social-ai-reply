@@ -6,18 +6,51 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import {
+  Eye,
+  Target,
+  FileText,
+  Send,
+  ChevronDown,
+  Loader2,
+  Zap,
+  BarChart3,
+  Users,
+  PenLine,
+  ArrowRight,
+  Activity,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
 import { apiRequest, type Project } from "@/lib/api";
 import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PageHeader } from "@/components/shared/page-header";
+import { KPIGrid } from "@/components/shared/kpi-card";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { EmptyState } from "@/components/shared/empty-state";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 interface SetupStatus {
   brand_configured: boolean;
@@ -57,7 +90,7 @@ interface ActivityItem {
   created_at?: string;
 }
 
-interface WorkflowStep {
+interface WizardStep {
   label: string;
   title: string;
   description: string;
@@ -67,32 +100,114 @@ interface WorkflowStep {
   actionKind: "route" | "modal";
 }
 
-const LANE_COPY = [
+/* -------------------------------------------------------------------------- */
+/*  Wizard step definitions                                                   */
+/* -------------------------------------------------------------------------- */
+
+const WIZARD_STEPS: {
+  label: string;
+  title: string;
+  description: string;
+  actionLabel: string;
+  href?: string;
+  actionKind: "route" | "modal";
+}[] = [
   {
-    title: "Visibility Lane",
-    body: "Track how AI models recommend your brand, which domains they cite, and where competitors outrank you.",
-    href: "/app/visibility",
-    action: "Run Prompt Set",
+    label: "Set Brand Profile",
+    title: "Review your brand profile",
+    description:
+      "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
+    actionLabel: "Open Brand",
+    href: "/app/brand",
+    actionKind: "route",
   },
   {
-    title: "Community Lane",
-    body: "Convert audience signals into monitored communities and review reply-ready conversations with fit and risk context.",
+    label: "Add Audience Signals",
+    title: "Add your first audience",
+    description:
+      "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
+    actionLabel: "Open Audience",
+    href: "/app/persona",
+    actionKind: "route",
+  },
+  {
+    label: "Discover Communities",
+    title: "Discover matching communities",
+    description:
+      "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
+    actionLabel: "Open Radar",
     href: "/app/discovery",
-    action: "Open Radar",
+    actionKind: "route",
   },
   {
-    title: "Publishing Lane",
-    body: "Turn community insights into reply drafts or original posts, then review and publish manually with control.",
-    href: "/app/content",
-    action: "Open Studio",
+    label: "Run First Scan",
+    title: "Run your first visibility check",
+    description:
+      "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
+    actionLabel: "Open AI Visibility",
+    href: "/app/visibility",
+    actionKind: "route",
   },
 ];
+
+/* -------------------------------------------------------------------------- */
+/*  Quick-action links                                                        */
+/* -------------------------------------------------------------------------- */
+
+const QUICK_ACTIONS = [
+  {
+    label: "AI Visibility",
+    icon: Eye,
+    href: "/app/visibility",
+  },
+  {
+    label: "Communities",
+    icon: Users,
+    href: "/app/discovery",
+  },
+  {
+    label: "Content Studio",
+    icon: PenLine,
+    href: "/app/content",
+  },
+  {
+    label: "Analytics",
+    icon: BarChart3,
+    href: "/app/analytics",
+  },
+];
+
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
+
+function relativeTime(dateStr?: string): string {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+function formatAction(action: string): string {
+  return action.replace(/_/g, " ").replace(/\./g, " \u2192 ");
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
 
 export default function DashboardPage() {
   const router = useRouter();
   const { token } = useAuth();
   const toast = useToast();
   const selectedProjectId = useSelectedProjectId();
+
+  /* ---- state ---- */
   const [loading, setLoading] = useState(true);
   const [dash, setDash] = useState<DashData | null>(null);
   const [usage, setUsage] = useState<UsageData | null>(null);
@@ -103,45 +218,64 @@ export default function DashboardPage() {
   const [bizDesc, setBizDesc] = useState("");
   const [creating, setCreating] = useState(false);
   const [autoPipelineUrl, setAutoPipelineUrl] = useState("");
-  const [dismissedWizard, setDismissedWizard] = useState(false);
 
+  // Wizard state
+  const [wizardOpen, setWizardOpen] = useState(true);
+  const [wizardDismissed, setWizardDismissed] = useState(false);
+
+  /* ---- initial load ---- */
   useEffect(() => {
-    if (!token) {
-      return;
+    if (!token) return;
+    const storageKey = `wizard-dismissed-${selectedProjectId}`;
+    const dismissed = localStorage.getItem(storageKey) === "true";
+    // Migration: if new key doesn't exist but old one does, migrate
+    if (!dismissed && !localStorage.getItem(storageKey)) {
+      const oldDismissed = localStorage.getItem("wizard-dismissed") === "true";
+      if (oldDismissed) {
+        localStorage.setItem(storageKey, "true");
+      }
+      setWizardDismissed(oldDismissed);
+    } else {
+      setWizardDismissed(dismissed);
     }
-    const dismissed = localStorage.getItem("wizard-dismissed") === "true";
-    setDismissedWizard(dismissed);
     void loadAll();
   }, [token, selectedProjectId]);
 
+  /* ---- data fetching (unchanged) ---- */
   async function loadAll() {
     setLoading(true);
     try {
       const [dashRes, usageRes, visRes, actRes] = await Promise.allSettled([
-        apiRequest<DashData>(withProjectId("/v1/dashboard", selectedProjectId), {}, token),
-        apiRequest<UsageData>(withProjectId("/v1/usage", selectedProjectId), {}, token),
-        apiRequest<VisibilitySummary>(withProjectId("/v1/visibility/summary", selectedProjectId), {}, token),
+        apiRequest<DashData>(
+          withProjectId("/v1/dashboard", selectedProjectId),
+          {},
+          token,
+        ),
+        apiRequest<UsageData>(
+          withProjectId("/v1/usage", selectedProjectId),
+          {},
+          token,
+        ),
+        apiRequest<VisibilitySummary>(
+          withProjectId("/v1/visibility/summary", selectedProjectId),
+          {},
+          token,
+        ),
         apiRequest<{ items: ActivityItem[] }>("/v1/activity", {}, token),
       ]);
 
-      if (dashRes.status === "fulfilled") {
-        setDash(dashRes.value);
-      }
-      if (usageRes.status === "fulfilled") {
-        setUsage(usageRes.value);
-      }
-      if (visRes.status === "fulfilled") {
-        setVisibility(visRes.value);
-      }
-      if (actRes.status === "fulfilled") {
+      if (dashRes.status === "fulfilled") setDash(dashRes.value);
+      if (usageRes.status === "fulfilled") setUsage(usageRes.value);
+      if (visRes.status === "fulfilled") setVisibility(visRes.value);
+      if (actRes.status === "fulfilled")
         setActivity(actRes.value.items || []);
-      }
     } catch (err: any) {
       toast.error("Failed to load dashboard", err?.message);
     }
     setLoading(false);
   }
 
+  /* ---- create project (unchanged) ---- */
   async function handleCreate() {
     if (!bizName.trim()) {
       toast.warning("Please enter a business name.");
@@ -158,7 +292,7 @@ export default function DashboardPage() {
             description: bizDesc.trim() || null,
           }),
         },
-        token
+        token,
       );
       setStoredProjectId(createdProject.id);
       toast.success("Project created", "Next: add your first audience.");
@@ -172,31 +306,39 @@ export default function DashboardPage() {
     setCreating(false);
   }
 
-  function dismissWizard() {
-    localStorage.setItem("wizard-dismissed", "true");
-    setDismissedWizard(true);
-  }
-
+  /* ---- auto-pipeline (unchanged) ---- */
   function handleAutoPipeline() {
     if (!autoPipelineUrl.trim()) {
       toast.warning("Please enter a URL");
       return;
     }
-    router.push(`/app/auto-pipeline?url=${encodeURIComponent(autoPipelineUrl)}`);
+    router.push(
+      `/app/auto-pipeline?url=${encodeURIComponent(autoPipelineUrl)}`,
+    );
   }
 
+  /* ---- wizard dismiss ---- */
+  function dismissWizard() {
+    localStorage.setItem(`wizard-dismissed-${selectedProjectId}`, "true");
+    setWizardDismissed(true);
+  }
+
+  /* ---- derived data ---- */
   const hasProject = (dash?.projects?.length || 0) > 0;
   const focusProject =
-    dash?.projects?.find((project) => project.id === selectedProjectId) ??
+    dash?.projects?.find((p) => p.id === selectedProjectId) ??
     dash?.projects?.[0] ??
     null;
   const topOpps = dash?.top_opportunities || [];
   const setupStatus = dash?.setup_status;
-  const steps: WorkflowStep[] = [
+
+  // Build the wizard steps with live done-state
+  const steps: WizardStep[] = [
     {
       label: "Create Project",
       title: "Create your first project",
-      description: "Start a project to connect brand setup, audience signals, community mapping, and visibility tracking.",
+      description:
+        "Start a project to connect brand setup, audience signals, community mapping, and visibility tracking.",
       actionLabel: "Create Project",
       done: hasProject,
       actionKind: "modal",
@@ -204,7 +346,8 @@ export default function DashboardPage() {
     {
       label: "Define Brand",
       title: "Review your brand profile",
-      description: "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
+      description:
+        "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
       actionLabel: "Open Brand",
       done: setupStatus?.brand_configured || false,
       href: "/app/brand",
@@ -213,7 +356,8 @@ export default function DashboardPage() {
     {
       label: "Add Audience",
       title: "Add your first audience",
-      description: "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
+      description:
+        "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
       actionLabel: "Open Audience",
       done: (setupStatus?.personas_count || 0) > 0,
       href: "/app/persona",
@@ -222,7 +366,8 @@ export default function DashboardPage() {
     {
       label: "Map Communities",
       title: "Discover matching communities",
-      description: "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
+      description:
+        "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
       actionLabel: "Open Radar",
       done: (setupStatus?.subreddits_count || 0) > 0,
       href: "/app/discovery",
@@ -231,256 +376,272 @@ export default function DashboardPage() {
     {
       label: "Track Visibility",
       title: "Run your first visibility check",
-      description: "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
+      description:
+        "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
       actionLabel: "Open AI Visibility",
       done: (visibility?.total_runs || 0) > 0,
       href: "/app/visibility",
       actionKind: "route",
     },
   ];
-  const currentStep = steps.findIndex((step) => !step.done);
-  const completedCount = steps.filter((step) => step.done).length;
-  const nextStep = steps.find((step) => !step.done) ?? null;
 
+  const currentStepIdx = steps.findIndex((s) => !s.done);
+  const completedCount = steps.filter((s) => s.done).length;
+  const allDone = completedCount === steps.length;
+  const nextStep = steps.find((s) => !s.done) ?? null;
+  const showWizard =
+    !wizardDismissed && hasProject && !allDone;
+
+  // Usage quota warning
+  const projectUsage = usage?.metrics?.projects;
+  const keywordUsage = usage?.metrics?.keywords;
+  const subredditUsage = usage?.metrics?.subreddits;
+  const nearQuota =
+    (projectUsage &&
+      projectUsage.used / projectUsage.limit >= 0.8) ||
+    (keywordUsage &&
+      keywordUsage.used / keywordUsage.limit >= 0.8) ||
+    (subredditUsage &&
+      subredditUsage.used / subredditUsage.limit >= 0.8);
+
+  /* ---- loading skeleton ---- */
   if (loading) {
     return (
       <div className="grid gap-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((item) => (
-            <Skeleton key={item} className="h-24 w-full rounded-lg" />
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="h-8 w-28" />
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          {[1, 2, 3, 4].map((item) => (
-            <Skeleton key={item} className="h-24 w-full rounded-lg" />
-          ))}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <Skeleton className="h-96 rounded-xl" />
+          <div className="grid gap-4">
+            <Skeleton className="h-48 rounded-xl" />
+            <Skeleton className="h-48 rounded-xl" />
+          </div>
         </div>
       </div>
     );
   }
 
+  /* =================================================================       */
+  /*  RENDER                                                                  */
+  /* =================================================================       */
   return (
     <div className="grid gap-6">
-      {/* Auto-Pipeline Banner */}
-      <div
-        className="rounded-xl p-6"
-        style={{
-          background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
-          color: "white",
-        }}
-      >
-        <div className="mb-4">
-          <h3 className="mb-2 text-base font-semibold text-white">Launch Auto-Pipeline</h3>
-          <p className="text-sm leading-relaxed" style={{ color: "rgba(255, 255, 255, 0.9)" }}>
-            Enter any website URL and get a complete engagement strategy in minutes
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            type="url"
-            value={autoPipelineUrl}
-            onChange={(e) => setAutoPipelineUrl(e.target.value)}
-            placeholder="https://example.com"
-            className="h-8 flex-1 border-none text-sm"
-            onKeyDown={(e) => e.key === "Enter" && handleAutoPipeline()}
-          />
-          <Button
-            onClick={handleAutoPipeline}
-            className="bg-white font-semibold text-indigo-500 hover:bg-white/90"
-          >
-            Go
+      {/* ---- Page Header ---- */}
+      <PageHeader
+        title="Dashboard"
+        description={
+          focusProject
+            ? `Managing: ${focusProject.name}`
+            : undefined
+        }
+        actions={
+          <Button onClick={() => setShowCreate(true)}>
+            New Project
           </Button>
+        }
+      />
+
+      {/* ---- Quota Warning Banner ---- */}
+      {nearQuota && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+          <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <span className="text-sm text-amber-800 dark:text-amber-300">
+            Your project footprint is approaching its limit. Visit Settings to
+            review usage.
+          </span>
         </div>
-      </div>
+      )}
 
-      {/* Hero Card */}
-      <Card className="p-6">
-        <div className="mb-6 flex items-start justify-between border-b pb-6">
-          <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Product Overview
-            </div>
-            <h2 className="mb-2.5 text-lg font-semibold text-foreground">
-              Build a complete visibility-to-engagement workflow
-            </h2>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              The platform already does two things well: AI visibility tracking and guided community
-              engagement. The next step is making those two motions feel like one coordinated system.
-            </p>
-          </div>
-          <Button onClick={() => setShowCreate(true)}>New Project</Button>
-        </div>
+      {/* ---- Collapsible Setup Wizard ---- */}
+      {showWizard && (
+        <Collapsible open={wizardOpen} onOpenChange={setWizardOpen}>
+          <Card>
+            <CollapsibleTrigger className="w-full cursor-pointer">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>
+                    Complete Setup
+                    <Badge variant="secondary" className="ml-2">
+                      {completedCount}/{steps.length}
+                    </Badge>
+                  </CardTitle>
+                </div>
+                <ChevronDown
+                  className={`h-5 w-5 text-muted-foreground transition-transform ${
+                    wizardOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </CardHeader>
+            </CollapsibleTrigger>
 
-        {focusProject ? (
-          !dismissedWizard ? (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              {/* Focus Project Card */}
-              <Card className="p-5">
-                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                  Focused Project
-                </Badge>
-                <h3 className="mt-3 mb-2.5 text-base font-semibold text-foreground">
-                  {focusProject.name}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {focusProject.description ||
-                    "Use this project as the active scope for communities, drafts, prompt sets, and source analysis."}
-                </p>
-              </Card>
-
-              {/* Workflow Status Card */}
-              <Card className="p-5">
-                <Badge variant="outline">Workflow Status</Badge>
-
-                {/* Step Indicator */}
-                <div className="mt-3.5 flex items-center gap-1">
+            <CollapsibleContent>
+              <CardContent>
+                {/* Horizontal Stepper */}
+                <div className="mb-6 flex items-center gap-1 overflow-x-auto">
                   {steps.map((step, idx) => (
-                    <div key={step.label} className="flex items-center gap-1">
-                      <div
-                        className={`h-2 flex-1 rounded-full transition-colors ${
-                          step.done
-                            ? "bg-primary"
-                            : idx === currentStep
-                              ? "bg-primary/40"
-                              : "bg-muted"
-                        }`}
-                        style={{ minWidth: 28 }}
-                      />
+                    <div
+                      key={step.label}
+                      className="flex items-center gap-1"
+                    >
+                      <div className="flex items-center gap-1.5 whitespace-nowrap">
+                        {step.done ? (
+                          <CheckCircle2 className="h-4 w-4 text-success" />
+                        ) : idx === currentStepIdx ? (
+                          <Circle className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Circle className="h-4 w-4 text-muted-foreground/40" />
+                        )}
+                        <span
+                          className={`text-xs font-medium ${
+                            step.done
+                              ? "text-success"
+                              : idx === currentStepIdx
+                                ? "text-foreground"
+                                : "text-muted-foreground/60"
+                          }`}
+                        >
+                          {step.label}
+                        </span>
+                      </div>
+                      {idx < steps.length - 1 && (
+                        <div
+                          className={`mx-1 h-px w-4 sm:w-8 ${
+                            step.done ? "bg-success" : "bg-border"
+                          }`}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
 
-                <p className="mt-3.5 text-sm text-muted-foreground">
-                  {completedCount} of {steps.length} foundations are in place.
-                </p>
-
-                <div className="mt-4 rounded-2xl border bg-muted/50 p-4">
-                  <div className="grid gap-2.5">
+                {/* Next-step card */}
+                {nextStep && (
+                  <div className="rounded-xl border bg-muted/50 p-4">
                     <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      {nextStep ? "Next Step" : "Workflow Ready"}
+                      Next Step
                     </div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {nextStep ? nextStep.title : "All setup steps are complete"}
+                    <h3 className="mt-1 text-sm font-semibold text-foreground">
+                      {nextStep.title}
                     </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {nextStep
-                        ? nextStep.description
-                        : "Your setup foundations are in place. Move into visibility tracking or engagement workflows next."}
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {nextStep.description}
                     </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      {nextStep ? (
-                        nextStep.actionKind === "modal" ? (
-                          <Button onClick={() => setShowCreate(true)}>{nextStep.actionLabel}</Button>
-                        ) : (
-                          <Button onClick={() => nextStep.href && router.push(nextStep.href)}>
-                            {nextStep.actionLabel}
-                          </Button>
-                        )
+                    <div className="mt-3">
+                      {nextStep.actionKind === "modal" ? (
+                        <Button onClick={() => setShowCreate(true)}>
+                          {nextStep.actionLabel}
+                        </Button>
                       ) : (
-                        <>
-                          <Button onClick={() => router.push("/app/visibility")}>
-                            Open AI Visibility
-                          </Button>
-                          <Button variant="outline" onClick={() => router.push("/app/discovery")}>
-                            Open Radar
-                          </Button>
-                        </>
+                        <Button
+                          onClick={() =>
+                            nextStep.href && router.push(nextStep.href)
+                          }
+                        >
+                          {nextStep.actionLabel}
+                        </Button>
                       )}
                     </div>
-                    {completedCount === steps.length && (
-                      <Button
-                        variant="ghost"
-                        onClick={dismissWizard}
-                        className="mt-2 justify-start text-muted-foreground"
-                      >
-                        Dismiss setup wizard
-                      </Button>
-                    )}
                   </div>
-                </div>
-              </Card>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+      )}
+
+      {/* ---- Compact Pipeline Card ---- */}
+      <Card size="sm">
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <Zap className="h-4 w-4 text-primary" />
             </div>
-          ) : (
-            <div className="p-6 text-center text-sm text-muted-foreground">
-              <p>{focusProject.name} &bull; Ready for engagement workflows</p>
+            <div>
+              <div className="text-sm font-semibold text-foreground">
+                Try Auto Pipeline
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Enter a URL to automatically generate your entire Reddit
+                strategy
+              </div>
             </div>
-          )
-        ) : (
-          /* Empty State - No Projects */
-          <div className="flex flex-col items-center justify-center p-8 text-center">
-            <span className="mb-4 text-4xl">📋</span>
-            <h3 className="mb-1 text-sm font-semibold text-foreground">No projects yet</h3>
-            <p className="mb-4 text-xs text-muted-foreground">
-              Create a project to connect brand setup, AI visibility, communities, and draft
-              generation.
-            </p>
-            <Button onClick={() => setShowCreate(true)}>Create Your First Project</Button>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <Input
+              type="url"
+              value={autoPipelineUrl}
+              onChange={(e) => setAutoPipelineUrl(e.target.value)}
+              placeholder="https://example.com"
+              className="h-8 w-full text-sm sm:w-64"
+              onKeyDown={(e) =>
+                e.key === "Enter" && handleAutoPipeline()
+              }
+            />
+            <Button size="sm" onClick={handleAutoPipeline}>
+              Launch
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card className="p-4">
-          <div className="text-2xl font-bold text-foreground">{visibility?.share_of_voice || 0}%</div>
-          <div className="text-xs text-muted-foreground">Visibility Score</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold text-foreground">{topOpps.length}</div>
-          <div className="text-xs text-muted-foreground">Opportunities</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold text-foreground">0</div>
-          <div className="text-xs text-muted-foreground">Drafts Ready</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold text-foreground">0</div>
-          <div className="text-xs text-muted-foreground">Published</div>
-        </Card>
-      </div>
+      {/* ---- KPI Grid ---- */}
+      <KPIGrid
+        columns={4}
+        cards={[
+          {
+            label: "Visibility Score",
+            value: visibility?.share_of_voice
+              ? `${visibility.share_of_voice}%`
+              : "\u2014",
+            icon: Eye,
+          },
+          {
+            label: "Opportunities",
+            value: topOpps.length,
+            icon: Target,
+          },
+          {
+            label: "Drafts Ready",
+            value: 0,
+            icon: FileText,
+          },
+          {
+            label: "Published",
+            value: 0,
+            icon: Send,
+          },
+        ]}
+      />
 
-      {/* Lane Cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {LANE_COPY.map((lane) => (
-          <Card key={lane.title} className="p-5">
-            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {lane.title}
-            </div>
-            <p className="mb-5 mt-2 text-sm text-muted-foreground">{lane.body}</p>
-            <Button variant="outline" className="w-full">
-              <a href={lane.href}>{lane.action}</a>
-            </Button>
-          </Card>
-        ))}
-      </div>
-
-      {/* Main Content: Priority Queue + Sidebar */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        {/* Priority Queue */}
+      {/* ---- Main Content: Priority Queue + Sidebar ---- */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+        {/* ---- Priority Queue ---- */}
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Priority Queue</CardTitle>
-              <CardDescription>
-                High-fit conversations surfaced from the current community workflow. Reddit is live
-                today, but the queue is being shaped for broader Q&A and social patterns.
-              </CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                Priority Queue
+                {topOpps.length > 0 && (
+                  <Badge variant="secondary">{topOpps.length}</Badge>
+                )}
+              </CardTitle>
             </div>
-            <Button variant="ghost" className="w-full">
-              <a href="/app/discovery">Open Radar</a>
-            </Button>
           </CardHeader>
 
           {topOpps.length === 0 ? (
             <CardContent>
-              <div className="flex flex-col items-center justify-center p-8 text-center">
-                <span className="mb-4 text-4xl">Q</span>
-                <h3 className="mb-1 text-sm font-semibold text-foreground">No opportunities yet</h3>
-                <p className="text-xs text-muted-foreground">
-                  Run your first community scan after adding audience signals and monitored
-                  communities.
-                </p>
-              </div>
+              <EmptyState
+                icon={Target}
+                title="No opportunities yet"
+                description="Run your first community scan after adding audience signals and monitored communities."
+              />
             </CardContent>
           ) : (
             <CardContent>
@@ -488,91 +649,101 @@ export default function DashboardPage() {
                 {topOpps.slice(0, 6).map((opp: any) => (
                   <div
                     key={opp.id}
-                    className="rounded-lg border bg-card p-4"
+                    className="flex items-start justify-between gap-3 rounded-lg border bg-card p-4"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-xs font-bold text-orange-500">
-                            R
-                          </span>
-                          <Badge variant="outline">Live Source</Badge>
-                          <span className="text-xs text-muted-foreground">Reply opportunity</span>
-                        </div>
-                        <a
-                          href={opp.permalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-2.5 inline-block text-sm font-semibold text-foreground hover:underline"
-                        >
-                          {opp.title}
-                        </a>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded text-xs font-bold text-orange-500">
+                          R
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          r/{opp.subreddit_name}
+                        </Badge>
                       </div>
-                      {/* Score Badge */}
-                      <Badge
+                      <a
+                        href={opp.permalink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 block truncate text-sm font-semibold text-foreground hover:underline"
+                      >
+                        {opp.title}
+                      </a>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {(opp.score_reasons || [])
+                          .slice(0, 2)
+                          .map((reason: string) => (
+                            <Badge
+                              key={reason}
+                              variant="secondary"
+                              className="text-xs"
+                            >
+                              {reason}
+                            </Badge>
+                          ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <StatusBadge score={opp.score || 0} />
+                      <Button
                         variant="outline"
-                        className={
-                          (opp.score || 0) >= 70
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                            : (opp.score || 0) >= 40
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                        size="sm"
+                        onClick={() =>
+                          router.push(
+                            `/app/content?opportunity=${opp.id}`,
+                          )
                         }
                       >
-                        {opp.score || 0}
-                      </Badge>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary">r/{opp.subreddit_name}</Badge>
-                      {(opp.score_reasons || []).slice(0, 2).map((reason: string) => (
-                        <Badge key={reason} variant="secondary">
-                          {reason}
-                        </Badge>
-                      ))}
+                        Draft Reply
+                      </Button>
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => router.push("/app/discovery")}
+                >
+                  View all in Opportunity Radar
+                  <ArrowRight className="ml-1 h-3 w-3" />
+                </Button>
               </div>
             </CardContent>
           )}
         </Card>
 
-        {/* Sidebar */}
+        {/* ---- Sidebar ---- */}
         <div className="grid gap-6">
-          {/* Usage Section */}
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Project Footprint</CardTitle>
-                <CardDescription>
-                  Current selected project usage inside the unlocked workspace.
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {[
-                  { label: "Projects", used: usage?.metrics?.projects?.used || 0, limit: usage?.metrics?.projects?.limit || 1 },
-                  { label: "Keywords", used: usage?.metrics?.keywords?.used || 0, limit: usage?.metrics?.keywords?.limit || 10 },
-                  { label: "Communities", used: usage?.metrics?.subreddits?.used || 0, limit: usage?.metrics?.subreddits?.limit || 5 },
-                ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{item.label}</span>
-                    <span className="tabular-nums">{item.used}/{item.limit}</span>
-                    <Progress value={(item.used / item.limit) * 100} className="flex-1 mx-3" />
-                  </div>
-                ))}
-              </div>
+          {/* Quick Actions Strip */}
+          <Card size="sm">
+            <CardContent className="flex gap-2 overflow-x-auto py-2">
+              {QUICK_ACTIONS.map((qa) => {
+                const Icon = qa.icon;
+                return (
+                  <Button
+                    key={qa.label}
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    onClick={() => router.push(qa.href)}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {qa.label}
+                  </Button>
+                );
+              })}
             </CardContent>
           </Card>
 
-          {/* Activity Section */}
+          {/* Recent Activity */}
           <Card>
             <CardHeader>
-              <div>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>Workspace actions and system events.</CardDescription>
-              </div>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Recent Activity
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {activity.length === 0 ? (
@@ -580,17 +751,29 @@ export default function DashboardPage() {
                   No activity yet. Start with brand setup or a visibility run.
                 </p>
               ) : (
-                <div className="space-y-3">
-                  {activity.slice(0, 6).map((item) => (
-                    <div key={item.id} className="flex items-center gap-1.5 rounded-lg border bg-card p-4">
-                      <strong className="text-sm font-medium text-foreground">
-                        {item.action.replace(/_/g, " ").replace(/\./g, " -> ")}
-                      </strong>
-                      <span className="text-xs text-muted-foreground">
-                        {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
+                <div className="space-y-2">
+                  {activity.slice(0, 5).map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                    >
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {formatAction(item.action)}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {relativeTime(item.created_at)}
                       </span>
                     </div>
                   ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 w-full text-muted-foreground"
+                    onClick={() => router.push("/app/analytics")}
+                  >
+                    View all
+                    <ArrowRight className="ml-1 h-3 w-3" />
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -598,7 +781,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Create Project Dialog */}
+      {/* ---- Create Project Dialog ---- */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader>
@@ -627,11 +810,16 @@ export default function DashboardPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowCreate(false)}
+            >
               Cancel
             </Button>
             <Button onClick={handleCreate} disabled={creating}>
-              {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+              {creating && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
               Create Project
             </Button>
           </DialogFooter>

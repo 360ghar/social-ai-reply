@@ -35,7 +35,7 @@ const cardVariants = {
 
 export function Testimonials() {
   return (
-    <section id="testimonials" className="py-20 md:py-28">
+    <section id="testimonials" aria-labelledby="testimonials-heading" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-6">
         <m.div
           initial={{ opacity: 0, y: 20 }}
@@ -50,6 +50,7 @@ export function Testimonials() {
             Testimonials
           </span>
           <h2
+            id="testimonials-heading"
             className="text-3xl font-bold tracking-tight md:text-4xl text-foreground"
           >
             Trusted by growth teams everywhere

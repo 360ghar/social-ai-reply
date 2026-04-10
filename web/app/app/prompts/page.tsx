@@ -34,6 +34,7 @@ import { Loader2 } from "lucide-react";
 import { type PromptTemplate, apiRequest } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PageHeader } from "@/components/shared/page-header";
 
 type PromptType = "reply" | "post" | "analysis";
 
@@ -224,13 +225,10 @@ export default function PromptsPage() {
 
   return (
     <div className="grid gap-6">
-      <Card className="p-6">
-        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Template Systems
-        </div>
-        <h2 className="mb-2 text-lg font-semibold text-foreground">{activeCopy.label}</h2>
-        <p className="text-sm text-muted-foreground">{activeCopy.description}</p>
-        <div className="mt-5 flex flex-wrap gap-2">
+      <PageHeader
+        title="Prompt Templates"
+        description={activeCopy.description}
+        actions={
           <Button
             onClick={() => {
               setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
@@ -239,37 +237,40 @@ export default function PromptsPage() {
           >
             Create Template
           </Button>
-        </div>
-      </Card>
+        }
+        tabs={
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptType)}>
+            <TabsList>
+              <TabsTrigger value="reply">
+                Reply
+                {templates.filter((item) => item.prompt_type === "reply").length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 text-xs">
+                    {templates.filter((item) => item.prompt_type === "reply").length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="post">
+                Post
+                {templates.filter((item) => item.prompt_type === "post").length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 text-xs">
+                    {templates.filter((item) => item.prompt_type === "post").length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="analysis">
+                Analysis
+                {templates.filter((item) => item.prompt_type === "analysis").length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 text-xs">
+                    {templates.filter((item) => item.prompt_type === "analysis").length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        }
+      />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptType)}>
-        <TabsList>
-          <TabsTrigger value="reply">
-            Reply
-            {templates.filter((item) => item.prompt_type === "reply").length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {templates.filter((item) => item.prompt_type === "reply").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="post">
-            Post
-            {templates.filter((item) => item.prompt_type === "post").length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {templates.filter((item) => item.prompt_type === "post").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="analysis">
-            Analysis
-            {templates.filter((item) => item.prompt_type === "analysis").length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {templates.filter((item) => item.prompt_type === "analysis").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
         <TabsContent value={activeTab}>
           {loading && (
             <div className="flex justify-center p-8">
@@ -278,11 +279,11 @@ export default function PromptsPage() {
           )}
 
           {!loading && filteredTemplates.length > 0 && (
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredTemplates.map((template) => (
                 <div
                   key={template.id}
-                  className="cursor-pointer rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50"
+                  className="cursor-pointer rounded-lg border bg-card p-4 transition-all hover:shadow-md hover:border-primary/30"
                   onClick={() => {
                     setEditingTemplate(template);
                     setShowDrawer(true);

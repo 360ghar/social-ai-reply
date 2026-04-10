@@ -2,13 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import Link from "next/link";
+import { Loader2, User } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/stores/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+/* ---------- Branded left panel ---------- */
+function BrandPanel() {
+  return (
+    <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-gradient-to-br from-[#0e1930] to-[#1a2744] p-12 text-center">
+      <Link href="/" className="mb-4 text-2xl font-bold text-white">
+        RedditFlow
+      </Link>
+      <p className="max-w-xs text-base leading-relaxed text-white/70">
+        Find your audience. Engage authentically. Grow on Reddit.
+      </p>
+      <div className="pointer-events-none absolute bottom-0 left-0 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
+      <div className="pointer-events-none absolute right-0 top-0 h-48 w-48 rounded-full bg-white/5 blur-3xl" />
+    </div>
+  );
+}
 
 function SetupForm() {
   const router = useRouter();
@@ -68,52 +85,87 @@ function SetupForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-sm">
-        <div className="mb-8 text-center">
-          <h2 className="mb-1 text-2xl font-extrabold text-primary">
+    <div className="flex min-h-screen">
+      {/* Left branded panel */}
+      <BrandPanel />
+
+      {/* Right form panel */}
+      <div className="flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2">
+        {/* Mobile-only slim header */}
+        <div className="mb-8 md:hidden">
+          <Link href="/" className="text-xl font-bold text-primary">
             RedditFlow
-          </h2>
-          <p className="text-muted-foreground">One more step to get started</p>
+          </Link>
         </div>
 
-        {userInfo.email && (
-          <div className="mb-6 rounded-md bg-muted px-4 py-3 text-[13px]">
-            <div className="font-semibold">{userInfo.name || "Welcome!"}</div>
-            <div className="text-muted-foreground">{userInfo.email}</div>
+        <div className="w-full max-w-sm">
+          <div className="mb-8 text-center">
+            <h1 className="text-2xl font-bold tracking-tight">
+              Finish setting up
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              One more step to get started
+            </p>
           </div>
-        )}
 
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <div className="space-y-2">
-            <Label htmlFor="workspace">Workspace Name</Label>
-            <Input
-              id="workspace"
-              type="text"
-              value={workspace}
-              onChange={(e) => {
-                setWorkspace(e.target.value);
-                setFieldError("");
-              }}
-              onBlur={() => setFieldError(validateWorkspace(workspace))}
-              placeholder="Your company name"
-              autoFocus
-              required
-              aria-invalid={!!fieldError}
-            />
-            {fieldError ? (
-              <p className="text-xs text-destructive">{fieldError}</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                This is your team&apos;s shared workspace
-              </p>
-            )}
-          </div>
-          <Button type="submit" disabled={loading} className="mt-2 w-full">
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create Workspace
-          </Button>
-        </form>
+          {userInfo.email && (
+            <div className="mb-6 flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="truncate text-sm font-semibold">
+                  {userInfo.name || "Welcome!"}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {userInfo.email}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <div className="space-y-2">
+              <Label htmlFor="workspace">Workspace Name</Label>
+              <Input
+                id="workspace"
+                type="text"
+                value={workspace}
+                onChange={(e) => {
+                  setWorkspace(e.target.value);
+                  setFieldError("");
+                }}
+                onBlur={() => setFieldError(validateWorkspace(workspace))}
+                placeholder="Your company name"
+                autoFocus
+                required
+                aria-invalid={!!fieldError}
+              />
+              {fieldError ? (
+                <p className="text-xs text-destructive">{fieldError}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  This is your team&apos;s shared workspace
+                </p>
+              )}
+            </div>
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full"
+              size="lg"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creating workspace...
+                </>
+              ) : (
+                "Create Workspace"
+              )}
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );

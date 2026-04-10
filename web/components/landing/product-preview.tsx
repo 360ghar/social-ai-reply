@@ -45,7 +45,7 @@ export function ProductPreview() {
           >
             <div className="p-1">
               <div className="rounded-xl bg-background p-6">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div className="col-span-1 space-y-3">
                     <div className="rounded-lg bg-muted p-3">
                       <div className="text-xs font-semibold text-foreground">Workspace</div>
@@ -71,7 +71,7 @@ export function ProductPreview() {
                     </div>
                   </div>
                   <div className="col-span-2 space-y-3">
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                       {[
                         { label: "Visibility Score", value: "87", change: "+12%" },
                         { label: "Opportunities", value: "142", change: "+28" },

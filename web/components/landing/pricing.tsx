@@ -70,7 +70,7 @@ export function Pricing() {
   const [annual, setAnnual] = useState(false);
 
   return (
-    <section id="pricing" className="py-20 md:py-28">
+    <section id="pricing" aria-labelledby="pricing-heading" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-6">
         <m.div
           initial={{ opacity: 0, y: 20 }}
@@ -85,6 +85,7 @@ export function Pricing() {
             Pricing
           </span>
           <h2
+            id="pricing-heading"
             className="text-3xl font-bold tracking-tight md:text-4xl text-foreground"
           >
             Simple, transparent pricing

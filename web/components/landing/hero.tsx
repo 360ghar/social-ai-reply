@@ -22,7 +22,7 @@ export function Hero() {
   const imageY = useTransform(scrollYProgress, [0, 1], [0, 30]);
 
   return (
-    <section ref={ref} className="relative overflow-hidden pb-8 pt-32 md:pb-16 md:pt-44">
+    <section ref={ref} aria-labelledby="hero-heading" className="relative overflow-hidden pb-8 pt-32 md:pb-16 md:pt-44">
       {/* Decorative gradient orbs */}
       <div
         className="pointer-events-none absolute -top-40 left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full opacity-20 blur-3xl"
@@ -46,8 +46,9 @@ export function Hero() {
 
         {/* Headline */}
         <m.h1
+          id="hero-heading"
           variants={fadeUp}
-          className="mx-auto max-w-4xl text-4xl font-bold leading-tight tracking-tight text-foreground md:text-6xl lg:text-7xl"
+          className="mx-auto max-w-4xl text-4xl font-bold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl"
         >
           See How AI Talks About{" "}
           <span

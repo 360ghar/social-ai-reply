@@ -4,18 +4,19 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
 import { apiRequest, type Dashboard, type MonitoredSubreddit } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { ScoreBadge } from "@/components/shared/score-badge";
+import { PageHeader } from "@/components/shared/page-header";
+import { KPIGrid, type KPICardProps } from "@/components/shared/kpi-card";
+import { EmptyState } from "@/components/shared/empty-state";
 import {
   Select,
   SelectContent,
@@ -110,185 +111,169 @@ export default function SubredditsPage() {
   const avgActivityScore = subreddits.length ? Math.round(subreddits.reduce((sum, s) => sum + s.activity_score, 0) / subreddits.length) : 0;
   const activeCount = subreddits.filter((s) => s.is_active).length;
 
+  // KPI cards
+  const kpiCards: KPICardProps[] = [
+    { label: "Total Communities", value: subreddits.length },
+    { label: "Avg Fit Score", value: avgFitScore },
+    { label: "Avg Activity Score", value: avgActivityScore },
+    { label: "Active", value: activeCount },
+  ];
+
   return (
     <div className="flex flex-col gap-8">
-      {/* Header Section */}
-      <Card className="p-6">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Community Coverage</div>
-        <h2 className="text-xl font-bold mb-2">Review which communities deserve active engagement</h2>
-        <p className="text-sm text-muted-foreground">
-          Today this page is Reddit-specific, but the scoring model is the right shape for a broader product: fit, activity, moderation risk, and audience signals should work across forums, Q and A spaces, and social comment surfaces.
-        </p>
-        <div className="flex flex-wrap gap-2 mt-4">
-          <Badge>Reddit live now</Badge>
-          <Badge variant="secondary">Q and A pattern ready</Badge>
-          <Badge variant="secondary">Forum pattern ready</Badge>
-        </div>
-        {message && (
-          <div className="mt-4 rounded-md bg-muted px-4 py-3 text-sm">{message}</div>
-        )}
-      </Card>
+      <PageHeader
+        title="Communities"
+        description="Review which communities deserve active engagement. Scoring covers fit, activity, moderation risk, and audience signals."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Badge>Reddit live now</Badge>
+            <Badge variant="secondary">Q and A pattern ready</Badge>
+            <Badge variant="secondary">Forum pattern ready</Badge>
+          </div>
+        }
+      />
+
+      {message && (
+        <div className="rounded-md bg-muted px-4 py-3 text-sm">{message}</div>
+      )}
 
       {/* KPI Cards */}
       {!loading && subreddits.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <div className="text-2xl font-bold">{subreddits.length}</div>
-            <div className="text-xs text-muted-foreground">Total Communities</div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-2xl font-bold">{avgFitScore}</div>
-            <div className="text-xs text-muted-foreground">Avg Fit Score</div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-2xl font-bold">{avgActivityScore}</div>
-            <div className="text-xs text-muted-foreground">Avg Activity Score</div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-2xl font-bold">{activeCount}</div>
-            <div className="text-xs text-muted-foreground">Active</div>
-          </Card>
+        <KPIGrid cards={kpiCards} columns={4} className="grid-cols-2 md:grid-cols-4" />
+      )}
+
+      {/* Controls */}
+      {!loading && subreddits.length > 0 && (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-4">
+          {/* Tabs */}
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "all" | "top")}>
+            <TabsList>
+              <TabsTrigger value="all">All Communities</TabsTrigger>
+              <TabsTrigger value="top">Top Performers</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:gap-3 flex-1">
+            <Input
+              type="text"
+              placeholder="Filter by subreddit name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1"
+            />
+            <Select value={sortBy} onValueChange={(v) => setSortBy((v ?? "fit-score") as SortOption)}>
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fit-score">Sort by Fit Score</SelectItem>
+                <SelectItem value="activity-score">Sort by Activity Score</SelectItem>
+                <SelectItem value="name">Sort by Name</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 
-      {/* Communities List */}
-      <Card className="p-6">
-        {/* Controls */}
-        {!loading && subreddits.length > 0 && (
-          <div className="mb-6">
-            {/* Tabs */}
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "all" | "top")} className="mb-6">
-              <TabsList>
-                <TabsTrigger value="all">All Communities</TabsTrigger>
-                <TabsTrigger value="top">Top Performers</TabsTrigger>
-              </TabsList>
-            </Tabs>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex justify-center p-8">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+      )}
 
-            {/* Search and Sort */}
-            <div className="flex gap-4 mb-6">
-              <div className="flex-1 space-y-2">
-                <Input
-                  type="text"
-                  placeholder="Filter by subreddit name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Select value={sortBy} onValueChange={(v) => setSortBy((v ?? "fit-score") as SortOption)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fit-score">Sort by Fit Score</SelectItem>
-                    <SelectItem value="activity-score">Sort by Activity Score</SelectItem>
-                    <SelectItem value="name">Sort by Name</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Loading State */}
-        {loading && (
-          <div className="flex justify-center p-8">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
-        )}
-
-        {/* Communities */}
-        {!loading && filteredSubreddits.length > 0 && (
-          <div className="space-y-4">
-            {filteredSubreddits.map((subreddit) => (
-              <div key={subreddit.id} className="rounded-lg border bg-card p-4">
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <div>
-                    <strong className="text-lg">r/{subreddit.name}</strong>
-                    {subreddit.title && (
-                      <p className="mt-1 text-sm text-muted-foreground">{subreddit.title}</p>
-                    )}
-                  </div>
-                  <Button
-                    onClick={() => refreshAnalysis(subreddit.id)}
-                    disabled={refreshingId === subreddit.id}
-                    variant="outline"
-                    size="sm"
-                  >
-                    {refreshingId === subreddit.id ? (
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Refreshing...
-                      </span>
-                    ) : (
-                      "Refresh Analysis"
-                    )}
-                  </Button>
+      {/* Communities Card Grid */}
+      {!loading && filteredSubreddits.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredSubreddits.map((subreddit) => (
+            <Card key={subreddit.id} className="p-5 flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <strong className="text-lg">r/{subreddit.name}</strong>
+                  {subreddit.title && (
+                    <p className="mt-1 text-sm text-muted-foreground truncate">{subreddit.title}</p>
+                  )}
                 </div>
+                <Button
+                  onClick={() => refreshAnalysis(subreddit.id)}
+                  disabled={refreshingId === subreddit.id}
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                >
+                  {refreshingId === subreddit.id ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Refreshing...
+                    </span>
+                  ) : (
+                    "Refresh"
+                  )}
+                </Button>
+              </div>
 
-                {/* Description */}
-                {subreddit.description && (
-                  <p className="mb-4 text-sm text-muted-foreground">
-                    {subreddit.description}
-                  </p>
-                )}
+              {/* Description */}
+              {subreddit.description && (
+                <p className="text-sm text-muted-foreground line-clamp-2">
+                  {subreddit.description}
+                </p>
+              )}
 
-                {/* Scores */}
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <Badge variant="secondary">Fit</Badge>
+              {/* Scores */}
+              <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">Fit</span>
                   <ScoreBadge score={subreddit.fit_score} />
-                  <Badge variant="secondary">Activity</Badge>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">Activity</span>
                   <ScoreBadge score={subreddit.activity_score} />
                 </div>
-
-                {/* Subscriber Count */}
-                <div className="mb-4 text-sm text-muted-foreground">
-                  {subreddit.subscribers.toLocaleString()} subscribers
-                </div>
-
-                {/* Analysis */}
-                {subreddit.analyses[0] && (
-                  <div className="mb-4 rounded-md bg-muted px-4 py-3 text-sm">
-                    <strong>Recommendation:</strong> {subreddit.analyses[0].recommendation}
-                    {subreddit.analyses[0].audience_signals.length > 0 && (
-                      <>
-                        <br />
-                        <strong className="text-sm">Audience signals:</strong> {subreddit.analyses[0].audience_signals.join(", ")}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Rules Summary */}
-                {subreddit.rules_summary && (
-                  <div className="text-sm text-muted-foreground">
-                    <strong>Rules to watch:</strong> {subreddit.rules_summary}
-                  </div>
-                )}
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* Empty States */}
-        {!loading && filteredSubreddits.length === 0 && subreddits.length === 0 && (
-          <div className="flex flex-col items-center justify-center p-8 text-center">
-            <h3 className="text-lg font-semibold mb-1">No communities yet</h3>
-            <p className="text-sm text-muted-foreground">
-              Use the Find posts page to discover communities first.
-            </p>
-          </div>
-        )}
+              {/* Subscriber Count */}
+              <div className="text-sm text-muted-foreground">
+                {subreddit.subscribers.toLocaleString()} subscribers
+              </div>
 
-        {!loading && filteredSubreddits.length === 0 && subreddits.length > 0 && (
-          <div className="flex flex-col items-center justify-center p-8 text-center">
-            <h3 className="text-lg font-semibold mb-1">No communities match your filter</h3>
-            <p className="text-sm text-muted-foreground">
-              Try adjusting your search or sort options.
-            </p>
-          </div>
-        )}
-      </Card>
+              {/* Analysis */}
+              {subreddit.analyses[0] && (
+                <div className="rounded-md bg-muted px-4 py-3 text-sm">
+                  <strong>Recommendation:</strong> {subreddit.analyses[0].recommendation}
+                  {subreddit.analyses[0].audience_signals.length > 0 && (
+                    <>
+                      <br />
+                      <strong className="text-sm">Audience signals:</strong> {subreddit.analyses[0].audience_signals.join(", ")}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Rules Summary */}
+              {subreddit.rules_summary && (
+                <div className="text-sm text-muted-foreground">
+                  <strong>Rules to watch:</strong> {subreddit.rules_summary}
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Empty States */}
+      {!loading && filteredSubreddits.length === 0 && subreddits.length === 0 && (
+        <EmptyState
+          title="No communities yet"
+          description="Use the Find posts page to discover communities first."
+        />
+      )}
+
+      {!loading && filteredSubreddits.length === 0 && subreddits.length > 0 && (
+        <EmptyState
+          title="No communities match your filter"
+          description="Try adjusting your search or sort options."
+        />
+      )}
     </div>
   );
 }

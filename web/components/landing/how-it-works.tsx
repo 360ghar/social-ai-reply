@@ -51,7 +51,7 @@ const cardVariants = {
 
 export function HowItWorks() {
   return (
-    <section className="py-20 md:py-28">
+    <section aria-labelledby="how-it-works-heading" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-6">
         <m.div
           initial={{ opacity: 0, y: 20 }}
@@ -66,6 +66,7 @@ export function HowItWorks() {
             How It Works
           </span>
           <h2
+            id="how-it-works-heading"
             className="text-3xl font-bold tracking-tight text-foreground md:text-4xl"
           >
             Three steps to AI visibility

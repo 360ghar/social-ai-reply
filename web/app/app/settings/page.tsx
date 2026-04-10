@@ -5,7 +5,7 @@ import { useToast } from "@/stores/toast";
 import { useAuth } from "@/components/auth/auth-provider";
 import { apiRequest, type SecretRecord, type WebhookEndpoint } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -29,7 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, Link2, Key, Webhook } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
 
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];
@@ -93,7 +93,9 @@ export default function SettingsPage() {
       const [webhookRows, secretRows, redditRows] = await Promise.all([
         apiRequest<WebhookEndpoint[]>("/v1/webhooks", {}, token),
         apiRequest<SecretRecord[]>("/v1/secrets", {}, token),
-        apiRequest<RedditAccount[]>("/v1/reddit/accounts", {}, token).catch(() => []),
+        apiRequest<{ items: RedditAccount[] }>("/v1/reddit/accounts", {}, token)
+          .then((res) => res.items)
+          .catch(() => []),
       ]);
       setWebhooks(webhookRows);
       setSecrets(secretRows);
@@ -272,11 +274,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <Card className="p-6">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Settings
-      </div>
-      <h1 className="mb-6 text-lg font-semibold text-foreground">Workspace Settings</h1>
+    <div className="flex flex-col gap-6">
+      <PageHeader title="Settings" description="Manage workspace preferences, integrations, and account connections." />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -402,45 +401,56 @@ export default function SettingsPage() {
             <section>
               <h3 className="mb-4 text-sm font-semibold text-foreground">Reddit Accounts</h3>
               {redditAccounts.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-8 text-center">
-                  <span className="mb-4 text-4xl">🔗</span>
-                  <h3 className="mb-1 text-sm font-semibold text-foreground">No Reddit accounts connected</h3>
-                  <p className="mb-4 text-xs text-muted-foreground">
-                    Connect a Reddit account to enable automated posting and engagement
-                  </p>
-                  <Button onClick={() => void connectReddit()} disabled={connectingReddit}>
-                    {connectingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Connect Reddit Account
-                  </Button>
-                </div>
+                <Card className="p-8">
+                  <div className="flex flex-col items-center justify-center text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                      <Link2 className="h-8 w-8 text-muted-foreground/50" />
+                    </div>
+                    <h3 className="mb-1 text-sm font-semibold text-foreground">No Reddit accounts connected</h3>
+                    <p className="mb-4 text-xs text-muted-foreground">
+                      Connect a Reddit account to enable automated posting and engagement
+                    </p>
+                    <Button onClick={() => void connectReddit()} disabled={connectingReddit}>
+                      {connectingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Connect Reddit Account
+                    </Button>
+                  </div>
+                </Card>
               ) : (
                 <div className="grid gap-3">
                   {redditAccounts.map((account) => (
-                    <div
-                      key={account.id}
-                      className="flex items-center justify-between rounded-lg border bg-card p-4"
-                    >
-                      <div>
-                        <div className="mb-1 text-sm font-semibold text-foreground">@{account.username}</div>
-                        {account.karma !== undefined && (
-                          <p className="text-xs text-muted-foreground">Karma: {account.karma}</p>
-                        )}
-                        {account.connected_at && (
-                          <p className="text-xs text-muted-foreground">
-                            Connected: {new Date(account.connected_at).toLocaleDateString()}
-                          </p>
-                        )}
+                    <Card key={account.id} className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm">
+                            {account.username.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">@{account.username}</span>
+                              <span className="inline-flex items-center justify-center rounded-full border border-success/20 bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
+                                Connected
+                              </span>
+                            </div>
+                            <div className="flex gap-3 text-xs text-muted-foreground mt-0.5">
+                              {account.karma !== undefined && <span>Karma: {account.karma}</span>}
+                              {account.connected_at && (
+                                <span>Connected: {new Date(account.connected_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => void disconnectReddit(account.id)}
+                          disabled={disconnectingReddit === account.id}
+                        >
+                          {disconnectingReddit === account.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                          Disconnect
+                        </Button>
                       </div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => void disconnectReddit(account.id)}
-                        disabled={disconnectingReddit === account.id}
-                      >
-                        {disconnectingReddit === account.id && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Disconnect
-                      </Button>
-                    </div>
+                    </Card>
                   ))}
                   <Button
                     variant="outline"
@@ -514,32 +524,43 @@ export default function SettingsPage() {
             <section>
               <h3 className="mb-4 text-sm font-semibold text-foreground">Saved Keys</h3>
               {secrets.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-8 text-center">
-                  <span className="mb-4 text-4xl">🔑</span>
-                  <h3 className="mb-1 text-sm font-semibold text-foreground">No API keys saved</h3>
-                  <p className="text-xs text-muted-foreground">Add your first API key to get started</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {secrets.map((secret) => (
-                    <div key={secret.id} className="flex items-center justify-between rounded-lg border bg-card p-4">
-                      <div>
-                        <strong className="text-sm font-medium text-foreground">{secret.provider}</strong>
-                        <p className="mt-1 text-sm text-muted-foreground">{secret.label}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <code className="text-xs text-muted-foreground">
-                          {maskSecret(secret.id.toString())}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => setDeleteSecretId(secret.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </div>
+                <Card className="p-8">
+                  <div className="flex flex-col items-center justify-center text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                      <Key className="h-8 w-8 text-muted-foreground/50" />
                     </div>
+                    <h3 className="mb-1 text-sm font-semibold text-foreground">No API keys saved</h3>
+                    <p className="text-xs text-muted-foreground">Add your first API key to get started</p>
+                  </div>
+                </Card>
+              ) : (
+                <div className="grid gap-3">
+                  {secrets.map((secret) => (
+                    <Card key={secret.id} className="p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                            <Key className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <strong className="text-sm font-medium text-foreground capitalize">{secret.provider}</strong>
+                            <p className="text-xs text-muted-foreground">{secret.label}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <code className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground font-mono">
+                            {maskSecret(secret.id.toString())}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setDeleteSecretId(secret.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
                   ))}
                 </div>
               )}
@@ -605,20 +626,29 @@ export default function SettingsPage() {
             <section>
               <h3 className="mb-4 text-sm font-semibold text-foreground">Active Webhooks</h3>
               {webhooks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-8 text-center">
-                  <span className="mb-4 text-4xl">🪝</span>
-                  <h3 className="mb-1 text-sm font-semibold text-foreground">No webhooks configured</h3>
-                  <p className="text-xs text-muted-foreground">Add a webhook to receive event notifications</p>
-                </div>
+                <Card className="p-8">
+                  <div className="flex flex-col items-center justify-center text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                      <Webhook className="h-8 w-8 text-muted-foreground/50" />
+                    </div>
+                    <h3 className="mb-1 text-sm font-semibold text-foreground">No webhooks configured</h3>
+                    <p className="text-xs text-muted-foreground">Add a webhook to receive event notifications</p>
+                  </div>
+                </Card>
               ) : (
-                <div className="space-y-3">
+                <div className="grid gap-3">
                   {webhooks.map((webhook) => (
-                    <div key={webhook.id} className="rounded-lg border bg-card p-4">
+                    <Card key={webhook.id} className="p-4">
                       <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <strong className="text-sm font-medium text-foreground break-all">
-                            {webhook.target_url}
-                          </strong>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
+                              <Webhook className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <strong className="text-sm font-medium text-foreground break-all">
+                              {webhook.target_url}
+                            </strong>
+                          </div>
                           <div className="mt-2 flex flex-wrap gap-2">
                             {webhook.event_types.map((type) => (
                               <Badge key={type} variant="secondary" className="text-xs">
@@ -632,7 +662,7 @@ export default function SettingsPage() {
                             </p>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -660,7 +690,7 @@ export default function SettingsPage() {
                           </Button>
                         </div>
                       </div>
-                    </div>
+                    </Card>
                   ))}
                 </div>
               )}
@@ -671,7 +701,7 @@ export default function SettingsPage() {
         {/* DANGER ZONE TAB */}
         <TabsContent value="danger">
           <div className="mt-6 grid gap-6">
-            <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
               <h3 className="mb-4 text-sm font-semibold text-destructive">Export data</h3>
               <p className="mb-4 text-sm text-muted-foreground">
                 Download a copy of all your data in JSON format. This includes your workspace configuration,
@@ -683,7 +713,7 @@ export default function SettingsPage() {
               </Button>
             </section>
 
-            <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
               <h3 className="mb-4 text-sm font-semibold text-destructive">Delete workspace</h3>
               <p className="mb-4 text-sm text-muted-foreground">
                 Permanently delete this workspace and all associated data. This action cannot be undone.
@@ -756,6 +786,6 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </div>
   );
 }
