@@ -16,10 +16,10 @@ _rate_store: defaultdict[str, list[float]] = defaultdict(list)
 MAX_STORE_KEYS = 10_000
 
 RATE_LIMITS = {
-    "default": (60, 60),        # 60 requests per 60 seconds
-    "scan": (5, 60),            # 5 scans per 60 seconds
-    "generate": (10, 60),       # 10 generations per 60 seconds
-    "auth": (10, 300),          # 10 auth attempts per 5 minutes
+    "default": (500, 60),       # 500 requests per 60 seconds
+    "scan": (50, 60),           # 50 scans per 60 seconds
+    "generate": (100, 60),      # 100 generations per 60 seconds
+    "auth": (50, 300),          # 50 auth attempts per 5 minutes
 }
 
 SLOW_ENDPOINTS = {

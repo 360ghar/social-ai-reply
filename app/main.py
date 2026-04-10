@@ -71,14 +71,10 @@ def _service_checks() -> dict[str, str]:
     """Check service health (API + Supabase database)."""
     checks = {"api": "ok"}
     try:
-        # Test Supabase connection with a simple query
         supabase = get_supabase_client()
-        # Try to ping the RPC endpoint or do a simple select
-        # For now, just verify the client was created successfully
-        if supabase:
-            checks["database"] = "ok"
-        else:
-            checks["database"] = "error"
+        # Actually query the database to verify connectivity
+        supabase.table("account_users").select("id").limit(1).execute()
+        checks["database"] = "ok"
     except Exception as e:
         logger.error("Supabase health check failed: %s", e)
         checks["database"] = "error"

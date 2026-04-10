@@ -15,7 +15,7 @@ UNAUTHORIZED = "unauthorized"
 FORBIDDEN = "forbidden"
 INSUFFICIENT_PERMISSIONS = "insufficient_permissions"
 WORKSPACE_ACCESS_DENIED = "workspace_access_denied"
-PROJECT_ACCESS_DENIED = "project_access_denided"
+PROJECT_ACCESS_DENIED = "project_access_denied"
 
 # Resource errors
 NOT_FOUND = "not_found"

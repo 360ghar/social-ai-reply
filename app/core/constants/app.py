@@ -22,8 +22,7 @@ DEFAULT_FRONTEND_URL = "http://localhost:3000"
 DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 
 # Database defaults
-DEFAULT_DATABASE_URL = "sqlite:///./poacher.db"
-DEFAULT_AUTO_CREATE_TABLES = True
+# Schema is managed by Supabase — no local database URL needed
 
 # LLM provider defaults
 DEFAULT_LLM_PROVIDER = "gemini"

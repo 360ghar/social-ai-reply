@@ -46,3 +46,7 @@ class RateLimitError(AppError):
 class ValidationError(AppError):
     status_code = 422
     detail = "Validation error."
+
+
+# Backwards-compatible alias for any external consumers
+AppException = AppError

@@ -81,6 +81,9 @@ class GeminiLLMProvider:
         max_personas: int,
     ) -> list[dict[str, Any]]:
         import httpx
+        import logging
+
+        logger = logging.getLogger(__name__)
 
         prompt = (
             "Generate adjacent, non-competing persona niches that share the same customer base. "
@@ -99,11 +102,23 @@ class GeminiLLMProvider:
                 "responseMimeType": "application/json"
             }
         }
-        resp = httpx.post(url, json=payload, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = httpx.post(url, json=payload, timeout=30)
+            resp.raise_for_status()
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            logger.error("Gemini API request failed: %s", e)
+            return []
+        except Exception as e:
+            logger.error("Unexpected error calling Gemini API: %s", e)
+            return []
+
         data = resp.json()
         text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
-        parsed = json.loads(text)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            logger.error("Failed to parse Gemini JSON response: %s", text[:200])
+            return []
         personas = parsed.get("personas", [])
         return [p for p in personas if isinstance(p, dict)]
 

@@ -49,11 +49,11 @@ PLAN_CATALOG = [
 def seed_plan_entitlements(supabase: Client) -> None:
     """Seed plan entitlements in the database.
 
-    For the private workspace, entitlements are intentionally unlimited.
+    No-op in the Supabase era. Entitlements are managed via Supabase dashboard
+    or migrations. The free/internal plans have hardcoded unlimited limits via
+    get_limit() and PLAN_CATALOG. Kept for API compatibility — callers should
+    not need to know this is a no-op.
     """
-    # In the Supabase era, we'll manage entitlements differently.
-    # For now, this is a no-op for the private workspace.
-    pass
 
 
 def get_or_create_subscription(supabase: Client, workspace: dict) -> dict:

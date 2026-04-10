@@ -107,17 +107,19 @@ def run_auto_pipeline_background(
             "current_step": "Generating target personas...",
         })
 
+        brand_dict = {
+            "brand_name": website_analysis.brand_name,
+            "summary": website_analysis.summary,
+            "product_summary": website_analysis.product_summary,
+            "target_audience": website_analysis.target_audience,
+            "call_to_action": website_analysis.call_to_action,
+            "voice_notes": website_analysis.voice_notes,
+            "business_domain": website_analysis.business_domain,
+        }
+
         try:
             personas_data = copilot.suggest_personas(
-                type("BrandProfile", (), {
-                    "brand_name": website_analysis.brand_name,
-                    "summary": website_analysis.summary,
-                    "product_summary": website_analysis.product_summary,
-                    "target_audience": website_analysis.target_audience,
-                    "call_to_action": website_analysis.call_to_action,
-                    "voice_notes": website_analysis.voice_notes,
-                    "business_domain": website_analysis.business_domain,
-                })(),
+                brand_dict,
                 count=4,
             )
             log.info("Generated %d personas", len(personas_data))
@@ -151,15 +153,7 @@ def run_auto_pipeline_background(
         personas_list = list_personas_for_project(db, project_id)
         try:
             keywords_data = copilot.generate_keywords(
-                type("BrandProfile", (), {
-                    "brand_name": website_analysis.brand_name,
-                    "summary": website_analysis.summary,
-                    "product_summary": website_analysis.product_summary,
-                    "target_audience": website_analysis.target_audience,
-                    "call_to_action": website_analysis.call_to_action,
-                    "voice_notes": website_analysis.voice_notes,
-                    "business_domain": website_analysis.business_domain,
-                })(),
+                brand_dict,
                 personas_list,
                 count=15,
             )

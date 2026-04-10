@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AuthLayout } from "@/components/auth/auth-layout";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
 import { getErrorMessage } from "@/types/errors";
@@ -38,22 +39,6 @@ const validators: Record<string, (v: string) => string> = {
         ? "Must be at least 2 characters."
         : "",
 };
-
-/* ---------- Branded left panel ---------- */
-function BrandPanel() {
-  return (
-    <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-gradient-to-br from-[#0e1930] to-[#1a2744] p-12 text-center">
-      <Link href="/" className="mb-4 text-2xl font-bold text-white">
-        RedditFlow
-      </Link>
-      <p className="max-w-xs text-base leading-relaxed text-white/70">
-        Find your audience. Engage authentically. Grow on Reddit.
-      </p>
-      <div className="pointer-events-none absolute bottom-0 left-0 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
-      <div className="pointer-events-none absolute right-0 top-0 h-48 w-48 rounded-full bg-white/5 blur-3xl" />
-    </div>
-  );
-}
 
 function RegisterForm() {
   const router = useRouter();
@@ -136,20 +121,13 @@ function RegisterForm() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      {/* Left branded panel */}
-      <BrandPanel />
-
-      {/* Right form panel */}
-      <div className="flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2">
-        {/* Mobile-only slim header */}
+    <AuthLayout>
         <div className="mb-8 md:hidden">
           <Link href="/" className="text-xl font-bold text-primary">
             RedditFlow
           </Link>
         </div>
-
-        <div className="w-full max-w-sm">
+        
           <div className="mb-8 text-center">
             <h1 className="text-2xl font-bold tracking-tight">
               Create your account
@@ -268,7 +246,7 @@ function RegisterForm() {
                     <button
                       type="button"
                       tabIndex={-1}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                       onClick={() => setShowPassword((v) => !v)}
                       aria-label={
                         showPassword ? "Hide password" : "Show password"
@@ -351,9 +329,7 @@ function RegisterForm() {
               Sign in
             </Link>
           </p>
-        </div>
-      </div>
-    </div>
+      </AuthLayout>
   );
 }
 

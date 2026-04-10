@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { type Variants, m, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const containerVariants: Variants = {
   hidden: {},
@@ -74,13 +76,13 @@ export function Hero() {
         <m.div variants={fadeUp} className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
             href="/register"
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-8 text-base font-semibold text-white transition-all duration-200 hover:bg-[var(--color-coral-hover)] hover:scale-[1.02]"
+            className={cn(buttonVariants({ size: "default" }), "h-12 rounded-xl px-8 text-base font-semibold hover:scale-[1.02]")}
           >
             Start Free Trial
           </Link>
           <a
             href="#features"
-            className="inline-flex h-12 items-center justify-center rounded-xl border border-border px-8 text-base font-semibold text-foreground transition-all duration-200 hover:border-primary hover:text-primary"
+            className={cn(buttonVariants({ variant: "outline", size: "default" }), "h-12 rounded-xl px-8 text-base font-semibold hover:scale-[1.02]")}
           >
             Watch Demo
           </a>

@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { AuthLayout } from "@/components/auth/auth-layout";
 import { useToast } from "@/stores/toast";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,22 +12,6 @@ import { supabase } from "@/lib/supabase";
 import { getErrorMessage } from "@/types/errors";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/* ---------- Branded left panel ---------- */
-function BrandPanel() {
-  return (
-    <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-gradient-to-br from-[#0e1930] to-[#1a2744] p-12 text-center">
-      <Link href="/" className="mb-4 text-2xl font-bold text-white">
-        RedditFlow
-      </Link>
-      <p className="max-w-xs text-base leading-relaxed text-white/70">
-        Find your audience. Engage authentically. Grow on Reddit.
-      </p>
-      <div className="pointer-events-none absolute bottom-0 left-0 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
-      <div className="pointer-events-none absolute right-0 top-0 h-48 w-48 rounded-full bg-white/5 blur-3xl" />
-    </div>
-  );
-}
 
 function ResetPasswordContent() {
   const { success, error } = useToast();
@@ -138,37 +123,18 @@ function ResetPasswordContent() {
   /* ---------- Checking session spinner ---------- */
   if (checking) {
     return (
-      <div className="flex min-h-screen">
-        <BrandPanel />
-        <div className="flex w-full items-center justify-center md:w-1/2">
+      <AuthLayout>
+        <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
-      </div>
-    );
-  }
-
-  /* ---------- Main layout ---------- */
-  function formWrapper(children: React.ReactNode) {
-    return (
-      <div className="flex min-h-screen">
-        <BrandPanel />
-        <div className="flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2">
-          {/* Mobile-only slim header */}
-          <div className="mb-8 md:hidden">
-            <Link href="/" className="text-xl font-bold text-primary">
-              RedditFlow
-            </Link>
-          </div>
-          <div className="w-full max-w-sm">{children}</div>
-        </div>
-      </div>
+      </AuthLayout>
     );
   }
 
   /* State 1: Request reset */
   if (!hasSession && !sent) {
-    return formWrapper(
-      <>
+    return (
+      <AuthLayout>
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">Reset Password</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -221,37 +187,39 @@ function ResetPasswordContent() {
             Back to login
           </Link>
         </p>
-      </>,
+      </AuthLayout>
     );
   }
 
   /* State 2: Confirmation email sent */
   if (!hasSession && sent) {
-    return formWrapper(
-      <div className="py-8 text-center">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-          <Mail className="h-7 w-7 text-primary" />
+    return (
+      <AuthLayout>
+        <div className="py-8 text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+            <Mail className="h-7 w-7 text-primary" />
+          </div>
+          <h3 className="text-xl font-semibold">Check Your Email</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            We sent a password reset link to <strong>{email}</strong>.
+          </p>
+          <p className="mt-6">
+            <Link
+              href="/login"
+              className="text-sm text-muted-foreground hover:underline"
+            >
+              Back to login
+            </Link>
+          </p>
         </div>
-        <h3 className="text-xl font-semibold">Check Your Email</h3>
-        <p className="mt-2 text-sm text-muted-foreground">
-          We sent a password reset link to <strong>{email}</strong>.
-        </p>
-        <p className="mt-6">
-          <Link
-            href="/login"
-            className="text-sm text-muted-foreground hover:underline"
-          >
-            Back to login
-          </Link>
-        </p>
-      </div>,
+      </AuthLayout>
     );
   }
 
   /* State 3: Set new password */
   if (hasSession && !done) {
-    return formWrapper(
-      <>
+    return (
+      <AuthLayout>
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">
             Set New Password
@@ -288,7 +256,7 @@ function ResetPasswordContent() {
               />
               <button
                 type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                 onClick={() => setShowPassword((v) => !v)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
@@ -329,7 +297,7 @@ function ResetPasswordContent() {
               />
               <button
                 type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                 onClick={() => setShowConfirm((v) => !v)}
                 aria-label={showConfirm ? "Hide password" : "Show password"}
               >
@@ -360,27 +328,29 @@ function ResetPasswordContent() {
             "Update Password"
           )}
         </Button>
-      </>,
+      </AuthLayout>
     );
   }
 
   /* State 4: Done */
-  return formWrapper(
-    <div className="py-8 text-center">
-      <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10">
-        <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+  return (
+    <AuthLayout>
+      <div className="py-8 text-center">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-success/10">
+          <CheckCircle2 className="h-7 w-7 text-success" />
+        </div>
+        <h3 className="text-xl font-semibold">Password Updated!</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Your password has been changed. You can now log in.
+        </p>
+        <Link
+          href="/login"
+          className={`${buttonVariants({ size: "lg" })} mt-6 inline-flex w-full justify-center`}
+        >
+          Go to Login
+        </Link>
       </div>
-      <h3 className="text-xl font-semibold">Password Updated!</h3>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Your password has been changed. You can now log in.
-      </p>
-      <Link
-        href="/login"
-        className={`${buttonVariants({ size: "lg" })} mt-6 inline-flex w-full justify-center`}
-      >
-        Go to Login
-      </Link>
-    </div>,
+    </AuthLayout>
   );
 }
 
@@ -388,12 +358,11 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen">
-          <BrandPanel />
-          <div className="flex w-full items-center justify-center md:w-1/2">
+        <AuthLayout>
+          <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        </div>
+        </AuthLayout>
       }
     >
       <ResetPasswordContent />
