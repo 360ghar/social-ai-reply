@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from tests.conftest import _create_test_user, _make_test_token
 
-from app.db.models import AccountUser
+from app.db.models import AccountUser, Membership, MembershipRole, Workspace
 from app.db.session import get_db
 from app.main import app
 
@@ -223,6 +223,185 @@ class TestOAuthComplete:
             )
 
         assert resp.status_code == 422
+
+    def test_oauth_complete_rejects_empty_email(self, client, db_session):
+        """OAuth provider that returns an empty email must be rejected with
+        422 — we cannot persist a user row whose email would violate
+        UserResponse.email: EmailStr or the AccountUser.email UNIQUE
+        constraint."""
+        supabase_uid = str(uuid.uuid4())
+
+        with patch(
+            "app.api.v1.routes.auth.verify_supabase_jwt",
+            return_value={
+                "sub": supabase_uid,
+                "aud": "authenticated",
+                "exp": 9999999999,
+                "iat": 1000000000,
+                "email": "",  # provider returned empty email
+                "role": "authenticated",
+                "user_metadata": {"full_name": "No Email User"},
+            },
+        ):
+            resp = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "No Email WS"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert resp.status_code == 422
+        assert "email" in resp.json()["detail"].lower()
+        # Ensure no orphaned row was written.
+        user = db_session.scalar(
+            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+        )
+        assert user is None
+
+    def test_oauth_complete_rejects_missing_email_key(self, client, db_session):
+        """Same guard when the email key is absent from the JWT claims
+        (exercises the jwt_payload.get('email', '') default path)."""
+        supabase_uid = str(uuid.uuid4())
+
+        with patch(
+            "app.api.v1.routes.auth.verify_supabase_jwt",
+            return_value={
+                "sub": supabase_uid,
+                "aud": "authenticated",
+                "exp": 9999999999,
+                "iat": 1000000000,
+                # no "email" key at all
+                "role": "authenticated",
+                "user_metadata": {"full_name": "No Email User"},
+            },
+        ):
+            resp = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "No Email WS"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert resp.status_code == 422
+        user = db_session.scalar(
+            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+        )
+        assert user is None
+
+    def test_oauth_complete_idempotent_repeat_returns_200(self, client, db_session):
+        """Calling oauth-complete twice with the same supabase_uid should
+        return 201 on the first call and 200 on the second (no new row, no
+        duplicate workspace)."""
+        supabase_uid = str(uuid.uuid4())
+        claims = {
+            "sub": supabase_uid,
+            "aud": "authenticated",
+            "exp": 9999999999,
+            "iat": 1000000000,
+            "email": "idem@example.com",
+            "role": "authenticated",
+            "user_metadata": {"full_name": "Idem User"},
+        }
+
+        with patch("app.api.v1.routes.auth.verify_supabase_jwt", return_value=claims):
+            first = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "Idem WS"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+            second = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "Idem WS Two"},  # deliberately different
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert first.status_code == 201
+        assert second.status_code == 200
+        # Same user id on both responses.
+        assert first.json()["user"]["id"] == second.json()["user"]["id"]
+        # Workspace is the one from the first call — second call must NOT
+        # provision a second workspace with the new name.
+        assert second.json()["workspace"]["name"] == "Idem WS"
+        # Only one AccountUser row exists.
+        rows = db_session.scalars(
+            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+        ).all()
+        assert len(rows) == 1
+
+    def test_oauth_complete_recovers_from_integrity_error_race(self, client, db_session):
+        """If a concurrent request wins the insert race, the losing request
+        catches IntegrityError, rolls back, re-queries by supabase_user_id,
+        and returns the winner's row with status 200."""
+        supabase_uid = str(uuid.uuid4())
+        claims = {
+            "sub": supabase_uid,
+            "aud": "authenticated",
+            "exp": 9999999999,
+            "iat": 1000000000,
+            "email": "race@example.com",
+            "role": "authenticated",
+            "user_metadata": {"full_name": "Race User"},
+        }
+
+        # Pre-seed the "winner" row as if a concurrent request just committed
+        # it. We construct it directly because _create_test_user generates
+        # its own supabase_user_id.
+        winner = AccountUser(
+            supabase_user_id=supabase_uid,
+            email="race@example.com",
+            full_name="Race User",
+        )
+        db_session.add(winner)
+        db_session.flush()
+        winner_ws = Workspace(
+            name="Race WS",
+            slug="race-ws",
+            owner_user_id=winner.id,
+        )
+        db_session.add(winner_ws)
+        db_session.flush()
+        db_session.add(
+            Membership(
+                workspace_id=winner_ws.id,
+                user_id=winner.id,
+                role=MembershipRole.OWNER,
+            )
+        )
+        db_session.commit()
+
+        # Force the first two db.scalar calls inside oauth_complete (the
+        # existing-account probe AND the email_taken fast-path) to MISS the
+        # winner, simulating read-replica lag / races. Execution then falls
+        # into the insert path, where the real unique-constraint on
+        # supabase_user_id fires IntegrityError. The recovery branch should
+        # re-query (this time with the real scalar) and return 200 with the
+        # winner's row.
+        real_scalar = db_session.scalar
+        call_state = {"n": 0}
+
+        def flaky_scalar(stmt, *args, **kwargs):
+            call_state["n"] += 1
+            # Calls 1 and 2 are the existing-account probe and the
+            # email_taken fast-path. Return None for both so the endpoint
+            # reaches the insert.
+            if call_state["n"] <= 2:
+                return None
+            return real_scalar(stmt, *args, **kwargs)
+
+        with patch("app.api.v1.routes.auth.verify_supabase_jwt", return_value=claims), \
+             patch.object(db_session, "scalar", side_effect=flaky_scalar):
+            resp = client.post(
+                "/v1/auth/oauth-complete",
+                json={"workspace_name": "Race WS Two"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["user"]["email"] == "race@example.com"
+        assert resp.json()["user"]["id"] == winner.id
+        # No duplicate user row was persisted.
+        rows = db_session.scalars(
+            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+        ).all()
+        assert len(rows) == 1
 
 
 class TestLogout:

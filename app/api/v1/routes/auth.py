@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import (
@@ -52,7 +53,21 @@ router = APIRouter(prefix="/v1", tags=["auth"])
 
 
 def _workspace_for_user(db: Session, user_id: int) -> Workspace | None:
-    return db.scalar(select(Workspace).join(Membership).where(Membership.user_id == user_id).order_by(Workspace.id.asc()))
+    """Return the user's canonical (first-joined) workspace.
+
+    Ordering by ``Membership.id`` matches ``deps.get_current_workspace`` so
+    that ``/auth/me``, ``/auth/oauth-complete`` and every subsequent
+    authenticated request agree on which workspace is the default tenant for
+    a multi-workspace user.
+    """
+    membership = db.scalar(
+        select(Membership)
+        .where(Membership.user_id == user_id)
+        .order_by(Membership.id.asc())
+    )
+    if membership is None:
+        return None
+    return db.scalar(select(Workspace).where(Workspace.id == membership.workspace_id))
 
 
 def _verify_bearer(credentials: HTTPAuthorizationCredentials | None) -> tuple[str, dict]:
@@ -129,6 +144,16 @@ def register(payload: AuthRegisterRequest, db: Session = Depends(get_db)) -> Aut
 
         workspace = _provision_workspace(db, user, payload.workspace_name)
         db.commit()
+    except IntegrityError as exc:
+        # Two concurrent registrations with the same email raced past the
+        # pre-check. The Supabase identity we just minted is orphaned — clean
+        # it up and surface 409 so the client sees a consistent error.
+        db.rollback()
+        try:
+            admin_delete_user(sb_user.id)
+        except Exception:
+            logger.error("Failed to clean up Supabase user %s after integrity error", sb_user.id)
+        raise HTTPException(status_code=409, detail="Email already registered.") from exc
     except Exception:
         db.rollback()
         try:
@@ -192,68 +217,120 @@ def oauth_complete(
 
     Called after a first-time OAuth user (e.g. Google sign-in) authenticates
     with Supabase but has no local AccountUser record yet.
+
+    Idempotent: if called twice concurrently for the same Supabase user, the
+    losing request catches ``IntegrityError``, rolls back, re-queries by
+    ``supabase_user_id``, and returns the winning row with 200.
     """
     raw_token, jwt_payload = _verify_bearer(credentials)
     supabase_uid = jwt_payload["sub"]
     email = jwt_payload.get("email", "")
     metadata = jwt_payload.get("user_metadata") or {}
-    full_name = metadata.get("full_name") or metadata.get("name") or email.split("@")[0]
+    full_name = (
+        metadata.get("full_name")
+        or metadata.get("name")
+        or (email.split("@")[0] if email else "")
+    )
+
+    def _respond_existing(existing_user: AccountUser) -> JSONResponse:
+        """Return the 200 response for a user that already has a local row.
+
+        Validates the token against revocation, syncs an updated email from
+        Supabase, and lazy-provisions a workspace for legacy rows missing
+        one. Also invoked from the IntegrityError recovery path below.
+        """
+        if not existing_user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
+        if _is_token_revoked(existing_user, jwt_payload, raw_token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+        # Sync email if changed in Supabase (e.g. via account settings)
+        if email and email != existing_user.email:
+            conflict = db.scalar(
+                select(AccountUser).where(
+                    AccountUser.email == email,
+                    AccountUser.id != existing_user.id,
+                )
+            )
+            if conflict:
+                raise HTTPException(status_code=409, detail="Email already registered.")
+            existing_user.email = email
+            db.add(existing_user)
+            try:
+                db.commit()
+                db.refresh(existing_user)
+            except IntegrityError as exc:
+                # Concurrent sync raced us to the same email — rollback and
+                # reload to pick up the committed value.
+                db.rollback()
+                db.refresh(existing_user)
+                if existing_user.email != email:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Email already registered.",
+                    ) from exc
+        workspace = _workspace_for_user(db, existing_user.id)
+        if not workspace:
+            workspace = _provision_workspace(db, existing_user, payload.workspace_name)
+            db.commit()
+        return JSONResponse(
+            content=AuthResponse(
+                access_token="",
+                user=UserResponse.model_validate(existing_user),
+                workspace=workspace_summary(db, workspace, existing_user.id),
+            ).model_dump(),
+            status_code=status.HTTP_200_OK,
+        )
 
     # Return existing account if already provisioned
     existing = db.scalar(
         select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
     )
     if existing:
-        if not existing.is_active:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account_deactivated")
-        if _is_token_revoked(existing, jwt_payload, raw_token):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session expired. Please sign in again.",
-            )
-        # Sync email if changed in Supabase (e.g. via account settings)
-        if email and email != existing.email:
-            conflict = db.scalar(
-                select(AccountUser).where(
-                    AccountUser.email == email,
-                    AccountUser.id != existing.id,
-                )
-            )
-            if conflict:
-                raise HTTPException(status_code=409, detail="Email already registered.")
-            existing.email = email
-            db.add(existing)
-            db.commit()
-            db.refresh(existing)
-        workspace = _workspace_for_user(db, existing.id)
-        if not workspace:
-            workspace = _provision_workspace(db, existing, payload.workspace_name)
-            db.commit()
-        return JSONResponse(
-            content=AuthResponse(
-                access_token="",
-                user=UserResponse.model_validate(existing),
-                workspace=workspace_summary(db, workspace, existing.id),
-            ).model_dump(),
-            status_code=status.HTTP_200_OK,
+        return _respond_existing(existing)
+
+    # Provisioning path: require a usable email from the OAuth provider.
+    # NOTE: this guard runs AFTER the existing-account lookup so a
+    # previously-provisioned user whose provider later stopped returning an
+    # email (e.g. GitHub making it private) can still sign in via the
+    # existing-user path.
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="OAuth provider did not return an email address.",
         )
 
-    # Reject if email is already taken by a different account
+    # Fast-path: reject if email is already taken by a different account.
+    # Also caught by the IntegrityError branch below — this just gives a
+    # clearer error in the common case and avoids a wasted INSERT.
     email_taken = db.scalar(select(AccountUser).where(AccountUser.email == email))
     if email_taken:
         raise HTTPException(status_code=409, detail="Email already registered.")
 
-    user = AccountUser(
-        supabase_user_id=supabase_uid,
-        email=email,
-        full_name=full_name,
-    )
-    db.add(user)
-    db.flush()
-
     try:
+        user = AccountUser(
+            supabase_user_id=supabase_uid,
+            email=email,
+            full_name=full_name,
+        )
+        db.add(user)
+        db.flush()
         workspace = _provision_workspace(db, user, payload.workspace_name)
         db.commit()
+    except IntegrityError as exc:
+        # Race: another request wrote the same supabase_user_id or email
+        # between our pre-check and flush. Distinguish:
+        #   (a) winner keyed by our supabase_uid -> idempotent 200
+        #   (b) winner is a different Supabase identity with our email -> 409
+        db.rollback()
+        winner = db.scalar(
+            select(AccountUser).where(AccountUser.supabase_user_id == supabase_uid)
+        )
+        if winner is not None:
+            return _respond_existing(winner)
+        raise HTTPException(status_code=409, detail="Email already registered.") from exc
     except Exception:
         db.rollback()
         raise

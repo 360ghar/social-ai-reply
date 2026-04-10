@@ -4,7 +4,7 @@
 
 **Goal:** Replace the current 718-line static landing page with a premium, animated, dual-theme landing page built with Framer Motion + Tailwind CSS.
 
-**Architecture:** The landing page is decomposed into 13 independent client components under `web/components/landing/`, each responsible for one section. A root `LandingPage` component assembles them all. The theme system uses CSS custom properties toggled via a `ThemeProvider` client component that reads/writes `localStorage`.
+**Architecture:** The landing page is decomposed into 13 independent client components under `web/components/landing/`, each responsible for one section. A root `LandingPage` component assembles them all. The theme system uses CSS custom properties defined in the existing `web/styles/globals.css` and toggled via [`next-themes`](https://github.com/pacocoursey/next-themes), which is already wired into `web/app/layout.tsx` with `attribute="data-theme"`, `storageKey="rf-theme"`, and `defaultTheme="system"`. Landing components consume `useTheme` from `next-themes` directly — no custom `ThemeProvider` is created.
 
 **Tech Stack:** Next.js 16, React 18, Framer Motion (LazyMotion + domAnimation), Tailwind CSS v4 (via `@tailwindcss/postcss`), Inter + JetBrains Mono fonts via `next/font/google`.
 
@@ -17,8 +17,6 @@
 | File | Purpose |
 |------|---------|
 | `web/postcss.config.mjs` | PostCSS config with `@tailwindcss/postcss` plugin |
-| `web/styles/landing.css` | Tailwind import + theme CSS custom properties + landing-specific overrides |
-| `web/components/landing/theme-provider.tsx` | Theme toggle + localStorage persistence |
 | `web/components/landing/navbar.tsx` | Sticky nav with glass blur |
 | `web/components/landing/hero.tsx` | Centered hero with stagger animation |
 | `web/components/landing/social-proof.tsx` | Animated counter stats bar |
@@ -36,7 +34,8 @@
 
 | File | Change |
 |------|--------|
-| `web/app/layout.tsx` | Add ThemeProvider + landing.css import |
+| `web/styles/globals.css` | Append landing theme CSS custom properties (`--landing-*`) to the existing `:root` and `[data-theme="dark"]` blocks |
+| `web/app/layout.tsx` | No changes required — already wraps the tree with `next-themes` `ThemeProvider`, `AuthProvider`, `TooltipProvider`, and `<Toaster richColors position="bottom-right" />` |
 | `web/app/page.tsx` | Replace with thin wrapper importing `LandingPage` |
 | `web/package.json` | Add `framer-motion`, `tailwindcss`, `@tailwindcss/postcss` |
 
@@ -86,20 +85,18 @@ git commit -m "feat(landing): install framer-motion, tailwindcss, and postcss pl
 
 ---
 
-### Task 2: Theme CSS Custom Properties and Landing Stylesheet
+### Task 2: Theme CSS Custom Properties
 
 **Files:**
-- Create: `web/styles/landing.css`
-- Modify: `web/app/layout.tsx`
+- Modify: `web/styles/globals.css`
 
-- [ ] **Step 1: Create landing.css with theme tokens and Tailwind import**
+- [ ] **Step 1: Append theme tokens to globals.css**
 
-Create `web/styles/landing.css`:
+The existing `web/styles/globals.css` already imports Tailwind, defines `:root` and `[data-theme="dark"]` blocks, and is the single stylesheet imported by `web/app/layout.tsx`. Do NOT create a new `landing.css` — append the landing-specific custom properties below into the existing `:root` and `[data-theme="dark"]` selectors in `globals.css`, and add the landing-page helper rules at the bottom of the file.
+
 ```css
-@import "tailwindcss";
-
 /* ==========================================================================
-   THEME SYSTEM - CSS CUSTOM PROPERTIES
+   THEME SYSTEM - LANDING PAGE CSS CUSTOM PROPERTIES
    ========================================================================== */
 
 :root {
@@ -171,12 +168,16 @@ html {
 }
 ```
 
-- [ ] **Step 2: Update layout.tsx to import landing.css**
+- [ ] **Step 2: Verify the layout needs no changes**
 
-Modify `web/app/layout.tsx` — add the landing.css import after existing CSS imports:
-```tsx
-import "../styles/landing.css";
-```
+No edit to `web/app/layout.tsx` is required. The layout already imports `../styles/globals.css` and wraps the tree with:
+
+- `next-themes` `ThemeProvider` (`attribute="data-theme"`, `defaultTheme="system"`, `enableSystem`, `disableTransitionOnChange`, `storageKey="rf-theme"`)
+- `AuthProvider` (from `../components/auth/auth-provider`)
+- `TooltipProvider` (from `@/components/ui/tooltip`)
+- `<Toaster richColors position="bottom-right" />` (from `@/components/ui/sonner`)
+
+Theme tokens appended to `globals.css` in Step 1 take effect automatically because `[data-theme="dark"]` on `<html>` is already driven by `next-themes`.
 
 - [ ] **Step 3: Verify build**
 
@@ -189,93 +190,30 @@ Expected: Build passes with no errors
 - [ ] **Step 4: Commit**
 
 ```bash
-git add web/styles/landing.css web/app/layout.tsx
-git commit -m "feat(landing): add theme CSS custom properties and landing stylesheet"
+git add web/styles/globals.css
+git commit -m "feat(landing): add theme CSS custom properties"
 ```
 
 ---
 
-### Task 3: ThemeProvider Component
+### Task 3: Theme hook — already wired via `next-themes` (no action required)
 
-**Files:**
-- Create: `web/components/landing/theme-provider.tsx`
+**Status:** No files to create or modify. The app already uses `ThemeProvider` from `next-themes` in `web/app/layout.tsx`. Do NOT create `web/components/landing/theme-provider.tsx`.
 
-- [ ] **Step 1: Create ThemeProvider**
-
-Create `web/components/landing/theme-provider.tsx`:
-```tsx
-"use client";
-
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
-
-type Theme = "light" | "dark";
-
-interface ThemeContextValue {
-  theme: Theme;
-  toggleTheme: () => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue>({
-  theme: "light",
-  toggleTheme: () => {},
-});
-
-export function useTheme() {
-  return useContext(ThemeContext);
-}
-
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("rf-theme") as Theme | null;
-    if (stored) {
-      setTheme(stored);
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      setTheme("dark");
-    }
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("rf-theme", theme);
-  }, [theme, mounted]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
-  }, []);
-
-  // Prevent flash of wrong theme
-  if (!mounted) {
-    return <div style={{ visibility: "hidden" }}>{children}</div>;
-  }
-
-  return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-}
-```
-
-- [ ] **Step 2: Wrap layout with ThemeProvider**
-
-Modify `web/app/layout.tsx` to import and wrap children:
+Current `web/app/layout.tsx` (verbatim — do not modify):
 
 ```tsx
 import type { Metadata } from "next";
+import { ThemeProvider } from "next-themes";
+import { Toaster } from "@/components/ui/sonner";
 
 import "../styles/globals.css";
-import "../styles/components.css";
-import "../styles/layout.css";
-import "../styles/pages.css";
-import "../styles/utilities.css";
-import "../styles/landing.css";
-import { AuthProvider } from "../components/auth-provider";
-import { ThemeProvider } from "../components/landing/theme-provider";
+import { AuthProvider } from "../components/auth/auth-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Inter } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "RedditFlow",
@@ -285,10 +223,21 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning className={cn(inter.variable)}>
       <body>
-        <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+        <ThemeProvider
+          attribute="data-theme"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+          storageKey="rf-theme"
+        >
+          <AuthProvider>
+            <TooltipProvider>
+              {children}
+              <Toaster richColors position="bottom-right" />
+            </TooltipProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
@@ -296,20 +245,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-- [ ] **Step 3: Verify build**
+**Key points for landing components:**
 
-Run:
-```bash
-cd web && npm run build
-```
-Expected: Build passes
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add web/components/landing/theme-provider.tsx web/app/layout.tsx
-git commit -m "feat(landing): add ThemeProvider with localStorage persistence"
-```
+- Import `useTheme` from `next-themes`, **not** from a local `./theme-provider`:
+  ```tsx
+  import { useTheme } from "next-themes";
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  ```
+- The toggle handler is `setTheme(theme === "dark" ? "light" : "dark")` — `next-themes`' hook returns `{ theme, setTheme, resolvedTheme, ... }`, not a custom `{ theme, toggleTheme }` shape.
+- The theme attribute is `data-theme` on `<html>`, so CSS selectors use `[data-theme="dark"]` (matching the existing `globals.css`), not `.dark`.
+- `storageKey` is `"rf-theme"`.
+- To avoid SSR hydration mismatch, guard theme-dependent rendering behind a `useEffect` mount flag and read `resolvedTheme` after mount (standard `next-themes` pattern).
+- `TooltipProvider` and `<Toaster richColors position="bottom-right" />` are already mounted globally — landing components can use `Tooltip` and `toast()` from `sonner` directly without rewrapping.
 
 ---
 
@@ -326,7 +273,8 @@ Create `web/components/landing/navbar.tsx`:
 
 import Link from "next/link";
 import { motion, useScroll } from "framer-motion";
-import { useTheme } from "./theme-provider";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -335,7 +283,12 @@ const navLinks = [
 ];
 
 export function Navbar() {
-  const { theme, toggleTheme } = useTheme();
+  // Guard against SSR hydration mismatch: only read resolvedTheme after mount.
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const theme = mounted ? resolvedTheme : undefined;
+  const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
   const { scrollY } = useScroll();
 
   const isScrolled = scrollY > 100;
@@ -2091,9 +2044,9 @@ git commit -m "fix(landing): polish adjustments from visual verification"
 - Final CTA with gradient: Task 9 ✓
 - Footer: Task 9 ✓
 - LazyMotion + domAnimation: Task 10 ✓
-- ThemeProvider with localStorage: Task 3 ✓
+- Theme toggle via `next-themes` (pre-existing in `layout.tsx`): Task 3 no-op ✓
 - Framer Motion + Tailwind deps: Task 1 ✓
 
 **Placeholder scan:** No TBDs, TODOs, or "implement later" found.
 
-**Type consistency:** All components use consistent CSS variable names (`--landing-*`). ThemeProvider exports `useTheme()` used consistently in Navbar.
+**Type consistency:** All components use consistent CSS variable names (`--landing-*`) and import `useTheme` from `next-themes` directly (no custom provider).
