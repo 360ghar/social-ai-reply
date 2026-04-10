@@ -44,6 +44,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  
   /* Semantic status colors */
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
@@ -51,71 +52,86 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
-  /* Brand colors — coral is the primary accent (#FF6B6B).
-     --primary maps to the same value; use primary for semantic contexts
-     and coral-* for decorative/landing-page-specific contexts where the
-     brand identity needs to be distinct from semantic "primary" usage. */
+  
+  /* Brand colors */
   --color-coral: #FF6B6B;
   --color-coral-hover: #FF4757;
   --color-coral-glow: rgba(255, 107, 107, 0.15);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+
+  /* Auth panel tokens */
+  --color-auth-brand-from: var(--auth-brand-from);
+  --color-auth-brand-to: var(--auth-brand-to);
+  
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  
   --font-sans: var(--font-sans);
   --font-heading: var(--font-sans);
 }
 
 /* ==========================================================================
-   LIGHT MODE — Zinc Palette + Coral Accent
+   LIGHT MODE — Enterprise Palette + Coral Accent
    ========================================================================== */
 
 :root {
-  --radius: 0.625rem;
-  --background: #fafafa;
-  --foreground: #09090b;
+  --radius: 0.75rem;
+  --background: #fafaf9;
+  --foreground: #1c1917;
   --card: #ffffff;
-  --card-foreground: #09090b;
+  --card-foreground: #1c1917;
   --popover: #ffffff;
-  --popover-foreground: #09090b;
+  --popover-foreground: #1c1917;
   --primary: #FF6B6B;
   --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --destructive: #EF4444;
-  --destructive-foreground: #ffffff;
-  --border: #e4e4e7;
-  --input: #e4e4e7;
+  --secondary: #f5f5f4;
+  --secondary-foreground: #1c1917;
+  --muted: #f5f5f4;
+  --muted-foreground: #78716c;
+  --accent: #f5f5f4;
+  --accent-foreground: #1c1917;
+  --destructive: #ef4444;
+  --destructive-foreground: #fafaf9;
+  --border: #e7e5e4;
+  --input: #e7e5e4;
   --ring: #FF6B6B;
-  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.08);
-  /* Semantic status colors — light (WCAG AA compliant foreground colors) */
-  --success: #10B981;
-  --success-foreground: #065f46;
-  --warning: #F59E0B;
-  --warning-foreground: #78350f;
-  --info: #3B82F6;
-  --info-foreground: #1e3a8a;
-  /* Sidebar — always dark (design identity) */
-  --sidebar: #0e1930;
-  --sidebar-foreground: #fafafa;
+  --shadow-sm: 0 1px 2px rgba(120, 113, 108, 0.06);
+  --shadow-md: 0 4px 12px rgba(120, 113, 108, 0.08);
+  --shadow-lg: 0 10px 40px rgba(120, 113, 108, 0.08);
+
+  /* Semantic status colors */
+  --success: #10b981;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
+  --info: #3b82f6;
+  --info-foreground: #ffffff;
+
+  /* Sidebar — Light Mode */
+  --sidebar: #fafaf9;
+  --sidebar-foreground: #1c1917;
   --sidebar-primary: #FF6B6B;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: rgba(255, 255, 255, 0.09);
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-accent: #f5f5f4;
+  --sidebar-accent-foreground: #1c1917;
+  --sidebar-border: #e7e5e4;
   --sidebar-ring: #FF6B6B;
+
+  /* Auth panel — Light Mode */
+  --auth-brand-from: #0e1930;
+  --auth-brand-to: #1a2744;
+  --auth-brand-text: #ffffff;
+  --auth-brand-text-muted: rgba(255, 255, 255, 0.7);
+  --auth-brand-accent: rgba(255, 255, 255, 0.05);
+
   --chart-1: #FF6B6B;
-  --chart-2: #71717a;
-  --chart-3: #3B82F6;
-  --chart-4: #10B981;
-  --chart-5: #F59E0B;
+  --chart-2: #78716c;
+  --chart-3: #3b82f6;
+  --chart-4: #10b981;
+  --chart-5: #f59e0b;
 }
 
 /* ==========================================================================
@@ -123,51 +139,64 @@
    ========================================================================== */
 
 [data-theme="dark"] {
-  --background: #0a0a0b;
-  --foreground: #fafafa;
-  --card: #141416;
-  --card-foreground: #fafafa;
-  --popover: #141416;
-  --popover-foreground: #fafafa;
+  --background: #0c0a09;
+  --foreground: #fafaf9;
+  --card: #1c1917;
+  --card-foreground: #fafaf9;
+  --popover: #1c1917;
+  --popover-foreground: #fafaf9;
   --primary: #FF6B6B;
   --primary-foreground: #ffffff;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
-  --destructive: #EF4444;
-  --destructive-foreground: #ffffff;
-  --border: #2a2a30;
-  --input: #2a2a30;
+  --secondary: #292524;
+  --secondary-foreground: #fafaf9;
+  --muted: #292524;
+  --muted-foreground: #a8a29e;
+  --accent: #292524;
+  --accent-foreground: #fafaf9;
+  --destructive: #7f1d1d;
+  --destructive-foreground: #fafaf9;
+  --border: #292524;
+  --input: #292524;
   --ring: #FF6B6B;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.4);
-  /* Semantic status colors — dark */
-  --success: #34D399;
-  --success-foreground: #064E3B;
-  --warning: #FBBF24;
-  --warning-foreground: #78350F;
-  --info: #60A5FA;
-  --info-foreground: #1E3A5F;
-  --sidebar: #0b1223;
-  --sidebar-foreground: #fafafa;
+
+  /* Semantic status colors */
+  --success: #059669;
+  --success-foreground: #ffffff;
+  --warning: #d97706;
+  --warning-foreground: #0f172a;
+  --info: #2563eb;
+  --info-foreground: #ffffff;
+
+  /* Sidebar — Dark Mode */
+  --sidebar: #0c0a09;
+  --sidebar-foreground: #fafaf9;
   --sidebar-primary: #FF6B6B;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: rgba(255, 255, 255, 0.09);
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-accent: #292524;
+  --sidebar-accent-foreground: #fafaf9;
+  --sidebar-border: #292524;
   --sidebar-ring: #FF6B6B;
+
+  /* Auth panel — Dark Mode */
+  --auth-brand-from: #030712;
+  --auth-brand-to: #0f172a;
+  --auth-brand-text: #ffffff;
+  --auth-brand-text-muted: rgba(255, 255, 255, 0.65);
+  --auth-brand-accent: rgba(255, 255, 255, 0.04);
+
   --chart-1: #FF6B6B;
-  --chart-2: #a1a1aa;
-  --chart-3: #3B82F6;
-  --chart-4: #10B981;
-  --chart-5: #F59E0B;
+  --chart-2: #a8a29e;
+  --chart-3: #3b82f6;
+  --chart-4: #10b981;
+  --chart-5: #f59e0b;
   --color-coral-glow: rgba(255, 107, 107, 0.2);
 }
 
 /* ==========================================================================
-   BASE LAYER
+   BASE LAYER (Typography & Utilities)
    ========================================================================== */
 
 @layer base {
@@ -182,5 +211,44 @@
   html {
     scroll-behavior: smooth;
   }
+
+  /* Enterprise Typography Scale */
+  h1 { @apply text-4xl font-extrabold tracking-tight lg:text-5xl; }
+  h2 { @apply text-3xl font-semibold tracking-tight; }
+  h3 { @apply text-2xl font-semibold tracking-tight; }
+  h4 { @apply text-xl font-semibold tracking-tight; }
+  h5 { @apply text-lg font-semibold tracking-tight; }
+  h6 { @apply text-base font-semibold tracking-tight; }
 }
 
+/* ==========================================================================
+   SIDEBAR CUSTOM STYLES
+   ========================================================================== */
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: var(--sidebar-border);
+  border-radius: 999px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: var(--sidebar-accent);
+}
+
+.sidebar-nav {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-border) transparent;
+}
+
+@media (min-width: 768px) {
+  aside:has(.cursor-col-resize:hover) {
+    --sidebar-border: var(--sidebar-accent);
+  }
+}

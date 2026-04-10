@@ -426,12 +426,12 @@ export default function DiscoveryPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-8 p-6">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-8 w-24" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
@@ -460,7 +460,7 @@ export default function DiscoveryPage() {
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-8">
       {/* Page Header */}
       <PageHeader
         title="Opportunity Radar"
@@ -736,7 +736,7 @@ export default function DiscoveryPage() {
                 {filteredOpps.map((opp) => (
                   <div
                     key={opp.id}
-                    className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border bg-card p-4"
+                    className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border bg-card p-5"
                   >
                     {/* Left: Platform + subreddit */}
                     <div className="flex items-center gap-2 shrink-0">

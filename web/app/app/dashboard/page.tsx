@@ -426,12 +426,12 @@ export default function DashboardPage() {
   /* ---- loading skeleton ---- */
   if (loading) {
     return (
-      <div className="grid gap-6">
+      <div className="grid gap-8">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-36" />
           <Skeleton className="h-8 w-28" />
         </div>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-5 md:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <Skeleton key={i} className="h-24 rounded-xl" />
           ))}
@@ -451,7 +451,7 @@ export default function DashboardPage() {
   /*  RENDER                                                                  */
   /* =================================================================       */
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-8">
       {/* ---- Page Header ---- */}
       <PageHeader
         title="Dashboard"
@@ -469,9 +469,9 @@ export default function DashboardPage() {
 
       {/* ---- Quota Warning Banner ---- */}
       {nearQuota && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
-          <Zap className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <span className="text-sm text-amber-800 dark:text-amber-300">
+        <div className="flex items-center gap-3 rounded-xl border border-warning bg-warning/10 px-4 py-3">
+          <Zap className="h-4 w-4 text-warning" />
+          <span className="text-sm text-warning-foreground">
             Your project footprint is approaching its limit. Visit Settings to
             review usage.
           </span>
@@ -542,7 +542,7 @@ export default function DashboardPage() {
 
                 {/* Next-step card */}
                 {nextStep && (
-                  <div className="rounded-xl border bg-muted/50 p-4">
+                  <div className="rounded-xl border bg-muted/50 p-5">
                     <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       Next Step
                     </div>
@@ -668,7 +668,7 @@ export default function DashboardPage() {
                 {topOpps.slice(0, 6).map((opp) => (
                   <div
                     key={opp.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border bg-card p-4"
+                    className="flex items-start justify-between gap-3 rounded-xl border bg-card p-5"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -734,7 +734,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* ---- Sidebar ---- */}
-        <div className="grid gap-6">
+        <div className="grid gap-8">
           {/* Quick Actions Strip */}
           <Card size="sm">
             <CardContent className="flex gap-2 overflow-x-auto py-2">
@@ -802,7 +802,7 @@ export default function DashboardPage() {
 
       {/* ---- Create Project Dialog ---- */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create New Project</DialogTitle>
           </DialogHeader>

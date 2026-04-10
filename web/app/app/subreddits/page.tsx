@@ -134,7 +134,7 @@ export default function SubredditsPage() {
       />
 
       {message && (
-        <div className="rounded-md bg-muted px-4 py-3 text-sm">{message}</div>
+        <div className="rounded-lg bg-muted px-4 py-3 text-sm">{message}</div>
       )}
 
       {/* KPI Cards */}
@@ -184,7 +184,7 @@ export default function SubredditsPage() {
 
       {/* Communities Card Grid */}
       {!loading && filteredSubreddits.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredSubreddits.map((subreddit) => (
             <Card key={subreddit.id} className="p-5 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-2">
@@ -238,7 +238,7 @@ export default function SubredditsPage() {
 
               {/* Analysis */}
               {subreddit.analyses[0] && (
-                <div className="rounded-md bg-muted px-4 py-3 text-sm">
+                <div className="rounded-lg bg-muted px-4 py-3 text-sm">
                   <strong>Recommendation:</strong> {subreddit.analyses[0].recommendation}
                   {subreddit.analyses[0].audience_signals.length > 0 && (
                     <>

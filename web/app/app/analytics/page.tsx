@@ -135,9 +135,9 @@ export default function AnalyticsPage() {
     return (
       <div className="flex flex-col gap-8">
         <PageHeader title="Analytics" description="Track visibility trends, engagement funnel, and performance metrics." />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {[1, 2, 3, 4].map(i => (
-            <Card key={i} className="p-4">
+            <Card key={i} className="p-5">
               <Skeleton className="h-8 w-3/5 mb-2" />
               <Skeleton className="h-3 w-full" />
             </Card>
@@ -339,7 +339,7 @@ export default function AnalyticsPage() {
       </Card>
 
       {/* Section 3: Two columns - Keywords & Subreddits */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Top Keywords */}
         <Card className="p-5">
           <h3 className="text-sm font-semibold mb-4">Top Keywords by Priority Score</h3>
@@ -410,7 +410,7 @@ export default function AnalyticsPage() {
             {activity.slice(0, 12).map(evt => (
               <div
                 key={evt.id}
-                className="flex items-center gap-3 p-3 bg-muted rounded-lg text-sm"
+                className="flex items-center gap-3 p-3 bg-muted rounded-xl text-sm"
               >
                 <div className="w-2 h-2 rounded-full bg-primary shrink-0" />
                 <div className="flex-1">

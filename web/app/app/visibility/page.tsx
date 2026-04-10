@@ -176,7 +176,7 @@ export default function VisibilityPage() {
       <KPIGrid cards={kpiCards} columns={3} className="grid-cols-1 sm:grid-cols-3" />
 
       {/* Two-column layout: Left = Prompts, Right = Model Sidebar */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* LEFT: Prompt Sets Management */}
         <div>
           {promptSets.length === 0 ? (
@@ -193,7 +193,7 @@ export default function VisibilityPage() {
                 const lastChecked = psResults.length > 0 ? psResults[0].completed_at : null;
                 const visScore = psResults.filter(r => r.brand_mentioned).length > 0 ? 75 : 25;
                 return (
-                  <Card key={ps.id} className="p-4 rounded-xl">
+                  <Card key={ps.id} className="p-5 rounded-xl">
                     <div className="flex justify-between items-start mb-3">
                       <div>
                         <div className="text-sm font-semibold">{ps.name}</div>
@@ -230,7 +230,7 @@ export default function VisibilityPage() {
                         {expandedPromptId === ps.id && (
                           <div className="mt-3 space-y-2">
                             {psResults.map(r => (
-                              <div key={r.id} className="p-3 bg-muted rounded-lg text-sm grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 items-center">
+                              <div key={r.id} className="p-4 bg-muted rounded-xl text-sm grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 items-center">
                                 <div className="capitalize font-semibold text-xs">{r.model_name}</div>
                                 <div>
                                   {r.brand_mentioned
@@ -261,7 +261,7 @@ export default function VisibilityPage() {
 
         {/* RIGHT: Model Comparison Sidebar */}
         <div>
-          <Card className="p-4 rounded-xl">
+          <Card className="p-5 rounded-xl">
             <div className="text-sm font-semibold mb-3">Model Comparison</div>
             <div className="flex flex-col gap-2 mb-4">
               {AI_MODELS.map(m => (

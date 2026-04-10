@@ -229,8 +229,8 @@ export default function PersonaPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-3 gap-4">
+      <div className="space-y-8">
+        <div className="grid grid-cols-3 gap-5">
           <Card><CardContent><Skeleton className="h-20 w-full rounded-lg" /></CardContent></Card>
           <Card><CardContent><Skeleton className="h-20 w-full rounded-lg" /></CardContent></Card>
           <Card><CardContent><Skeleton className="h-20 w-full rounded-lg" /></CardContent></Card>
@@ -276,7 +276,7 @@ export default function PersonaPage() {
         <div className="grid gap-3">
           {personas.map((persona) => (
             <Card key={persona.id} className="transition-all hover:shadow-sm">
-              <CardContent className="p-4">
+              <CardContent className="p-5">
                 <div className="flex items-start gap-4">
                   {/* Main content */}
                   <div className="flex-1 min-w-0">

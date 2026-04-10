@@ -225,7 +225,7 @@ export default function AutoPipelinePage() {
   // State 1: Input State
   if (!activeRun) {
     return (
-      <div className="grid gap-6 max-w-[1000px] mx-auto">
+      <div className="grid gap-8 max-w-[1000px] mx-auto">
         <PageHeader
           title="Auto Pipeline"
           description="Enter any website URL and we'll build your complete engagement strategy"
@@ -443,7 +443,7 @@ export default function AutoPipelinePage() {
               {results.personas.map((persona, idx) => (
                 <div
                   key={idx}
-                  className="p-3 bg-card rounded-lg border"
+                  className="p-4 bg-card rounded-xl border"
                 >
                   <div className="font-semibold mb-1 text-sm">
                     {persona.name} {persona.role && `(${persona.role})`}
@@ -561,7 +561,7 @@ export default function AutoPipelinePage() {
               {results.drafts.slice(0, 5).map((draft, idx) => (
                 <div
                   key={idx}
-                  className="p-3 bg-card rounded-lg border"
+                  className="p-4 bg-card rounded-xl border"
                 >
                   <div className="text-xs text-muted-foreground mb-1.5">
                     Response to: <strong>{draft.opportunity_title}</strong>
@@ -628,7 +628,7 @@ function CounterCard({ label, value }: { label: string; value: number }) {
 
 function SummaryCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="p-4 bg-card border rounded-xl text-center">
+    <div className="p-5 bg-card border rounded-xl text-center">
       <div className="text-[28px] font-bold text-primary mb-1.5">
         {value}
       </div>

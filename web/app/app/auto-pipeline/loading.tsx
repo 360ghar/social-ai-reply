@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AutoPipelineLoading() {
   return (
-    <div className="grid gap-6 max-w-[1000px] mx-auto">
+    <div className="grid gap-8 max-w-[1000px] mx-auto">
       {/* Header row */}
       <div>
         <Skeleton className="h-8 w-36 mb-2" />

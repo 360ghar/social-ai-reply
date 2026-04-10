@@ -186,9 +186,9 @@ export default function SourcesPage() {
     return (
       <div className="flex flex-col gap-8">
         <PageHeader title="Source Intelligence" description="Understand which domains and URLs AI models cite when responding to prompts about your category." />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
           {[1, 2, 3, 4].map(i => (
-            <Card key={i} className="p-4">
+            <Card key={i} className="p-5">
               <Skeleton className="h-8 w-3/5 mb-2" />
               <Skeleton className="h-3 w-full" />
             </Card>
@@ -279,7 +279,7 @@ export default function SourcesPage() {
               {gaps.map(g => (
                 <div
                   key={g.id}
-                  className="rounded-lg border bg-card p-4 grid grid-cols-[1fr_auto] gap-3 items-center"
+                  className="rounded-xl border bg-card p-5 grid grid-cols-[1fr_auto] gap-3 items-center"
                 >
                   <div>
                     <div className="text-sm font-semibold">

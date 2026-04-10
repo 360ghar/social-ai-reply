@@ -13,7 +13,7 @@ export default function AnalyticsLoading() {
       </div>
 
       {/* 4-col KPI grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-24 rounded-xl" />
         ))}
@@ -26,7 +26,7 @@ export default function AnalyticsLoading() {
       <Skeleton className="h-56 rounded-xl" />
 
       {/* 2-col keywords & subreddits */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Skeleton className="h-64 rounded-xl" />
         <Skeleton className="h-64 rounded-xl" />
       </div>

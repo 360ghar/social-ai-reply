@@ -225,7 +225,7 @@ export default function PromptsPage() {
   const activeCopy = PROMPT_TYPE_COPY[activeTab];
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-8">
       <PageHeader
         title="Prompt Templates"
         description={activeCopy.description}
@@ -284,7 +284,7 @@ export default function PromptsPage() {
               {filteredTemplates.map((template) => (
                 <div
                   key={template.id}
-                  className="cursor-pointer rounded-lg border bg-card p-4 transition-all hover:shadow-md hover:border-primary/30"
+                  className="cursor-pointer rounded-xl border bg-card p-5 transition-all hover:shadow-md hover:border-primary/30"
                   onClick={() => {
                     setEditingTemplate(template);
                     setShowDrawer(true);

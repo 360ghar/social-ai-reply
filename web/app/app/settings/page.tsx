@@ -274,11 +274,11 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <PageHeader title="Settings" description="Manage workspace preferences, integrations, and account connections." />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="w-full overflow-x-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="reddit">
             Reddit
@@ -701,7 +701,7 @@ export default function SettingsPage() {
 
         {/* DANGER ZONE TAB */}
         <TabsContent value="danger">
-          <div className="mt-6 grid gap-6">
+          <div className="mt-6 grid gap-8">
             <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
               <h3 className="mb-4 text-sm font-semibold text-destructive">Export data</h3>
               <p className="mb-4 text-sm text-muted-foreground">

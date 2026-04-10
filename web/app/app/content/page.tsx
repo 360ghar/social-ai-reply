@@ -141,8 +141,8 @@ export default function ContentPage() {
         apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=drafting", selectedProjectId), {}, token),
         apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=posted", selectedProjectId), {}, token),
         apiRequest<PostDraft[]>(withProjectId("/v1/drafts/posts", selectedProjectId), {}, token),
-        apiRequest<RedditAccount[]>(`/v1/reddit/accounts?workspace_id=${selectedProjectId}`, {}, token),
-        apiRequest<PublishedPost[]>(withProjectId("/v1/reddit/published", selectedProjectId), {}, token),
+        apiRequest<{ items: RedditAccount[] }>(`/v1/reddit/accounts`, {}, token),
+        apiRequest<{ items: PublishedPost[] }>(withProjectId("/v1/reddit/published", selectedProjectId), {}, token),
       ]);
 
       if (dashboardRes.status === "fulfilled") {
@@ -155,8 +155,8 @@ export default function ContentPage() {
       setDrafts(draftingRes.status === "fulfilled" ? draftingRes.value : []);
       setPostedDrafts(postedRes.status === "fulfilled" ? postedRes.value : []);
       setPostDrafts(postsRes.status === "fulfilled" ? postsRes.value : []);
-      setRedditAccounts(accountsRes.status === "fulfilled" ? accountsRes.value : []);
-      setPublishedPosts(publishedRes.status === "fulfilled" ? publishedRes.value : []);
+      setRedditAccounts(accountsRes.status === "fulfilled" ? (accountsRes.value.items ?? []) : []);
+      setPublishedPosts(publishedRes.status === "fulfilled" ? (publishedRes.value.items ?? []) : []);
     } catch (err) {
       setDrafts([]);
       setPostedDrafts([]);
@@ -327,7 +327,7 @@ export default function ContentPage() {
   const totalPublished = postedDrafts.length + publishedPosts.length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="Content Studio"
         description="Manage reply drafts, original posts, and published activity from one workflow."
@@ -389,7 +389,7 @@ export default function ContentPage() {
                   className="cursor-pointer transition-colors hover:bg-accent/50"
                   onClick={() => openReplyDraft(draft)}
                 >
-                  <CardContent className="flex items-center gap-4 py-3">
+                  <CardContent className="flex items-center gap-4 py-4">
                     {/* Left section */}
                     <div className="flex items-center gap-2 shrink-0">
                       <PlatformIcon platform="reddit" />
@@ -479,7 +479,7 @@ export default function ContentPage() {
                   className="cursor-pointer transition-colors hover:bg-accent/50"
                   onClick={() => openPostDraft(draft)}
                 >
-                  <CardContent className="flex items-center gap-4 py-3">
+                  <CardContent className="flex items-center gap-4 py-4">
                     {/* Left section */}
                     <div className="flex items-center gap-2 shrink-0">
                       <PlatformIcon platform="reddit" />
@@ -539,7 +539,7 @@ export default function ContentPage() {
             <div className="space-y-2">
               {postedDrafts.map((draft) => (
                 <Card key={`reply-${draft.id}`}>
-                  <CardContent className="flex items-center gap-4 py-3">
+                  <CardContent className="flex items-center gap-4 py-4">
                     <div className="flex items-center gap-2 shrink-0">
                       <PlatformIcon platform="reddit" />
                       <StatusBadge variant="success">Posted</StatusBadge>
@@ -575,7 +575,7 @@ export default function ContentPage() {
               ))}
               {publishedPosts.map((post) => (
                 <Card key={`post-${post.id}`}>
-                  <CardContent className="flex items-center gap-4 py-3">
+                  <CardContent className="flex items-center gap-4 py-4">
                     <div className="flex items-center gap-2 shrink-0">
                       <PlatformIcon platform="reddit" />
                       <StatusBadge variant="success">{post.status}</StatusBadge>
@@ -724,7 +724,7 @@ export default function ContentPage() {
                   Why this response works
                 </CollapsibleTrigger>
                 <CollapsibleContent className="mt-2">
-                  <div className="rounded-lg bg-muted p-4">
+                  <div className="rounded-xl bg-muted p-5">
                     <p className="text-sm text-muted-foreground">{selectedReply.rationale}</p>
                   </div>
                 </CollapsibleContent>
@@ -782,7 +782,7 @@ export default function ContentPage() {
               <p className="text-xs text-muted-foreground">{postBody.length} characters</p>
             </div>
             {selectedPost.rationale && (
-              <div className="rounded-lg bg-muted p-4">
+              <div className="rounded-xl bg-muted p-5">
                 <h4 className="text-sm font-medium">Why this post works</h4>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {selectedPost.rationale || "Educational, useful, and structured for community-native publishing."}
@@ -802,7 +802,7 @@ export default function ContentPage() {
           </DialogHeader>
           {postingDraftId && postDrafts.find((d) => d.id === postingDraftId) && (
             <div className="space-y-4">
-              <div className="rounded-lg bg-muted p-4">
+              <div className="rounded-xl bg-muted p-5">
                 <strong className="block mb-2">
                   {postDrafts.find((d) => d.id === postingDraftId)?.title}
                 </strong>

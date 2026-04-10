@@ -27,7 +27,7 @@ export function KPICard({
   className,
 }: KPICardProps) {
   return (
-    <Card className={cn("p-4", className)}>
+    <Card className={cn("p-5 shadow-sm hover:shadow-md transition-shadow", className)}>
       <CardContent className="p-0 flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -68,10 +68,10 @@ export function KPIGrid({
   return (
     <div
       className={cn(
-        "grid gap-4",
+        "grid gap-5",
         columns === 2 && "grid-cols-2",
         columns === 3 && "grid-cols-1 sm:grid-cols-3",
-        columns === 4 && "grid-cols-1 sm:grid-cols-2 md:grid-cols-4",
+        columns === 4 && "grid-cols-2 lg:grid-cols-4",
         className
       )}
     >

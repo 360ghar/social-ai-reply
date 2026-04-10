@@ -70,7 +70,7 @@ export function MobileNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-border bg-background md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-border bg-background pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_3px_rgba(120,113,108,0.06)] dark:shadow-[0_-1px_3px_rgba(0,0,0,0.2)] md:hidden">
         {TAB_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;

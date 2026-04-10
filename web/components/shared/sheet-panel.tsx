@@ -56,7 +56,7 @@ export function SheetPanel({
         <div className="flex-1 overflow-y-auto p-6">{children}</div>
 
         {footer && (
-          <div className="border-t border-border p-4 flex flex-row items-center justify-end gap-2">
+          <div className="border-t border-border p-5 flex flex-row items-center justify-end gap-2">
             {footer}
           </div>
         )}

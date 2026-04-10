@@ -179,7 +179,7 @@ export default function BrandPage() {
   const completion = calculateCompletion();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="Brand Profile"
         actions={
@@ -204,7 +204,7 @@ export default function BrandPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsContent value="profile">
           <form onSubmit={saveBrand}>
-            <div className="grid gap-6">
+            <div className="grid gap-8">
               {/* Identity Group */}
               <Card>
                 <CardContent className="p-6">
@@ -372,19 +372,19 @@ export default function BrandPage() {
               </form>
 
               <div className="space-y-3 mt-6">
-                <div className="rounded-lg border bg-card p-4">
+                <div className="rounded-xl border bg-card p-5">
                   <strong className="text-sm font-semibold">Summary</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     {brand.summary && brand.summary.trim() ? brand.summary : "No summary yet. Analyze your website to fill this."}
                   </p>
                 </div>
-                <div className="rounded-lg border bg-card p-4">
+                <div className="rounded-xl border bg-card p-5">
                   <strong className="text-sm font-semibold">Call to action</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     {brand.call_to_action && brand.call_to_action.trim() ? brand.call_to_action : "No CTA yet. Analyze your website to fill this."}
                   </p>
                 </div>
-                <div className="rounded-lg border bg-card p-4">
+                <div className="rounded-xl border bg-card p-5">
                   <strong className="text-sm font-semibold">Last website scan</strong>
                   <p className="text-sm text-muted-foreground mt-1">
                     {brand.last_analyzed_at ? new Date(brand.last_analyzed_at).toLocaleDateString() : "Not analyzed yet"}

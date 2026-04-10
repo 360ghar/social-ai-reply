@@ -17,10 +17,10 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <div className={cn("border-b border-border pb-4", className)}>
+    <div className={cn("border-b border-border pb-6", className)}>
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">{title}</h2>
           {description && (
             <p className="text-sm text-muted-foreground mt-1">{description}</p>
           )}

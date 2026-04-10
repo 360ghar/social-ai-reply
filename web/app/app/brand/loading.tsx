@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function BrandLoading() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header row with completeness indicator */}
       <div className="flex items-center justify-between">
         <Skeleton className="h-8 w-36" />
