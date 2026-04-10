@@ -71,7 +71,14 @@ def _is_token_revoked(user: dict, payload: dict, token: str) -> bool:
     issued_at = _issued_at_utc(payload)
     if issued_at is None:
         return True
-    return issued_at < _coerce_utc(user["tokens_invalid_before"])
+    tokens_invalid_before = user["tokens_invalid_before"]
+    # Handle both datetime objects and ISO strings
+    if isinstance(tokens_invalid_before, str):
+        try:
+            tokens_invalid_before = datetime.fromisoformat(tokens_invalid_before.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+    return issued_at < _coerce_utc(tokens_invalid_before)
 
 
 def get_current_user(
@@ -289,12 +296,12 @@ def ensure_default_prompts(supabase: Client, project_id: int) -> None:
 
 def workspace_summary(supabase: Client, workspace: dict, user_id: int) -> WorkspaceSummary:
     """Build workspace summary response."""
-    ensure_workspace_membership(supabase, workspace["id"], user_id)
+    membership = ensure_workspace_membership(supabase, workspace["id"], user_id)
     return WorkspaceSummary(
         id=workspace["id"],
         name=workspace["name"],
         slug=workspace["slug"],
-        role="owner",  # Simplified - would need membership lookup for actual role
+        role=membership.get("role", "member"),
     )
 
 

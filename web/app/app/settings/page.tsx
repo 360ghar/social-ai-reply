@@ -548,13 +548,14 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <code className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground font-mono">
-                            {maskSecret(secret.id.toString())}
-                          </code>
+                          <Badge variant="secondary" className="text-xs">
+                            {secret.provider} • {secret.label}
+                          </Badge>
                           <Button
                             variant="ghost"
                             size="icon-xs"
                             onClick={() => setDeleteSecretId(secret.id)}
+                            aria-label={`Delete ${secret.provider} secret`}
                           >
                             <Trash2 className="h-4 w-4 text-muted-foreground" />
                           </Button>

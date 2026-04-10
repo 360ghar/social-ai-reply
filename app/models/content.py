@@ -30,7 +30,7 @@ class PostDraft(BaseModel):
     id: int
     project_id: int
     title: str = Field(min_length=1, max_length=300)
-    content: str = Field(min_length=1)
+    body: str = Field(min_length=1)
     target_subreddit: str | None = None
     is_approved: bool = False
     approved_at: datetime | None = None

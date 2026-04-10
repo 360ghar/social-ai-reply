@@ -223,7 +223,10 @@ export default function SourcesPage() {
         <TabsList>
           <TabsTrigger value="all">
             All Citations
-            <Badge variant="secondary" className="ml-1.5">{citationTotal}</Badge>
+            <Badge variant="secondary" className="ml-1.5">
+              {citationTotal}
+              {citationTotal > 50 && " (50 shown)"}
+            </Badge>
           </TabsTrigger>
           <TabsTrigger value="owned">
             Our Sources

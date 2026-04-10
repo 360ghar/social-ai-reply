@@ -95,13 +95,13 @@
   --input: #e4e4e7;
   --ring: #FF6B6B;
   --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.08);
-  /* Semantic status colors — light */
+  /* Semantic status colors — light (WCAG AA compliant foreground colors) */
   --success: #10B981;
-  --success-foreground: #ffffff;
+  --success-foreground: #065f46;
   --warning: #F59E0B;
-  --warning-foreground: #ffffff;
+  --warning-foreground: #78350f;
   --info: #3B82F6;
-  --info-foreground: #ffffff;
+  --info-foreground: #1e3a8a;
   /* Sidebar — always dark (design identity) */
   --sidebar: #0e1930;
   --sidebar-foreground: #fafafa;

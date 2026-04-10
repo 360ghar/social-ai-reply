@@ -22,9 +22,9 @@ interface SheetPanelProps {
 }
 
 const widthClasses = {
-  sm: "sm:max-w-sm",
-  md: "sm:max-w-md",
-  lg: "sm:max-w-lg",
+  sm: "!sm:max-w-sm",
+  md: "!sm:max-w-md",
+  lg: "!sm:max-w-lg",
 } as const;
 
 export function SheetPanel({

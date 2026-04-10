@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ChevronDown, ChevronRight, Check, Zap } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -89,6 +89,7 @@ const PIPELINE_STEPS = [
 
 export default function AutoPipelinePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { token } = useAuth();
   const toast = useToast();
   const selectedProjectId = useSelectedProjectId();
@@ -100,6 +101,14 @@ export default function AutoPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [expanding, setExpanding] = useState<Record<string, boolean>>({});
+
+  // Pre-populate URL from query string if present
+  useEffect(() => {
+    const urlParam = searchParams.get("url");
+    if (urlParam) {
+      setUrlInput(urlParam);
+    }
+  }, [searchParams]);
 
   // Load previous runs on mount
   useEffect(() => {

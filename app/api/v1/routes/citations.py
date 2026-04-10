@@ -43,7 +43,7 @@ def list_citations(
     from app.db.tables.visibility import list_citations_for_prompt_sets
     all_citations = list_citations_for_prompt_sets(supabase, set_ids, limit=limit, offset=offset)
 
-    # Filter by domain if specified
+    # Filter by domain if specified (apply filter before pagination for accurate total)
     if domain:
         all_citations = [c for c in all_citations if domain.lower() in c.get("domain", "").lower()]
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from app.services.product.copilot.llm_client import LLMClient
 
 
@@ -65,12 +67,15 @@ def _ai_reply(
             "voice_notes": brand.get("voice_notes") if brand else "",
             "cta": brand.get("call_to_action") if brand else "",
         }
-        user_content = (
-            f'{{"opportunity": {{"title": "{opportunity.get("title", "")}", '
-            f'"body_excerpt": "{opportunity.get("body_excerpt", "")}", '
-            f'"subreddit": "{opportunity.get("subreddit", "")}"}}, '
-            f'"brand": {brand_context}, "prompt_context": "{prompt_context}"}}'
-        )
+        user_content = json.dumps({
+            "opportunity": {
+                "title": opportunity.get("title", ""),
+                "body_excerpt": opportunity.get("body_excerpt", ""),
+                "subreddit": opportunity.get("subreddit", ""),
+            },
+            "brand": brand_context,
+            "prompt_context": prompt_context,
+        })
         payload = llm.call(system_prompt, user_content, temperature=0.4)
         if not payload:
             return None

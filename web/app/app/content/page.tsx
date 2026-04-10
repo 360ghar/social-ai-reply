@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Loader2,
@@ -94,6 +95,7 @@ interface PublishedPost {
 }
 
 export default function ContentPage() {
+  const router = useRouter();
   const { token } = useAuth();
   const { success, error } = useToast();
   const selectedProjectId = useSelectedProjectId();
@@ -364,9 +366,11 @@ export default function ContentPage() {
 
       {loading && <p className="text-sm text-muted-foreground">Loading studio content...</p>}
 
-      {/* Replies Tab */}
-      {!loading && (
-        <TabsContent value="replies">
+      {/* Tabs Content Wrapper */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        {/* Replies Tab */}
+        {!loading && (
+          <TabsContent value="replies">
           {drafts.length === 0 ? (
             <EmptyState
               icon={MessageSquare}
@@ -374,7 +378,7 @@ export default function ContentPage() {
               description="Generate response drafts from Engagement Radar. They will appear here for review, revision, and manual publishing."
               action={{
                 label: "Open Engagement Radar",
-                onClick: () => {},
+                onClick: () => router.push("/app/discovery"),
               }}
             />
           ) : (
@@ -589,7 +593,7 @@ export default function ContentPage() {
 
                     <div className="flex items-center gap-2 shrink-0">
                       {post.permalink && (
-                        <a href={post.permalink} target="_blank" rel="noopener noreferrer">
+                        <a href={redditUrl(post.permalink)} target="_blank" rel="noopener noreferrer">
                           <Button variant="outline" size="xs">
                             <ExternalLink className="h-3 w-3" /> View on Reddit
                           </Button>
@@ -626,7 +630,8 @@ export default function ContentPage() {
             </CardContent>
           </Card>
         </TabsContent>
-      )}
+        )}
+      </Tabs>
 
       {/* Reply Draft SheetPanel */}
       <SheetPanel
@@ -776,7 +781,7 @@ export default function ContentPage() {
               />
               <p className="text-xs text-muted-foreground">{postBody.length} characters</p>
             </div>
-            {(selectedPost.rationale || true) && (
+            {selectedPost.rationale && (
               <div className="rounded-lg bg-muted p-4">
                 <h4 className="text-sm font-medium">Why this post works</h4>
                 <p className="mt-1 text-sm text-muted-foreground">

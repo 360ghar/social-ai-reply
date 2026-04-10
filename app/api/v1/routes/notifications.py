@@ -32,7 +32,8 @@ def list_notifications(
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
     # Get all notifications for workspace, then filter for user-specific or global
-    all_notifications = list_notifications_for_workspace(supabase, workspace["id"], limit=limit + offset)
+    # Fetch extra to ensure we have enough after filtering by user
+    all_notifications = list_notifications_for_workspace(supabase, workspace["id"], limit=(limit + offset) * 3)
     # Filter for user-specific or global (user_id is None) notifications
     notifications = [
         n for n in all_notifications

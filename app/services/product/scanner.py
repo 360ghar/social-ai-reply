@@ -141,7 +141,7 @@ def run_scan(db: Client, project: dict, payload: ScanRequest) -> dict:
 def _safe_subreddit_rules(reddit: RedditClient, subreddit_name: str) -> list[str]:
     """Safely fetch subreddit rules with a timeout."""
     try:
-        return reddit.get_subreddit_rules(subreddit_name)
+        return reddit.subreddit_rules(subreddit_name)
     except Exception:
         return []
 

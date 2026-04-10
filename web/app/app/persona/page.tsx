@@ -356,7 +356,7 @@ export default function PersonaPage() {
             <DialogTitle>Add Persona</DialogTitle>
             <DialogDescription>Describe a customer type you want to reach on Reddit.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={(e) => void createPersona(e)} className="grid gap-4">
+          <form id="create-persona-form" onSubmit={(e) => void createPersona(e)} className="grid gap-4">
             <div className="space-y-2">
               <Label htmlFor="create-name">Customer type</Label>
               <Input
@@ -390,11 +390,7 @@ export default function PersonaPage() {
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setDraft(emptyPersona); }}>
               Cancel
             </Button>
-            <Button onClick={() => {
-              const form = document.createElement("form");
-              form.requestSubmit?.(document.createElement("button"));
-              void createPersona({ preventDefault: () => {} } as FormEvent);
-            }} disabled={isCreating}>
+            <Button type="submit" form="create-persona-form" disabled={isCreating}>
               {isCreating && <Loader2 className="h-4 w-4 animate-spin" />}
               Save
             </Button>

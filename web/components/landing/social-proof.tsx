@@ -77,7 +77,8 @@ export function SocialProof() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.6 }}
-          className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:hidden no-scrollbar"
+          className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:hidden"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           {stats.map((stat) => (
             <div key={stat.label} className="min-w-[200px] snap-center flex-shrink-0 rounded-2xl border border-border bg-background p-6">
@@ -86,16 +87,6 @@ export function SocialProof() {
           ))}
         </m.div>
       </div>
-
-      <style jsx>{`
-        .no-scrollbar::-webkit-scrollbar {
-          display: none;
-        }
-        .no-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-      `}</style>
     </section>
   );
 }

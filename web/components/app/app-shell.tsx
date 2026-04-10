@@ -133,7 +133,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const selectedProjectId = useSelectedProjectId();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  const { sidebarOpen, setSidebarOpen, notifPanelOpen, setNotifPanelOpen } = useUIStore();
+  // Separate state for desktop and mobile notification popovers to avoid conflicts
+  const [desktopNotifOpen, setDesktopNotifOpen] = useState(false);
+  const [mobileNotifOpen, setMobileNotifOpen] = useState(false);
+  const { sidebarOpen, setSidebarOpen } = useUIStore();
 
   const notificationGroups = useMemo(() => groupNotifications(notifications), [notifications]);
 
@@ -279,7 +282,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
     if (notif.link) {
       router.push(notif.link);
-      setNotifPanelOpen(false);
+      setDesktopNotifOpen(false);
+      setMobileNotifOpen(false);
     }
   }
 
@@ -435,7 +439,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-3">
             {/* Notification popover (hidden on mobile) */}
             <div className="hidden md:block">
-              <Popover open={notifPanelOpen} onOpenChange={setNotifPanelOpen}>
+              <Popover open={desktopNotifOpen} onOpenChange={setDesktopNotifOpen}>
                 <span className="relative inline-flex">
                   <PopoverTrigger
                     className="relative flex items-center justify-center h-[34px] px-2.5 rounded-lg border border-border bg-transparent hover:bg-muted cursor-pointer text-foreground"
@@ -517,7 +521,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
             {/* Mobile notification bell (simplified) */}
             <div className="md:hidden">
-              <Popover open={notifPanelOpen} onOpenChange={setNotifPanelOpen}>
+              <Popover open={mobileNotifOpen} onOpenChange={setMobileNotifOpen}>
                 <span className="relative inline-flex">
                   <PopoverTrigger
                     className="relative flex items-center justify-center h-8 w-8 rounded-lg bg-transparent border-none cursor-pointer text-foreground"

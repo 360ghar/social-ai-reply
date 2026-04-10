@@ -70,7 +70,7 @@ export function ProductPreview() {
                       <div className="mt-1 text-xs text-muted-foreground">78% profile complete</div>
                     </div>
                   </div>
-                  <div className="col-span-2 space-y-3">
+                  <div className="col-span-1 md:col-span-2 space-y-3">
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                       {[
                         { label: "Visibility Score", value: "87", change: "+12%" },

@@ -7,7 +7,7 @@ from app.services.product.relevance import canonicalize_keyword_phrase, normaliz
 
 def suggest_personas(brand: dict | None, count: int = 4) -> list[dict]:
     """Generate persona suggestions from brand target audience."""
-    seed = split_csv_terms(brand.target_audience if brand and brand.target_audience else "founders, marketers, operators")
+    seed = split_csv_terms(brand.get("target_audience") if brand and brand.get("target_audience") else "founders, marketers, operators")
     if not seed:
         seed = ["founders", "marketers", "operators"]
     personas = []

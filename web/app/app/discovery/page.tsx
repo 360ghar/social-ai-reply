@@ -410,6 +410,8 @@ export default function DiscoveryPage() {
   if (statusFilter) {
     filteredOpps = filteredOpps.filter((opp) => opp.status === statusFilter);
   }
+  // Note: campaignFilter is UI-ready but opportunities don't have campaign_id yet
+  // Future enhancement: add campaign association to opportunities table
   filteredOpps.sort((a, b) => (b.score || 0) - (a.score || 0));
 
   // Status filter tabs

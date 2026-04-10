@@ -1,7 +1,7 @@
 "use client";
 
-import type { ElementType, ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { isValidElement, type ElementType, type ReactNode } from "react";
+import { Loader2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -52,7 +52,7 @@ export function DataTable<T extends Record<string, unknown>>({
     }
     return (
       <EmptyState
-        icon={Loader2}
+        icon={Inbox}
         title="No data"
         description="No items to display"
       />
@@ -76,13 +76,18 @@ export function DataTable<T extends Record<string, unknown>>({
           <TableBody>
             {data.map((row, rowIndex) => (
               <TableRow key={(row as Record<string, unknown>).id?.toString() ?? rowIndex}>
-                {columns.map((col) => (
-                  <TableCell key={col.key} className={col.className}>
-                    {col.render
-                      ? col.render(row)
-                      : (row[col.key] as ReactNode) ?? ""}
-                  </TableCell>
-                ))}
+                {columns.map((col) => {
+                  const value = col.render ? col.render(row) : row[col.key];
+                  // Only render primitives or React elements - skip objects that will crash
+                  if (value != null && typeof value === "object" && !isValidElement(value)) {
+                    return <TableCell key={col.key} className={col.className} />;
+                  }
+                  return (
+                    <TableCell key={col.key} className={col.className}>
+                      {(value as unknown as ReactNode) ?? ""}
+                    </TableCell>
+                  );
+                })}
               </TableRow>
             ))}
           </TableBody>

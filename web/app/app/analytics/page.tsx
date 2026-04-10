@@ -226,38 +226,49 @@ export default function AnalyticsPage() {
         ) : (
           <svg
             viewBox={`0 0 100 ${chartHeight}`}
-            preserveAspectRatio="none"
+            preserveAspectRatio="xMinYMin meet"
             className="w-full"
             style={{ height: chartHeight }}
             role="img"
             aria-label="Visibility score trend chart"
           >
-            {/* Y-axis labels */}
-            {[0, 25, 50, 75, 100].map(val => {
-              const y = chartPadding.top + plotHeight - (val / maxTrendScore) * plotHeight;
-              return (
-                <g key={val}>
-                  <text
-                    x={chartPadding.left - 4}
-                    y={y + 3}
-                    textAnchor="end"
-                    className="fill-muted-foreground"
-                    style={{ fontSize: "2.5px" }}
-                  >
-                    {val}
-                  </text>
-                  <line
-                    x1={chartPadding.left}
-                    y1={y}
-                    x2={100 - chartPadding.right}
-                    y2={y}
-                    stroke="var(--color-border)"
-                    strokeWidth="0.15"
-                    strokeDasharray="1,1"
-                  />
-                </g>
-              );
-            })}
+            {/* Y-axis labels - computed dynamically from maxTrendScore */}
+            {(() => {
+              const max = maxTrendScore || 100;
+              const step = max >= 100 ? 25 : max >= 50 ? 10 : max >= 20 ? 5 : 1;
+              const ticks: number[] = [];
+              for (let v = 0; v <= max; v += step) {
+                ticks.push(v);
+              }
+              if (ticks[ticks.length - 1] !== max) {
+                ticks.push(max);
+              }
+              return ticks.map(val => {
+                const y = chartPadding.top + plotHeight - (val / max) * plotHeight;
+                return (
+                  <g key={val}>
+                    <text
+                      x={chartPadding.left - 4}
+                      y={y + 3}
+                      textAnchor="end"
+                      className="fill-muted-foreground"
+                      style={{ fontSize: "2.5px" }}
+                    >
+                      {Math.round(val)}
+                    </text>
+                    <line
+                      x1={chartPadding.left}
+                      y1={y}
+                      x2={100 - chartPadding.right}
+                      y2={y}
+                      stroke="var(--color-border)"
+                      strokeWidth="0.15"
+                      strokeDasharray="1,1"
+                    />
+                  </g>
+                );
+              });
+            })()}
 
             {/* Bars */}
             {chartData.map((d, i) => {

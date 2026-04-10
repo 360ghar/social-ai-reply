@@ -100,14 +100,9 @@ def get_auto_pipeline(
     projects = list_projects_for_workspace(supabase, workspace["id"])
     project_ids = [p["id"] for p in projects]
 
-    # Find pipeline in workspace projects
-    pipeline = None
-    for pid in project_ids:
-        pipeline = get_auto_pipeline_by_id(supabase, pipeline_id)
-        if pipeline and pipeline["project_id"] == pid:
-            break
-
-    if not pipeline:
+    # Fetch pipeline once and verify it belongs to workspace
+    pipeline = get_auto_pipeline_by_id(supabase, pipeline_id)
+    if not pipeline or pipeline["project_id"] not in project_ids:
         raise HTTPException(404, "Pipeline not found.")
 
     response = {
@@ -215,14 +210,9 @@ def execute_auto_pipeline(
     projects = list_projects_for_workspace(supabase, workspace["id"])
     project_ids = [p["id"] for p in projects]
 
-    # Find pipeline in workspace projects
-    pipeline = None
-    for pid in project_ids:
-        pipeline = get_auto_pipeline_by_id(supabase, pipeline_id)
-        if pipeline and pipeline["project_id"] == pid:
-            break
-
-    if not pipeline:
+    # Fetch pipeline once and verify it belongs to workspace
+    pipeline = get_auto_pipeline_by_id(supabase, pipeline_id)
+    if not pipeline or pipeline["project_id"] not in project_ids:
         raise HTTPException(404, "Pipeline not found.")
 
     if pipeline["status"] != "ready":

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { m, useScroll, useMotionValueEvent } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -18,10 +18,15 @@ export function Navbar() {
   const { scrollY } = useScroll();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     setIsScrolled(latest > 100);
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <m.nav
@@ -67,7 +72,7 @@ export function Navbar() {
               className="hidden h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors duration-200 md:flex"
               aria-label="Toggle theme"
             >
-              {resolvedTheme === "dark" ? (
+              {!mounted ? null : resolvedTheme === "dark" ? (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="5" />
                   <line x1="12" y1="1" x2="12" y2="3" />
@@ -130,7 +135,7 @@ export function Navbar() {
                   onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
                   className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-muted text-sm text-muted-foreground transition-colors duration-200"
                 >
-                  {resolvedTheme === "dark" ? (
+                  {!mounted ? null : resolvedTheme === "dark" ? (
                     <>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="12" r="5" />

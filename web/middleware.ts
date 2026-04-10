@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PROTECTED_PREFIX = "/app/";
+const PROTECTED_PREFIX = "/app";
 const AUTH_PAGES = ["/login", "/register", "/reset-password", "/auth/setup"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  // Check for server-validated session cookie (set by auth-provider after successful auth)
   const hasSession = request.cookies.get("rf_has_session")?.value === "1";
 
   // Redirect unauthenticated users away from protected routes
@@ -26,5 +27,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login", "/register", "/reset-password", "/auth/setup"],
+  matcher: ["/app/:path*", "/app", "/login", "/register", "/reset-password", "/auth/setup"],
 };

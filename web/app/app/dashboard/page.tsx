@@ -48,6 +48,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KPIGrid } from "@/components/shared/kpi-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
+import { redditUrl } from "@/lib/reddit";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -679,7 +680,7 @@ export default function DashboardPage() {
                         </Badge>
                       </div>
                       <a
-                        href={opp.permalink}
+                        href={redditUrl(opp.permalink)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-1.5 block truncate text-sm font-semibold text-foreground hover:underline"

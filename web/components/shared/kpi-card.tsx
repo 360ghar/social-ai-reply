@@ -70,13 +70,13 @@ export function KPIGrid({
       className={cn(
         "grid gap-4",
         columns === 2 && "grid-cols-2",
-        columns === 3 && "grid-cols-3",
-        columns === 4 && "grid-cols-2 md:grid-cols-4",
+        columns === 3 && "grid-cols-1 sm:grid-cols-3",
+        columns === 4 && "grid-cols-1 sm:grid-cols-2 md:grid-cols-4",
         className
       )}
     >
-      {cards.map((card, index) => (
-        <KPICard key={card.label + index} {...card} />
+      {cards.map((card) => (
+        <KPICard key={card.label} {...card} />
       ))}
     </div>
   );

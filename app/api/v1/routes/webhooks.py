@@ -90,10 +90,12 @@ def update_webhook(
         raise HTTPException(status_code=404, detail="Webhook not found.")
     if row["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Webhook not found.")
+    # Build update dict with only mutable fields
+    update_data = {}
     for key, value in payload.model_dump(exclude_unset=True).items():
-        if key in row:
-            row[key] = value
-    updated = update_webhook_endpoint(supabase, webhook_id, row)
+        if key in ("url", "name", "description", "is_active", "secret"):
+            update_data[key] = value
+    updated = update_webhook_endpoint(supabase, webhook_id, update_data)
     return WebhookResponse.model_validate(updated)
 
 

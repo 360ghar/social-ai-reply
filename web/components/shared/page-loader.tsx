@@ -15,7 +15,7 @@ interface PageLoaderProps {
 export function PageLoader({ preset = "default", className }: PageLoaderProps) {
   if (preset === "dashboard") {
     return (
-      <div className="space-y-6 p-6">
+      <div className={["space-y-6 p-6", className].filter(Boolean).join(" ")}>
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-36" />
           <Skeleton className="h-8 w-28" />
@@ -38,7 +38,7 @@ export function PageLoader({ preset = "default", className }: PageLoaderProps) {
 
   if (preset === "list") {
     return (
-      <div className="space-y-6 p-6">
+      <div className={["space-y-6 p-6", className].filter(Boolean).join(" ")}>
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-44" />
           <Skeleton className="h-8 w-32" />
@@ -54,7 +54,7 @@ export function PageLoader({ preset = "default", className }: PageLoaderProps) {
 
   if (preset === "stats") {
     return (
-      <div className="space-y-6 p-6">
+      <div className={["space-y-6 p-6", className].filter(Boolean).join(" ")}>
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-8 w-28" />
@@ -71,7 +71,7 @@ export function PageLoader({ preset = "default", className }: PageLoaderProps) {
 
   // default
   return (
-    <div className="space-y-6 p-6">
+    <div className={["space-y-6 p-6", className].filter(Boolean).join(" ")}>
       <div className="flex items-center justify-between">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-8 w-32" />

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from app.services.product.copilot.llm_client import LLMClient
 
 
@@ -47,12 +49,12 @@ def _ai_post(llm: LLMClient, brand: dict | None, prompt_context: str) -> tuple[s
     """Generate post using LLM."""
     try:
         system_prompt = "Return JSON with title, body, and rationale for a non-promotional Reddit post."
-        user_content = (
-            f'{{"brand_name": "{brand.get("brand_name") if brand else ""}", '
-            f'"summary": "{brand.get("summary") if brand else ""}", '
-            f'"voice_notes": "{brand.get("voice_notes") if brand else ""}", '
-            f'"prompt_context": "{prompt_context}"}}'
-        )
+        user_content = json.dumps({
+            "brand_name": brand.get("brand_name") if brand else "",
+            "summary": brand.get("summary") if brand else "",
+            "voice_notes": brand.get("voice_notes") if brand else "",
+            "prompt_context": prompt_context,
+        })
         payload = llm.call(system_prompt, user_content, temperature=0.5)
         if not payload:
             return None

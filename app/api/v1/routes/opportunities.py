@@ -12,6 +12,7 @@ from app.db.tables.discovery import (
     list_opportunities_for_project,
     update_opportunity,
 )
+from app.db.tables.projects import get_project_by_id
 from app.schemas.v1.product import OpportunityResponse, OpportunityStatusRequest
 
 logger = logging.getLogger(__name__)
@@ -61,9 +62,9 @@ def update_opportunity_status(
     if not opportunity:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
 
-    # Verify workspace access via project
-    proj = get_active_project(supabase, workspace["id"])
-    if not proj or opportunity["project_id"] != proj["id"]:
+    # Verify workspace access via project - check the opportunity's actual project
+    proj = get_project_by_id(supabase, opportunity["project_id"])
+    if not proj or proj["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
 
     current = opportunity.get("status", "new")

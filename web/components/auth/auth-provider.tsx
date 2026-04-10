@@ -82,8 +82,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else if (isSetupRequired(err)) {
               clearAuth();
               router.replace("/auth/setup");
+            } else {
+              // Non-auth errors (network) — persist the new token before handling error
+              setToken(session.access_token);
+              // Next API call will handle the network error
             }
-            // Non-auth errors (network) — keep the token, next API call will handle it
           }
         }
       },
