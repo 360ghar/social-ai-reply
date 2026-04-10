@@ -73,3 +73,18 @@ Next.js 16 + React 18 + Tailwind CSS v4 + shadcn/ui (on `@base-ui/react`) + Zust
 ## Environment Variables
 
 Key vars (see `.env.example` for full list): `DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`, `GEMINI_API_KEY`, `FRONTEND_URL`, `CORS_ORIGINS_RAW`, `REDDIT_USER_AGENT`.
+
+## Deployment
+
+Monorepo with two deploy targets:
+
+- **Backend** → **Railway** from repo root. Configs: `railway.toml` (Nixpacks, `pip install uv && uv sync --no-dev`, `uvicorn app.main:app`, healthcheck `/health`) + `nixpacks.toml` (pins `providers = ["python"]`).
+- **Frontend** (`web/`) → **Netlify**. Config: `netlify.toml` with `base = "web/"`, `publish = ".next"`, `@netlify/plugin-nextjs`, Node 20.
+
+**Do NOT add a root `package.json`.** Nixpacks will see it and pick the Node.js provider instead of Python, breaking the backend build with `pip: command not found`. All JS/Node config must live under `web/`. `nixpacks.toml` pins Python as a second line of defense.
+
+**Railway env vars** (set in dashboard): `DATABASE_URL`, `ENVIRONMENT=production`, `FRONTEND_URL`, `CORS_ORIGINS_RAW`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `SUPABASE_JWT_SECRET`, `GEMINI_API_KEY` (or `USE_MOCK_LLM=true`). Optional: `ENCRYPTION_KEY`, `STRIPE_*`, `SMTP_*`.
+
+**Netlify env vars** (set in dashboard): `NEXT_PUBLIC_API_BASE_URL` (Railway URL, consumed by `web/lib/api.ts:1`), `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+
+**Cross-origin wiring:** after first deploys, set Netlify's `NEXT_PUBLIC_API_BASE_URL` to the Railway URL and Railway's `FRONTEND_URL` / `CORS_ORIGINS_RAW` to the Netlify URL, then redeploy both sides.
