@@ -1,15 +1,13 @@
 /**
  * ScoreBadge — canonical score display component.
  *
- * Color thresholds (reconciled from discovery, sources, and subreddits):
- *   >= 70  → emerald (high fit)
- *   >= 40  → amber   (medium fit)
- *    < 40  → red/destructive (low fit)
+ * Uses semantic color tokens (success/warning/destructive) for proper
+ * dark mode support instead of hardcoded Tailwind colors.
  *
- * Styling: uses the more featureful variant from discovery/page.tsx
- * (inline span with explicit bg/border colors) rather than the Badge-wrapper
- * variant used in sources/subreddits, because it renders consistently in both
- * badge and non-badge contexts without importing shadcn Badge.
+ * Thresholds:
+ *   >= 70  → success (high fit)
+ *   >= 40  → warning (medium fit)
+ *    < 40  → destructive (low fit)
  */
 import { cn } from "@/lib/utils";
 
@@ -18,13 +16,22 @@ interface ScoreBadgeProps {
   className?: string;
 }
 
+/** Centralized score-threshold resolution — shared with status-badge */
+function scoreToVariant(score: number): "success" | "warning" | "error" {
+  if (score >= 70) return "success";
+  if (score >= 40) return "warning";
+  return "error";
+}
+
+const scoreBadgeVariants: Record<"success" | "warning" | "error", string> = {
+  success: "bg-success/10 text-success border-success/20",
+  warning: "bg-warning/10 text-warning border-warning/20",
+  error: "bg-destructive/10 text-destructive border-destructive/20",
+};
+
 export function ScoreBadge({ score, className }: ScoreBadgeProps) {
-  const colorClass =
-    score >= 70
-      ? "text-emerald-600 border-emerald-300 bg-emerald-50"
-      : score >= 40
-        ? "text-amber-600 border-amber-300 bg-amber-50"
-        : "text-red-600 border-red-300 bg-red-50";
+  const variant = scoreToVariant(score);
+  const colorClass = scoreBadgeVariants[variant];
 
   return (
     <span

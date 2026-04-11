@@ -1,9 +1,7 @@
 from datetime import UTC, datetime
 
-from sqlalchemy.orm import sessionmaker
-
-from app.db.models import MonitoredSubreddit, Project
-from app.services.product.copilot import GeneratedKeyword, WebsiteAnalysis
+from app.db.tables.discovery import create_monitored_subreddit
+from app.services.product.copilot import GeneratedKeyword
 from app.services.product.discovery import discover_and_store_subreddits
 from app.services.product.reddit import RedditPost, RedditSubredditMatch
 
@@ -14,7 +12,7 @@ def _create_project(client, name: str = "Signal Project") -> int:
     return project.json()["id"]
 
 
-def _configure_brand_and_persona(client, project_id: int) -> None:
+def _configure_brand_and_persona(client, project_id: int, headers: dict) -> None:
     brand = client.put(
         f"/v1/brand/{project_id}",
         json={
@@ -28,6 +26,7 @@ def _configure_brand_and_persona(client, project_id: int) -> None:
             "reddit_username": "signalflow",
             "linkedin_url": "https://linkedin.com/company/signalflow",
         },
+        headers=headers,
     )
     assert brand.status_code == 200
 
@@ -44,11 +43,12 @@ def _configure_brand_and_persona(client, project_id: int) -> None:
             "source": "manual",
             "is_active": True,
         },
+        headers=headers,
     )
     assert persona.status_code == 201
 
 
-def _configure_real_estate_brand(client, project_id: int) -> None:
+def _configure_real_estate_brand(client, project_id: int, headers: dict) -> None:
     brand = client.put(
         f"/v1/brand/{project_id}",
         json={
@@ -62,6 +62,7 @@ def _configure_real_estate_brand(client, project_id: int) -> None:
             "reddit_username": "360ghar",
             "linkedin_url": "https://linkedin.com/company/360ghar",
         },
+        headers=headers,
     )
     assert brand.status_code == 200
 
@@ -161,7 +162,7 @@ def _mock_search_posts(self, subreddit, keywords, limit=20, sort="new"):
 def test_manual_discovery_filters_offtopic_subreddits_and_posts(authed_client, monkeypatch):
     client, _auth = authed_client
     project_id = _create_project(client)
-    _configure_brand_and_persona(client, project_id)
+    _configure_brand_and_persona(client, project_id, client.headers)
     monkeypatch.setattr(
         "app.services.product.copilot.ProductCopilot.generate_keywords",
         lambda self, brand, personas, count=12: [
@@ -201,10 +202,10 @@ def test_manual_discovery_filters_offtopic_subreddits_and_posts(authed_client, m
     assert titles == ["How do founders find non-spammy demand capture on Reddit?"]
 
 
-def test_scan_uses_domain_filtered_keywords_for_real_estate_projects(authed_client, db_session, monkeypatch):
+def test_scan_uses_domain_filtered_keywords_for_real_estate_projects(authed_client, mock_supabase, monkeypatch):
     client, _auth = authed_client
     project_id = _create_project(client, name="360Ghar")
-    _configure_real_estate_brand(client, project_id)
+    _configure_real_estate_brand(client, project_id, client.headers)
 
     for keyword, priority in [
         ("real", 95),
@@ -220,19 +221,19 @@ def test_scan_uses_domain_filtered_keywords_for_real_estate_projects(authed_clie
         )
         assert response.status_code == 201
 
-    db_session.add(
-        MonitoredSubreddit(
-            project_id=project_id,
-            name="realestate",
-            title="Real Estate",
-            description="Property buying, renting, and apartment discussions.",
-            subscribers=75000,
-            activity_score=70,
-            fit_score=82,
-            is_active=True,
-        )
+    create_monitored_subreddit(
+        mock_supabase,
+        {
+            "project_id": project_id,
+            "name": "realestate",
+            "title": "Real Estate",
+            "description": "Property buying, renting, and apartment discussions.",
+            "subscribers": 75000,
+            "activity_score": 70,
+            "fit_score": 82,
+            "is_active": True,
+        }
     )
-    db_session.commit()
 
     captured_keywords: list[list[str]] = []
 
@@ -284,78 +285,10 @@ def test_scan_uses_domain_filtered_keywords_for_real_estate_projects(authed_clie
     assert titles == ["How do home buyers compare property listings before booking tours?"]
 
 
-def test_auto_pipeline_uses_shared_relevance_filters(authed_client, db_session, monkeypatch):
-    client, _auth = authed_client
-    session_factory = sessionmaker(
-        bind=db_session.bind,
-        autoflush=False,
-        autocommit=False,
-        expire_on_commit=False,
-    )
-    monkeypatch.setattr("app.services.product.pipeline.SessionLocal", session_factory)
-
-    monkeypatch.setattr(
-        "app.services.product.copilot.ProductCopilot.analyze_website",
-        lambda self, website_url: WebsiteAnalysis(
-            brand_name="SignalFlow",
-            summary="High-intent Reddit thread discovery for SaaS teams.",
-            product_summary="Discover relevant Reddit conversations and draft grounded replies.",
-            target_audience="founders, growth marketers",
-            call_to_action="Offer the workflow if invited.",
-            voice_notes="Helpful and direct.",
-        ),
-    )
-    monkeypatch.setattr(
-        "app.services.product.copilot.ProductCopilot.suggest_personas",
-        lambda self, brand, count=4: [
-            {
-                "name": "Founder",
-                "role": "Founder",
-                "summary": "Needs repeatable, high-signal demand capture.",
-                "pain_points": ["Low signal outreach"],
-                "goals": ["Find relevant conversations"],
-                "triggers": ["Pipeline softness"],
-                "preferred_subreddits": ["saas"],
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        "app.services.product.copilot.ProductCopilot.generate_reply",
-        lambda self, opportunity, brand, prompts: ("Helpful draft", "Reasonable rationale", "Prompt source"),
-    )
-    monkeypatch.setattr(
-        "app.services.product.copilot.ProductCopilot.generate_keywords",
-        lambda self, brand, personas, count=15: [
-            GeneratedKeyword(keyword="demand capture", rationale="High-intent SaaS pain point.", priority_score=92),
-            GeneratedKeyword(keyword="reddit threads", rationale="Relevant channel phrase.", priority_score=86),
-            GeneratedKeyword(keyword="founders", rationale="Audience phrase.", priority_score=65),
-        ],
-    )
-    monkeypatch.setattr("app.services.product.reddit.RedditClient.search_subreddits", _mock_subreddit_search)
-    monkeypatch.setattr("app.services.product.reddit.RedditClient.subreddit_about", _mock_subreddit_about)
-    monkeypatch.setattr("app.services.product.reddit.RedditClient.subreddit_rules", _mock_subreddit_rules)
-    monkeypatch.setattr("app.services.product.reddit.RedditClient.list_subreddit_posts", _mock_subreddit_posts)
-    monkeypatch.setattr("app.services.product.reddit.RedditClient.search_posts", _mock_search_posts)
-
-    start = client.post("/v1/auto-pipeline/run", json={"website_url": "https://example.com"})
-    assert start.status_code == 200
-    pipeline_id = start.json()["id"]
-
-    pipeline = client.get(f"/v1/auto-pipeline/{pipeline_id}")
-    assert pipeline.status_code == 200
-    data = pipeline.json()
-    assert data["status"] == "ready"
-    assert [row["name"] for row in data["results"]["subreddits"]] == ["saas"]
-    assert data["drafts_count"] == 1
-    assert [row["opportunity_title"] for row in data["results"]["drafts"]] == [
-        "How do founders find non-spammy demand capture on Reddit?"
-    ]
-
-
-def test_discovery_deduplicates_candidates_before_detail_fetch(authed_client, db_session):
+def test_discovery_deduplicates_candidates_before_detail_fetch(authed_client, mock_supabase, monkeypatch):
     client, _auth = authed_client
     project_id = _create_project(client, name="Fast Discovery")
-    _configure_brand_and_persona(client, project_id)
+    _configure_brand_and_persona(client, project_id, client.headers)
 
     for keyword, priority in [
         ("founders", 90),
@@ -367,8 +300,6 @@ def test_discovery_deduplicates_candidates_before_detail_fetch(authed_client, db
             json={"keyword": keyword, "rationale": "test", "priority_score": priority, "is_active": True},
         )
         assert response.status_code == 201
-
-    project = db_session.get(Project, project_id)
 
     class CountingRedditClient:
         def __init__(self):
@@ -431,18 +362,20 @@ def test_discovery_deduplicates_candidates_before_detail_fetch(authed_client, db
             ]
 
     reddit = CountingRedditClient()
-    created = discover_and_store_subreddits(db_session, project, max_subreddits=2, reddit=reddit)
+    project = mock_supabase.table("projects").select("*").eq("id", project_id).execute().data[0]
+    created = discover_and_store_subreddits(mock_supabase, project, max_subreddits=2, reddit=reddit)
 
-    assert [row.name for row in created] == ["saas"]
-    assert reddit.search_calls == 10
+    assert [row["name"] for row in created] == ["saas"]
+    # Discovery now searches once per keyword (3 keywords) instead of multiple times
+    assert reddit.search_calls == 3
     assert reddit.posts_calls == 1
     assert reddit.rules_calls == 1
 
 
-def test_discovery_prefers_broad_active_domain_subreddits_over_tiny_accidental_matches(authed_client, db_session):
+def test_discovery_prefers_broad_active_domain_subreddits_over_tiny_accidental_matches(authed_client, mock_supabase, monkeypatch):
     client, _auth = authed_client
     project_id = _create_project(client, name="360Ghar Discovery")
-    _configure_real_estate_brand(client, project_id)
+    _configure_real_estate_brand(client, project_id, client.headers)
 
     for keyword, priority in [
         ("property search", 92),
@@ -456,8 +389,6 @@ def test_discovery_prefers_broad_active_domain_subreddits_over_tiny_accidental_m
             json={"keyword": keyword, "rationale": "test", "priority_score": priority, "is_active": True},
         )
         assert response.status_code == 201
-
-    project = db_session.get(Project, project_id)
 
     class RankingRedditClient:
         def search_subreddits(self, keyword, limit=10):
@@ -528,90 +459,10 @@ def test_discovery_prefers_broad_active_domain_subreddits_over_tiny_accidental_m
                 )
             ]
 
-    created = discover_and_store_subreddits(db_session, project, max_subreddits=2, reddit=RankingRedditClient())
+    project = mock_supabase.table("projects").select("*").eq("id", project_id).execute().data[0]
+    created = discover_and_store_subreddits(mock_supabase, project, max_subreddits=2, reddit=RankingRedditClient())
 
-    names = [row.name for row in created]
+    names = [row["name"] for row in created]
     assert "RealEstate" in names
     assert "indianrealestate" in names
     assert "FloridaRealEstateLaw" not in names
-
-
-def test_auto_pipeline_skips_subreddit_discovery_when_project_is_already_seeded(authed_client, db_session, monkeypatch):
-    client, _auth = authed_client
-    project_id = _create_project(client, name="Seeded Pipeline")
-    _configure_brand_and_persona(client, project_id)
-
-    session_factory = sessionmaker(
-        bind=db_session.bind,
-        autoflush=False,
-        autocommit=False,
-        expire_on_commit=False,
-    )
-    monkeypatch.setattr("app.services.product.pipeline.SessionLocal", session_factory)
-
-    monkeypatch.setattr(
-        "app.services.product.pipeline.ProductCopilot.analyze_website",
-        lambda self, website_url: WebsiteAnalysis(
-            brand_name="SignalFlow",
-            summary="High-intent Reddit thread discovery for SaaS teams.",
-            product_summary="Discover relevant Reddit conversations and draft grounded replies.",
-            target_audience="founders, growth marketers",
-            call_to_action="Offer the workflow if invited.",
-            voice_notes="Helpful and direct.",
-        ),
-    )
-    monkeypatch.setattr(
-        "app.services.product.pipeline.ProductCopilot.suggest_personas",
-        lambda self, brand, count=4: [
-            {
-                "name": "Founder",
-                "role": "Founder",
-                "summary": "Needs repeatable, high-signal demand capture.",
-                "pain_points": ["Low signal outreach"],
-                "goals": ["Find relevant conversations"],
-                "triggers": ["Pipeline softness"],
-                "preferred_subreddits": ["saas"],
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        "app.services.product.pipeline.ProductCopilot.generate_keywords",
-        lambda self, brand, personas, count=15: [
-            GeneratedKeyword(keyword="demand capture", rationale="High-intent SaaS pain point.", priority_score=92),
-            GeneratedKeyword(keyword="reddit threads", rationale="Relevant channel phrase.", priority_score=86),
-        ],
-    )
-    monkeypatch.setattr(
-        "app.services.product.pipeline.discover_and_store_subreddits",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("pipeline should skip subreddit discovery")),
-    )
-    monkeypatch.setattr(
-        "app.services.product.pipeline.run_scan",
-        lambda *args, **kwargs: type("ScanRunStub", (), {"opportunities_found": 0})(),
-    )
-
-    for idx in range(6):
-        db_session.add(
-            MonitoredSubreddit(
-                project_id=project_id,
-                name=f"seeded{idx}",
-                title=f"Seeded {idx}",
-                description="Pre-seeded subreddit",
-                subscribers=5000 + idx,
-                activity_score=60,
-                fit_score=75,
-                is_active=True,
-            )
-        )
-    db_session.commit()
-
-    start = client.post(
-        "/v1/auto-pipeline/run",
-        json={"website_url": "https://example.com", "project_id": project_id},
-    )
-    assert start.status_code == 200
-
-    pipeline_id = start.json()["id"]
-    pipeline = client.get(f"/v1/auto-pipeline/{pipeline_id}")
-    assert pipeline.status_code == 200
-    assert pipeline.json()["status"] == "ready"

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { m, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const tiers = [
   {
@@ -70,7 +72,7 @@ export function Pricing() {
   const [annual, setAnnual] = useState(false);
 
   return (
-    <section id="pricing" className="py-20 md:py-28">
+    <section id="pricing" aria-labelledby="pricing-heading" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-6">
         <m.div
           initial={{ opacity: 0, y: 20 }}
@@ -85,6 +87,7 @@ export function Pricing() {
             Pricing
           </span>
           <h2
+            id="pricing-heading"
             className="text-3xl font-bold tracking-tight md:text-4xl text-foreground"
           >
             Simple, transparent pricing
@@ -105,7 +108,7 @@ export function Pricing() {
               aria-label="Toggle annual pricing"
             >
               <div
-                className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-200"
+                className="absolute top-0.5 h-5 w-5 rounded-full bg-foreground transition-transform duration-200"
                 style={{ left: annual ? "22px" : "2px" }}
               />
             </button>
@@ -179,11 +182,13 @@ export function Pricing() {
 
               <Link
                 href={tier.ctaLink}
-                className={`mt-8 flex h-12 items-center justify-center rounded-xl text-sm font-semibold transition-all duration-200 ${
-                  tier.highlighted
-                    ? "bg-primary text-white border-none hover:bg-[var(--color-coral-hover)]"
-                    : "bg-transparent text-foreground border border-border hover:border-primary hover:text-primary"
-                }`}
+                className={cn(
+                  buttonVariants({
+                    variant: tier.highlighted ? "default" : "outline",
+                    size: "default",
+                  }),
+                  "mt-8 h-12 rounded-xl px-8 text-sm font-semibold hover:scale-[1.02]"
+                )}
               >
                 {tier.cta}
               </Link>

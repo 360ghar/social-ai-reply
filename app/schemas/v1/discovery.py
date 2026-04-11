@@ -90,7 +90,7 @@ class ScanRunResponse(BaseModel):
     opportunities_found: int
     error_message: str | None
     started_at: datetime | None
-    finished_at: datetime | None
+    completed_at: datetime | None
     created_at: datetime
 
 

@@ -1,21 +1,23 @@
+"""Reddit scanning and opportunity detection service."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import (
-    DiscoveryKeyword,
-    MonitoredSubreddit,
-    Opportunity,
-    OpportunityStatus,
-    Project,
-    ScanRun,
-    ScanStatus,
+from app.db.tables.discovery import (
+    create_opportunity,
+    get_opportunity_by_project_and_reddit_post,
+    update_opportunity,
 )
-from app.schemas.v1.discovery import ScanRequest
+from app.db.tables.projects import get_brand_profile_by_project
+
+if TYPE_CHECKING:
+    from supabase import Client
+
+    from app.schemas.v1.discovery import ScanRequest
 from app.services.product.discovery import get_project_search_keywords
 from app.services.product.reddit import RedditClient, RedditPost
 from app.services.product.scoring import (
@@ -24,21 +26,26 @@ from app.services.product.scoring import (
     score_post,
 )
 
+logger = logging.getLogger(__name__)
 
-def run_scan(db: Session, project: Project, payload: ScanRequest) -> ScanRun:
+
+def run_scan(db: Client, project: dict, payload: ScanRequest) -> dict:
+    """Run a scan for opportunities based on project keywords and subreddits."""
     reddit = RedditClient()
-    brand = project.brand_profile
-    active_keywords = db.scalars(
-        select(DiscoveryKeyword)
-        .where(DiscoveryKeyword.project_id == project.id, DiscoveryKeyword.is_active.is_(True))
-        .order_by(DiscoveryKeyword.priority_score.desc())
-    ).all()
-    active_subreddits = db.scalars(
-        select(MonitoredSubreddit)
-        .where(MonitoredSubreddit.project_id == project.id, MonitoredSubreddit.is_active.is_(True))
-        .options(selectinload(MonitoredSubreddit.analyses))
-        .order_by(MonitoredSubreddit.fit_score.desc(), MonitoredSubreddit.subscribers.desc())
-    ).all()
+    brand = get_brand_profile_by_project(db, project["id"])
+
+    # Get active keywords
+    from app.db.tables.discovery import list_discovery_keywords_for_project
+    active_keywords = list_discovery_keywords_for_project(db, project["id"])
+    active_keywords = [k for k in active_keywords if k.get("is_active", True)]
+    active_keywords.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
+
+    # Get active subreddits
+    from app.db.tables.discovery import list_monitored_subreddits_for_project
+    active_subreddits = list_monitored_subreddits_for_project(db, project["id"])
+    active_subreddits = [s for s in active_subreddits if s.get("is_active", True)]
+    active_subreddits.sort(key=lambda x: x.get("fit_score", 0), reverse=True)
+
     if not active_keywords:
         raise HTTPException(status_code=400, detail="Add discovery keywords before scanning.")
     if not active_subreddits:
@@ -48,195 +55,124 @@ def run_scan(db: Session, project: Project, payload: ScanRequest) -> ScanRun:
     if not search_keywords:
         raise HTTPException(status_code=400, detail="Add more specific discovery keywords before scanning.")
 
-    run = ScanRun(
-        project_id=project.id,
-        status=ScanStatus.RUNNING,
-        search_window_hours=payload.search_window_hours,
-        started_at=datetime.now(timezone.utc),
-    )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
+    # Create scan run record
+    from app.db.tables.discovery import create_scan_run
+    run = create_scan_run(db, {
+        "project_id": project["id"],
+        "status": "running",
+        "search_window_hours": payload.search_window_hours,
+        "started_at": datetime.now(UTC).isoformat(),
+    })
 
     try:
         posts_scanned = 0
         opportunities_found = 0
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=payload.search_window_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=payload.search_window_hours)
         effective_min_score = max(payload.min_score, MIN_RELEVANT_OPPORTUNITY_SCORE)
         rules_cache: dict[str, list[str]] = {}
 
         for subreddit in active_subreddits:
-            if subreddit.fit_score < MIN_SUBREDDIT_FIT_FOR_AUTOMATION:
+            if subreddit.get("fit_score", 0) < MIN_SUBREDDIT_FIT_FOR_AUTOMATION:
                 continue
-            rules = rules_cache.setdefault(subreddit.name.lower(), _safe_subreddit_rules(reddit, subreddit.name))
+            rules = rules_cache.setdefault(subreddit["name"].lower(), _safe_subreddit_rules(reddit, subreddit["name"]))
             try:
-                posts = reddit.search_posts(subreddit.name, search_keywords, limit=payload.max_posts_per_subreddit)
+                posts = reddit.search_posts(subreddit["name"], search_keywords, limit=payload.max_posts_per_subreddit)
             except Exception:
                 continue
             for post in posts:
-                if post.created_at < cutoff:
+                if post.created_at and post.created_at < cutoff.replace(tzinfo=None if post.created_at.tzinfo is None else UTC):
                     continue
                 posts_scanned += 1
                 score = score_post(post, brand, subreddit, search_keywords, rules)
                 if not score.eligible or score.total < effective_min_score:
                     continue
-                opportunity = db.scalar(
-                    select(Opportunity).where(
-                        Opportunity.project_id == project.id,
-                        Opportunity.reddit_post_id == post.post_id,
-                    )
-                )
+
+                # Check if opportunity already exists
+                opportunity = get_opportunity_by_project_and_reddit_post(db, project["id"], post.post_id)
                 if opportunity:
-                    opportunity.score = score.total
-                    opportunity.score_reasons = score.reasons
-                    opportunity.keyword_hits = score.keyword_hits
-                    opportunity.rule_risk = score.rule_risk
-                    opportunity.body_excerpt = post.body[:1200]
-                    opportunity.permalink = post.permalink
+                    update_opportunity(db, opportunity["id"], {
+                        "score": score.total,
+                        "score_reasons": score.reasons,
+                        "keyword_hits": score.keyword_hits,
+                        "rule_risk": score.rule_risk,
+                        "body_excerpt": post.body[:1200],
+                        "permalink": post.permalink,
+                    })
                 else:
-                    db.add(
-                        Opportunity(
-                            project_id=project.id,
-                            scan_run_id=run.id,
-                            reddit_post_id=post.post_id,
-                            subreddit_name=post.subreddit,
-                            author=post.author,
-                            title=post.title,
-                            permalink=post.permalink,
-                            body_excerpt=post.body[:1200],
-                            score=score.total,
-                            status=OpportunityStatus.NEW,
-                            score_reasons=score.reasons,
-                            keyword_hits=score.keyword_hits,
-                            rule_risk=score.rule_risk,
-                        )
-                    )
+                    create_opportunity(db, {
+                        "project_id": project["id"],
+                        "scan_run_id": run["id"],
+                        "reddit_post_id": post.post_id,
+                        "title": post.title,
+                        "author": post.author,
+                        "subreddit_name": subreddit["name"],
+                        "body_excerpt": post.body[:1200],
+                        "permalink": post.permalink,
+                        "score": score.total,
+                        "score_reasons": score.reasons,
+                        "keyword_hits": score.keyword_hits,
+                        "rule_risk": score.rule_risk,
+                        "status": "new",
+                    })
                     opportunities_found += 1
 
-        _revalidate_open_opportunities(
-            db,
-            project=project,
-            active_subreddits=active_subreddits,
-            search_keywords=search_keywords,
-            min_score=effective_min_score,
-            reddit=reddit,
-            rules_cache=rules_cache,
-        )
+        # Update scan run with results
+        from app.db.tables.discovery import get_scan_run_by_id, update_scan_run
+        update_scan_run(db, run["id"], {
+            "status": "completed",
+            "posts_scanned": posts_scanned,
+            "opportunities_found": opportunities_found,
+            "completed_at": datetime.now(UTC).isoformat(),
+        })
 
-        run.status = ScanStatus.COMPLETED
-        run.posts_scanned = posts_scanned
-        run.opportunities_found = opportunities_found
-        run.finished_at = datetime.now(timezone.utc)
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        run = db.scalar(select(ScanRun).where(ScanRun.id == run.id))
-        if run:
-            run.status = ScanStatus.FAILED
-            run.error_message = str(exc)
-            run.finished_at = datetime.now(timezone.utc)
-            db.add(run)
-            db.commit()
+        # Return full scan run record
+        updated_run = get_scan_run_by_id(db, run["id"])
+        return updated_run
+    except Exception as e:
+        logger.exception("Scan failed")
+        update_scan_run(db, run["id"], {
+            "status": "error",
+            "error_message": str(e)[:500],
+            "completed_at": datetime.now(UTC).isoformat(),
+        })
         raise
-    return run
 
 
-def revalidate_opportunity(
-    db: Session,
-    project: Project,
-    opportunity: Opportunity,
-    *,
-    reddit: RedditClient | None = None,
-) -> tuple[bool, int]:
-    reddit = reddit or RedditClient()
-    search_keywords = get_project_search_keywords(db, project, limit=12)
-    if not search_keywords:
-        return False, 0
-
-    subreddit = db.scalar(
-        select(MonitoredSubreddit).where(
-            MonitoredSubreddit.project_id == project.id,
-            MonitoredSubreddit.name == opportunity.subreddit_name,
-        )
-    )
-    if not subreddit or subreddit.fit_score < MIN_SUBREDDIT_FIT_FOR_AUTOMATION:
-        opportunity.score = 0
-        opportunity.score_reasons = ["Rejected: subreddit no longer meets the fit threshold for automated discovery."]
-        opportunity.keyword_hits = []
-        opportunity.rule_risk = []
-        return False, 0
-
-    rules = _safe_subreddit_rules(reddit, subreddit.name)
-    snapshot = RedditPost(
-        post_id=opportunity.reddit_post_id,
-        subreddit=opportunity.subreddit_name,
-        title=opportunity.title,
-        author=opportunity.author,
-        permalink=opportunity.permalink,
-        body=opportunity.body_excerpt or "",
-        created_at=opportunity.created_at,
-        num_comments=25,
-        score=opportunity.score,
-    )
-    assessment = score_post(snapshot, project.brand_profile, subreddit, search_keywords, rules)
-    opportunity.score = assessment.total
-    opportunity.score_reasons = assessment.reasons
-    opportunity.keyword_hits = assessment.keyword_hits
-    opportunity.rule_risk = assessment.rule_risk
-    return assessment.eligible, assessment.total
-
-
-def _revalidate_open_opportunities(
-    db: Session,
-    *,
-    project: Project,
-    active_subreddits: list[MonitoredSubreddit],
-    search_keywords: list[str],
-    min_score: int,
-    reddit: RedditClient,
-    rules_cache: dict[str, list[str]],
-) -> None:
-    subreddit_map = {row.name.lower(): row for row in active_subreddits}
-    open_rows = db.scalars(
-        select(Opportunity).where(
-            Opportunity.project_id == project.id,
-            Opportunity.status.in_([OpportunityStatus.NEW, OpportunityStatus.SAVED]),
-        )
-    ).all()
-
-    for opportunity in open_rows:
-        subreddit = subreddit_map.get(opportunity.subreddit_name.lower())
-        if not subreddit or subreddit.fit_score < MIN_SUBREDDIT_FIT_FOR_AUTOMATION:
-            opportunity.status = OpportunityStatus.IGNORED
-            opportunity.score = 0
-            opportunity.score_reasons = ["Rejected: subreddit no longer meets the fit threshold for automated discovery."]
-            opportunity.keyword_hits = []
-            opportunity.rule_risk = []
-            continue
-
-        rules = rules_cache.setdefault(subreddit.name.lower(), _safe_subreddit_rules(reddit, subreddit.name))
-        snapshot = RedditPost(
-            post_id=opportunity.reddit_post_id,
-            subreddit=opportunity.subreddit_name,
-            title=opportunity.title,
-            author=opportunity.author,
-            permalink=opportunity.permalink,
-            body=opportunity.body_excerpt or "",
-            created_at=opportunity.created_at,
-            num_comments=25,
-            score=opportunity.score,
-        )
-        assessment = score_post(snapshot, project.brand_profile, subreddit, search_keywords, rules)
-        opportunity.score = assessment.total
-        opportunity.score_reasons = assessment.reasons
-        opportunity.keyword_hits = assessment.keyword_hits
-        opportunity.rule_risk = assessment.rule_risk
-        if not assessment.eligible or assessment.total < min_score:
-            opportunity.status = OpportunityStatus.IGNORED
-
-
-def _safe_subreddit_rules(reddit: RedditClient, name: str) -> list[str]:
+def _safe_subreddit_rules(reddit: RedditClient, subreddit_name: str) -> list[str]:
+    """Safely fetch subreddit rules with a timeout."""
     try:
-        return reddit.subreddit_rules(name)
+        return reddit.subreddit_rules(subreddit_name)
     except Exception:
         return []
+
+
+def revalidate_opportunity(db: Client, project: dict, opportunity: dict) -> tuple[bool, int]:
+    """Re-score an opportunity to ensure it still meets the threshold.
+
+    Uses stored opportunity data since we don't have real-time Reddit access.
+    """
+    brand = get_brand_profile_by_project(db, project["id"])
+
+    from app.db.tables.discovery import list_discovery_keywords_for_project, list_monitored_subreddits_for_project
+    keywords = [k["keyword"] for k in list_discovery_keywords_for_project(db, project["id"]) if k.get("is_active", True)]
+    subreddit = next(
+        (s for s in list_monitored_subreddits_for_project(db, project["id"]) if s["name"] == opportunity["subreddit_name"]),
+        None,
+    )
+
+    # Create a RedditPost from stored opportunity data
+    from datetime import datetime
+    post = RedditPost(
+        post_id=opportunity.get("reddit_post_id", ""),
+        subreddit=opportunity.get("subreddit_name", ""),
+        title=opportunity.get("title", ""),
+        author=opportunity.get("author", ""),
+        permalink=opportunity.get("permalink", ""),
+        body=opportunity.get("body_excerpt", ""),
+        created_at=datetime.now(UTC),
+        num_comments=0,
+        score=opportunity.get("score", 0),
+    )
+
+    score = score_post(post, brand, subreddit, keywords, [])
+    return score.eligible, score.total

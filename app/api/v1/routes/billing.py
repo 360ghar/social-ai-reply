@@ -1,7 +1,8 @@
+"""Billing endpoints."""
 import logging
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException
+from supabase import Client
 
 from app.api.v1.deps import (
     ensure_workspace_membership,
@@ -9,16 +10,15 @@ from app.api.v1.deps import (
     get_current_workspace,
     subscription_response,
 )
-from app.db.models import AccountUser, Workspace
-from app.db.session import get_db
-from app.schemas.v1.product import (
+from app.db.supabase_client import get_supabase
+from app.schemas.v1.billing import (
     BillingUpgradeRequest,
     PlanResponse,
     RedemptionRequest,
     RedemptionResponse,
     SubscriptionResponse,
 )
-from app.services.product.entitlements import serialize_plan_catalog
+from app.services.product.entitlements import PLAN_CATALOG, get_or_create_subscription, serialize_plan_catalog, update_subscription
 
 logger = logging.getLogger(__name__)
 
@@ -32,35 +32,38 @@ def list_plans() -> list[PlanResponse]:
 
 @router.get("/billing/current", response_model=SubscriptionResponse)
 def current_billing(
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> SubscriptionResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    return subscription_response(db, workspace)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    return subscription_response(supabase, workspace)
 
 
 @router.post("/billing/upgrade", response_model=SubscriptionResponse)
 def upgrade_billing(
     payload: BillingUpgradeRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> SubscriptionResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    # The workspace is always unlocked, so plan changes are a no-op.
-    _ = payload.plan_code
-    return subscription_response(db, workspace)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    valid_codes = {plan["code"] for plan in PLAN_CATALOG}
+    if payload.plan_code not in valid_codes:
+        raise HTTPException(status_code=400, detail=f"Invalid plan code '{payload.plan_code}'. Valid options: {sorted(valid_codes)}")
+    subscription = get_or_create_subscription(supabase, workspace)
+    update_subscription(supabase, subscription["id"], {"plan_code": payload.plan_code})
+    return subscription_response(supabase, workspace)
 
 
 @router.post("/redemptions", response_model=RedemptionResponse)
 def redeem_code(
     payload: RedemptionRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> RedemptionResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     _ = payload.code
     return RedemptionResponse(
         success=True,

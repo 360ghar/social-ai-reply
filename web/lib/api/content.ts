@@ -4,28 +4,36 @@ import type { ReplyDraft, PostDraft, PromptTemplate } from "../api";
 
 export type { ReplyDraft, PostDraft, PromptTemplate };
 
-export async function generateReply(token: string, projectId: number, opportunityId: number, promptTemplateId?: number | null) {
-  const body = promptTemplateId ? { prompt_template_id: promptTemplateId } : {};
+export async function generateReply(token: string, opportunityId: number, projectId?: number | null, promptTemplateId?: number | null) {
+  const body: Record<string, unknown> = { opportunity_id: opportunityId };
+  if (promptTemplateId) body.prompt_template_id = promptTemplateId;
+  const qs = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<ReplyDraft>(
-    `/v1/projects/${projectId}/opportunities/${opportunityId}/reply`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }
+    `/v1/drafts/replies${qs}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }
   );
 }
 
-export async function getReplyDrafts(token: string, projectId: number, opportunityId: number) {
+export async function getReplyDrafts(token: string, projectId?: number | null, status?: string) {
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", String(projectId));
+  if (status) params.set("status", status);
+  const qs = params.toString() ? `?${params.toString()}` : "";
   return apiRequest<ReplyDraft[]>(
-    `/v1/projects/${projectId}/opportunities/${opportunityId}/drafts`, { headers: { Authorization: `Bearer ${token}` } }
+    `/v1/drafts/replies${qs}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function createPostDraft(token: string, projectId: number, data: { title: string; body: string; subreddit?: string }) {
+export async function createPostDraft(token: string, projectId: number, data?: { title?: string; body?: string; subreddit?: string }) {
+  const payload = { project_id: projectId, ...data };
   return apiRequest<PostDraft>(
-    `/v1/projects/${projectId}/posts`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) }
+    `/v1/drafts/posts`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }
   );
 }
 
-export async function getPostDrafts(token: string, projectId: number) {
+export async function getPostDrafts(token: string, projectId?: number | null) {
+  const qs = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<PostDraft[]>(
-    `/v1/projects/${projectId}/posts`, { headers: { Authorization: `Bearer ${token}` } }
+    `/v1/drafts/posts${qs}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 

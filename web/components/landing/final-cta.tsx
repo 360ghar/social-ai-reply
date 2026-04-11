@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { m } from "framer-motion";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function FinalCta() {
   return (
@@ -36,7 +38,10 @@ export function FinalCta() {
             <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 href="/register"
-                className="inline-flex h-12 items-center justify-center rounded-xl bg-white px-8 text-base font-semibold transition-all duration-200 text-primary hover:scale-[1.02] hover:shadow-[0_10px_40px_rgba(0,0,0,0.2)]"
+                className={cn(
+                  buttonVariants({ variant: "secondary", size: "default" }),
+                  "h-12 rounded-xl bg-white px-8 text-base font-semibold text-primary hover:scale-[1.02] hover:shadow-[0_10px_40px_rgba(0,0,0,0.2)]"
+                )}
               >
                 Get Started Free
               </Link>

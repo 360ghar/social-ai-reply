@@ -1,6 +1,5 @@
 """Unit tests for structured keyword generation and AI payload parsing."""
 
-from app.db.models import BrandProfile
 from app.services.product.copilot import ProductCopilot
 from app.services.product.relevance import split_csv_terms
 
@@ -15,7 +14,7 @@ def _make_brand(**overrides):
         target_audience="founders, growth marketers",
     )
     defaults.update(overrides)
-    return BrandProfile(**defaults)
+    return defaults
 
 
 def test_generate_keywords_filters_generic_single_words():
@@ -50,7 +49,7 @@ def test_generate_keywords_filters_ambiguous_terms_without_domain_context():
     brand = _make_brand(
         brand_name="360Ghar",
         summary="AI-powered real estate marketplace for home buyers and renters in India.",
-        product_summary="Compare property listings, apartments, and home tours in one place.",
+        product_summary="Compare property listings, apartments, and home tours.",
         target_audience="home buyers, renters, real estate agents",
     )
 

@@ -3,7 +3,21 @@
 import Link from "next/link";
 import { m, useScroll, useMotionValueEvent } from "framer-motion";
 import { useState } from "react";
-import { useTheme } from "next-themes";
+import { Menu, LogOut, Settings, LayoutDashboard } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/components/auth/auth-provider";
+import { ThemeToggle } from "@/components/shared/theme-toggle";
+import { Button } from "@/components/ui/button";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -12,27 +26,40 @@ const navLinks = [
 ];
 
 export function Navbar() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
   const { scrollY } = useScroll();
   const [isScrolled, setIsScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, loading, logout } = useAuth();
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     setIsScrolled(latest > 100);
   });
+
+  const handleLogout = async () => {
+    await logout();
+    window.location.href = "/";
+  };
+
+  const userInitials = user?.full_name
+    ? user.full_name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : (user?.email?.[0]?.toUpperCase() ?? "U");
 
   return (
     <m.nav
       className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
       style={{
         backgroundColor: isScrolled
-          ? resolvedTheme === "dark"
-            ? "rgba(10, 10, 11, 0.8)"
-            : "rgba(250, 250, 250, 0.8)"
+          ? "color-mix(in srgb, var(--background) 80%, transparent)"
           : "transparent",
         backdropFilter: isScrolled ? "blur(12px)" : "none",
         WebkitBackdropFilter: isScrolled ? "blur(12px)" : "none",
         borderBottom: isScrolled
-          ? `1px solid ${resolvedTheme === "dark" ? "#2a2a30" : "#e4e4e7"}`
+          ? "1px solid var(--border)"
           : "1px solid transparent",
       }}
     >
@@ -56,38 +83,130 @@ export function Navbar() {
             ))}
           </div>
 
-          {/* Right side: theme toggle + CTA */}
+          {/* Right side: theme toggle + CTA + mobile menu */}
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors duration-200"
-              aria-label="Toggle theme"
-            >
-              {resolvedTheme === "dark" ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
+            {/* Theme toggle (desktop only) */}
+            <ThemeToggle className="hidden h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors duration-200 md:flex" />
+
+            {/* User profile dropdown or CTA */}
+            {!loading && (
+              user ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="hidden h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white transition-colors duration-200 hover:bg-[var(--color-coral-hover)] md:flex">
+                    {userInitials}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 p-1">
+                    <div className="px-1.5 py-1">
+                      <div className="truncate text-xs font-medium text-foreground">{user.full_name}</div>
+                      <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => window.location.href = "/app/dashboard"} className="cursor-pointer">
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Dashboard
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => window.location.href = "/app/settings"} className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      Settings
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive focus:text-destructive">
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              )}
-            </button>
-            <Link
-              href="/register"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[var(--color-coral-hover)]"
+                <Link
+                  href="/register"
+                  className={cn(buttonVariants({ size: "default" }), "hidden rounded-lg px-4 text-sm font-semibold md:inline-flex")}
+                >
+                  Get Started Free
+                </Link>
+              )
+            )}
+
+            {/* Mobile hamburger button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden h-8 w-8"
+              aria-label="Open menu"
             >
-              Get Started Free
-            </Link>
+              <Menu className="h-5 w-5" />
+            </Button>
           </div>
+
+          {/* Mobile menu sheet */}
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetContent side="right" className="w-72">
+              <SheetHeader>
+                <SheetTitle>RedditFlow</SheetTitle>
+              </SheetHeader>
+              <nav className="flex flex-col gap-4 px-4 pt-2">
+                {navLinks.map((link) => (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="text-base font-medium text-muted-foreground transition-colors duration-200 hover:text-primary"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+
+                {!loading && (
+                  user ? (
+                    <>
+                      <div className="mt-2 rounded-lg bg-muted p-3">
+                        <div className="text-sm font-medium text-foreground">{user.full_name}</div>
+                        <div className="text-xs text-muted-foreground">{user.email}</div>
+                      </div>
+                      <Link
+                        href="/app/dashboard"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex items-center gap-2 text-base font-medium text-muted-foreground transition-colors duration-200 hover:text-primary"
+                      >
+                        <LayoutDashboard className="h-4 w-4" />
+                        Dashboard
+                      </Link>
+                      <Link
+                        href="/app/settings"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex items-center gap-2 text-base font-medium text-muted-foreground transition-colors duration-200 hover:text-primary"
+                      >
+                        <Settings className="h-4 w-4" />
+                        Settings
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          void handleLogout();
+                        }}
+                        className="flex items-center gap-2 text-base font-medium text-destructive transition-colors duration-200"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Sign out
+                      </button>
+                    </>
+                  ) : (
+                    <Link
+                      href="/register"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={cn(buttonVariants({ size: "default" }), "mt-2 inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold")}
+                    >
+                      Get Started Free
+                    </Link>
+                  )
+                )}
+                <ThemeToggle
+                  className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-muted text-sm text-muted-foreground transition-colors duration-200"
+                  showLabel
+                />
+              </nav>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
     </m.nav>

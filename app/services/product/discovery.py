@@ -1,12 +1,21 @@
+"""Discovery service for keywords and subreddits.
+
+This module handles subreddit discovery and analysis using the Supabase client.
+"""
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+if TYPE_CHECKING:
+    from supabase import Client
 
-from app.db.models import DiscoveryKeyword, MonitoredSubreddit, Project, SubredditAnalysis
+from app.db.tables.discovery import (
+    create_monitored_subreddit,
+    list_keywords_for_project,
+)
 from app.services.product.reddit import RedditClient, RedditPost, RedditSubredditMatch
 from app.services.product.relevance import (
     OFFTOPIC_COMMUNITY_NAMES,
@@ -27,9 +36,6 @@ from app.services.product.relevance import (
     tokenize,
 )
 
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
-
 log = logging.getLogger("redditflow.discovery")
 
 DEFAULT_MIN_SUBREDDIT_FIT = 40
@@ -45,7 +51,6 @@ SUBREDDIT_TRAILING_GENERIC_TOKENS = {
     "companies",
     "dashboard",
     "discovery",
-    "management",
     "marketplace",
     "platform",
     "platforms",
@@ -75,21 +80,23 @@ class SubredditAssessment:
     reasons: list[str]
 
 
-def get_project_search_keywords(db: Session, project: Project, limit: int = 8, *, include_brand: bool = True) -> list[str]:
-    rows = db.scalars(
-        select(DiscoveryKeyword)
-        .where(DiscoveryKeyword.project_id == project.id, DiscoveryKeyword.is_active.is_(True))
-        .order_by(DiscoveryKeyword.priority_score.desc())
-    ).all()
-    raw_keywords = [row.keyword for row in rows]
-    brand = project.brand_profile
-    brand_name = brand.brand_name if brand else None
-    biz_domain = getattr(brand, "business_domain", "") or "" if brand else ""
+def get_project_search_keywords(supabase: Client, project: dict, limit: int = 8, *, include_brand: bool = True) -> list[str]:
+    """Get high-signal search keywords for a project."""
+
+    rows = list_keywords_for_project(supabase, project["id"])
+    active_rows = [r for r in rows if r.get("is_active", True)]
+    active_rows.sort(key=lambda x: x.get("priority_score", 50), reverse=True)
+    raw_keywords = [row["keyword"] for row in active_rows]
+
+    brand = project.get("brand_profile")
+    brand_name = brand.get("brand_name") if brand else None
+    biz_domain = brand.get("business_domain", "") if brand else ""
+
     domain_context = build_domain_context(
         brand_name=brand_name,
-        summary=brand.summary if brand else None,
-        product_summary=brand.product_summary if brand else None,
-        target_audience=brand.target_audience if brand else None,
+        summary=brand.get("summary") if brand else None,
+        product_summary=brand.get("product_summary") if brand else None,
+        target_audience=brand.get("target_audience") if brand else None,
         keywords=raw_keywords,
         business_domain=biz_domain,
     )
@@ -102,27 +109,30 @@ def get_project_search_keywords(db: Session, project: Project, limit: int = 8, *
 
 
 def discover_and_store_subreddits(
-    db: Session,
-    project: Project,
+    supabase: Client,
+    project: dict,
     *,
     max_subreddits: int,
     reddit: RedditClient | None = None,
-) -> list[MonitoredSubreddit]:
+) -> list[dict]:
+    """Discover and store subreddits for a project."""
     reddit = reddit or RedditClient()
-    base_keywords = get_project_search_keywords(db, project, limit=max(MAX_DISCOVERY_KEYWORDS * 2, 8), include_brand=False)
-    brand = project.brand_profile
-    biz_domain = getattr(brand, "business_domain", "") or "" if brand else ""
+    base_keywords = get_project_search_keywords(supabase, project, limit=max(MAX_DISCOVERY_KEYWORDS * 2, 8), include_brand=False)
+
+    brand = project.get("brand_profile")
+    biz_domain = brand.get("business_domain", "") if brand else ""
+
     domain_context = build_domain_context(
-        brand_name=brand.brand_name if brand else None,
-        summary=brand.summary if brand else None,
-        product_summary=brand.product_summary if brand else None,
-        target_audience=brand.target_audience if brand else None,
+        brand_name=brand.get("brand_name") if brand else None,
+        summary=brand.get("summary") if brand else None,
+        product_summary=brand.get("product_summary") if brand else None,
+        target_audience=brand.get("target_audience") if brand else None,
         keywords=base_keywords,
         business_domain=biz_domain,
     )
     search_queries = _build_subreddit_search_queries(base_keywords, domain_context=domain_context, limit=MAX_DISCOVERY_KEYWORDS)
 
-    # ── Fallback: use raw keywords directly if query builder filters all ──
+    # Fallback: use raw keywords directly if query builder filters all
     if not search_queries:
         log.warning("No subreddit search queries after filtering — falling back to raw keywords")
         search_queries = [kw for kw in base_keywords if len(kw.split()) >= 2][:MAX_DISCOVERY_KEYWORDS]
@@ -133,18 +143,14 @@ def discover_and_store_subreddits(
 
     log.info("Subreddit search queries (%d): %s", len(search_queries), search_queries)
 
-    # Use base_keywords (raw project keywords) for subreddit assessment
-    # — they contain the actual domain terms ("founders", "demand capture")
-    # while search_queries are optimized for the Reddit API and may miss
-    # single-word terms that are crucial for matching subreddit descriptions.
     assessment_keywords = base_keywords
 
-    existing_names = {
-        row.name.lower()
-        for row in db.scalars(select(MonitoredSubreddit).where(MonitoredSubreddit.project_id == project.id)).all()
-    }
+    # Get existing subreddits
+    from app.db.tables.discovery import list_subreddits_for_project
+    existing_rows = list_subreddits_for_project(supabase, project["id"])
+    existing_names = {row["name"].lower() for row in existing_rows}
     seen_names = set(existing_names)
-    created: list[MonitoredSubreddit] = []
+    created: list[dict] = []
     candidates: dict[str, tuple[RedditSubredditMatch, SubredditAssessment, list[str]]] = {}
     candidate_budget = max(max_subreddits * 6, max_subreddits + 20)
     candidates_reviewed = 0
@@ -216,51 +222,58 @@ def discover_and_store_subreddits(
     )[:max_subreddits]
 
     for match, assessment, rules in selected_candidates:
-        row = MonitoredSubreddit(
-            project_id=project.id,
-            name=match.name,
-            title=match.title,
-            description=match.description,
-            subscribers=int(match.subscribers or 0),
-            activity_score=assessment.activity_score,
-            fit_score=assessment.fit_score,
-            rules_summary="\n".join(rules[:5]) if rules else None,
-            is_active=True,
+        row = create_monitored_subreddit(
+            supabase,
+            {
+                "project_id": project["id"],
+                "name": match.name,
+                "title": match.title,
+                "description": match.description,
+                "subscribers": int(match.subscribers or 0),
+                "activity_score": assessment.activity_score,
+                "fit_score": assessment.fit_score,
+                "rules_summary": "\n".join(rules[:5]) if rules else None,
+                "is_active": True,
+            },
         )
-        db.add(row)
-        db.flush()
-        db.add(
-            SubredditAnalysis(
-                monitored_subreddit_id=row.id,
-                top_post_types=assessment.top_post_types,
-                audience_signals=assessment.audience_signals,
-                posting_risk=assessment.posting_risk,
-                recommendation=assessment.recommendation,
-            )
+
+        # Create analysis record
+        from app.db.tables.discovery import create_subreddit_analysis
+        create_subreddit_analysis(
+            supabase,
+            {
+                "monitored_subreddit_id": row["id"],
+                "top_post_types": assessment.top_post_types,
+                "audience_signals": assessment.audience_signals,
+                "posting_risk": assessment.posting_risk,
+                "recommendation": assessment.recommendation,
+            },
         )
         created.append(row)
+
     return created
 
 
 def refresh_subreddit_analysis(
-    db: Session,
-    project: Project,
-    subreddit: MonitoredSubreddit,
+    supabase: Client,
+    project: dict,
+    subreddit: dict,
     *,
     reddit: RedditClient | None = None,
 ) -> SubredditAssessment:
+    """Refresh analysis for a monitored subreddit."""
     reddit = reddit or RedditClient()
-    keywords = get_project_search_keywords(db, project)
-    about = _safe_subreddit_about(reddit, subreddit.name)
-    rules = _safe_subreddit_rules(reddit, subreddit.name)
-    sample_posts = _safe_subreddit_posts(reddit, subreddit.name)
+    keywords = get_project_search_keywords(supabase, project)
+    about = _safe_subreddit_about(reddit, subreddit["name"])
+    rules = _safe_subreddit_rules(reddit, subreddit["name"])
+    sample_posts = _safe_subreddit_posts(reddit, subreddit["name"])
 
     assessment = assess_subreddit_candidate(
         match=RedditSubredditMatch(
-            name=subreddit.name,
-            title=about.get("title") or subreddit.title or "",
-            description=about.get("public_description", "") or subreddit.description or "",
-            subscribers=int(about.get("subscribers") or subreddit.subscribers or 0),
+            name=subreddit["name"],
+            title=about.get("title") or subreddit.get("title") or "",
+            description=about.get("public_description", "") or subreddit.get("description") or "",
+            subscribers=int(about.get("subscribers") or subreddit.get("subscribers") or 0),
         ),
         about=about,
         rules=rules,
@@ -269,21 +282,34 @@ def refresh_subreddit_analysis(
         keywords=keywords,
     )
 
-    subreddit.title = about.get("title") or subreddit.title
-    subreddit.description = about.get("public_description", "") or subreddit.description
-    subreddit.subscribers = int(about.get("subscribers") or subreddit.subscribers or 0)
-    subreddit.activity_score = assessment.activity_score
-    subreddit.fit_score = assessment.fit_score
-    subreddit.rules_summary = "\n".join(rules[:5]) if rules else None
-    db.add(
-        SubredditAnalysis(
-            monitored_subreddit_id=subreddit.id,
-            top_post_types=assessment.top_post_types,
-            audience_signals=assessment.audience_signals,
-            posting_risk=assessment.posting_risk,
-            recommendation=assessment.recommendation,
-        )
+    # Update subreddit record
+    from app.db.tables.discovery import update_monitored_subreddit
+    update_monitored_subreddit(
+        supabase,
+        subreddit["id"],
+        {
+            "title": about.get("title") or subreddit.get("title"),
+            "description": about.get("public_description", "") or subreddit.get("description"),
+            "subscribers": int(about.get("subscribers") or subreddit.get("subscribers") or 0),
+            "activity_score": assessment.activity_score,
+            "fit_score": assessment.fit_score,
+            "rules_summary": "\n".join(rules[:5]) if rules else None,
+        },
     )
+
+    # Create new analysis record
+    from app.db.tables.discovery import create_subreddit_analysis
+    create_subreddit_analysis(
+        supabase,
+        {
+            "monitored_subreddit_id": subreddit["id"],
+            "top_post_types": assessment.top_post_types,
+            "audience_signals": assessment.audience_signals,
+            "posting_risk": assessment.posting_risk,
+            "recommendation": assessment.recommendation,
+        },
+    )
+
     return assessment
 
 
@@ -293,19 +319,22 @@ def assess_subreddit_candidate(
     about: dict,
     rules: list[str],
     sample_posts: list[RedditPost],
-    project: Project,
+    project: dict,
     keywords: list[str],
 ) -> SubredditAssessment:
-    brand = project.brand_profile
-    biz_domain = getattr(brand, "business_domain", "") or "" if brand else ""
+    """Assess a subreddit candidate for fit."""
+    brand = project.get("brand_profile")
+    biz_domain = brand.get("business_domain", "") if brand else ""
+
     domain_context = build_domain_context(
-        brand_name=brand.brand_name if brand else None,
-        summary=brand.summary if brand else None,
-        product_summary=brand.product_summary if brand else None,
-        target_audience=brand.target_audience if brand else None,
+        brand_name=brand.get("brand_name") if brand else None,
+        summary=brand.get("summary") if brand else None,
+        product_summary=brand.get("product_summary") if brand else None,
+        target_audience=brand.get("target_audience") if brand else None,
         keywords=keywords,
         business_domain=biz_domain,
     )
+
     title = about.get("title") or match.title
     description = about.get("public_description", "") or match.description
     sample_titles = " ".join(post.title for post in sample_posts[:8])
@@ -328,7 +357,7 @@ def assess_subreddit_candidate(
             topic_score += max(8, specificity // 5)
     topic_score = min(topic_score, 60)
 
-    audience_terms = split_csv_terms(project.brand_profile.target_audience if project.brand_profile else None)
+    audience_terms = split_csv_terms(brand.get("target_audience") if brand else None)
     matched_audience = [term for term in audience_terms if term in normalized_text]
     if not matched_audience:
         inferred_audience = []
@@ -372,9 +401,7 @@ def assess_subreddit_candidate(
     unique_offtopic_hits = sorted(set(offtopic_hits))
     offtopic_penalty = min(len(unique_offtopic_hits) * 12, 36)
 
-    # ── Domain-vocabulary alignment for subreddit ──────────────────────
-    # When a business_domain is set, subreddits whose content contains
-    # domain vocabulary terms are a better fit.
+    # Domain-vocabulary alignment
     domain_vocab_ok, domain_vocab_count, _ = check_domain_vocabulary_match(
         metadata_text, domain_context.business_domain,
     )
@@ -383,8 +410,6 @@ def assess_subreddit_candidate(
         if domain_vocab_count >= 3:
             domain_vocab_bonus = min(domain_vocab_count * 3, 14)
         elif domain_vocab_count == 0 and domain_match.aligned:
-            # Subreddit seems domain-aligned by keywords but has no
-            # actual domain vocabulary — likely a false positive.
             domain_vocab_bonus = -8
 
     fit_score = max(
@@ -401,11 +426,7 @@ def assess_subreddit_candidate(
             100,
         ),
     )
-    # ── Eligibility: softer gates so relevant subreddits aren't rejected ──
-    # A single strong keyword match (e.g. "real estate") gives ~18 topic
-    # points, so require only 12 to pass.  When domain vocabulary is
-    # present in the text, waive the hard topic threshold entirely since
-    # the subreddit clearly discusses the right industry.
+
     topic_ok = topic_score >= 12
     if domain_vocab_count >= 2 and topic_score >= 8:
         topic_ok = True
@@ -452,6 +473,7 @@ def assess_subreddit_candidate(
 
 
 def _classify_post_types(sample_posts: list[RedditPost]) -> list[str]:
+    """Classify post types from sample posts."""
     top_post_types: list[str] = []
     if any("?" in post.title or find_intent_hits(post.title) for post in sample_posts):
         top_post_types.append("questions")
@@ -467,6 +489,7 @@ def _classify_post_types(sample_posts: list[RedditPost]) -> list[str]:
 
 
 def _safe_subreddit_about(reddit: RedditClient, name: str) -> dict:
+    """Safely get subreddit about info."""
     try:
         return reddit.subreddit_about(name)
     except Exception:
@@ -474,6 +497,7 @@ def _safe_subreddit_about(reddit: RedditClient, name: str) -> dict:
 
 
 def _safe_subreddit_rules(reddit: RedditClient, name: str) -> list[str]:
+    """Safely get subreddit rules."""
     try:
         return reddit.subreddit_rules(name)
     except Exception:
@@ -481,6 +505,7 @@ def _safe_subreddit_rules(reddit: RedditClient, name: str) -> list[str]:
 
 
 def _safe_subreddit_posts(reddit: RedditClient, name: str) -> list[RedditPost]:
+    """Safely get subreddit posts."""
     try:
         return reddit.list_subreddit_posts(name, sort="hot", limit=6)
     except Exception:
@@ -489,11 +514,12 @@ def _safe_subreddit_posts(reddit: RedditClient, name: str) -> list[RedditPost]:
 
 def _is_promising_subreddit_match(
     match: RedditSubredditMatch,
-    project: Project,
+    project: dict,
     keywords: list[str],
     *,
     sample_posts: list[RedditPost] | None = None,
 ) -> bool:
+    """Check if a subreddit match is promising."""
     assessment = assess_subreddit_candidate(
         match=match,
         about={},
@@ -504,29 +530,13 @@ def _is_promising_subreddit_match(
     )
     if assessment.eligible:
         return True
-    # Grace margin: allow subreddits that match keywords and are close
-    # to eligible through.  Without sample posts the first pass has
-    # less text to match against, so we relax both the keyword count
-    # and fit-score threshold; the second pass (with sample posts)
-    # does the real filtering.
     if not sample_posts:
-        # First pass (name+title+desc only): very relaxed — just need
-        # one keyword match OR a reasonable fit score to proceed to the
-        # sample-post fetch.
-        return (
-            bool(assessment.matched_keywords)
-            and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 22)
-        )
-    # Second pass (with sample posts): still relaxed — one keyword
-    # match with a decent fit score is enough.  The full
-    # assess_subreddit_candidate call later does the real gating.
-    return (
-        bool(assessment.matched_keywords)
-        and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 14)
-    )
+        return bool(assessment.matched_keywords) and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 22)
+    return bool(assessment.matched_keywords) and assessment.fit_score >= (DEFAULT_MIN_SUBREDDIT_FIT - 14)
 
 
 def _candidate_selection_score(match: RedditSubredditMatch, assessment: SubredditAssessment) -> int:
+    """Calculate candidate selection score."""
     subscribers = int(match.subscribers or 0)
     subscriber_bonus = 0
     if subscribers >= 500_000:
@@ -557,6 +567,7 @@ def _build_subreddit_search_queries(
     domain_context,
     limit: int,
 ) -> list[str]:
+    """Build search queries for subreddit discovery."""
     queries: list[str] = []
     seen: set[str] = set()
     keyword_set = set(keywords)
@@ -569,17 +580,12 @@ def _build_subreddit_search_queries(
             queries.append(candidate)
             seen.add(candidate)
 
-    # ── Ensure raw multi-word keywords are included as queries ──────
-    # The variant generator may filter out perfectly good keywords
-    # (e.g. "real estate") if they're seen as low-signal in isolation.
-    # Include them directly so Reddit can find matching subreddits.
     for kw in keywords:
         normalized = normalize_phrase(kw)
         if normalized and normalized not in seen and len(normalized.split()) >= 2:
             queries.append(normalized)
             seen.add(normalized)
 
-    # ── Include the business domain itself as a query ──────────────
     if domain_context.business_domain:
         biz = normalize_phrase(domain_context.business_domain)
         if biz and biz not in seen:
@@ -595,6 +601,7 @@ def _build_subreddit_search_queries(
 
 
 def _subreddit_query_variants(phrase: str, *, domain_context) -> list[str]:
+    """Generate query variants from a phrase."""
     canonical = canonicalize_keyword_phrase(phrase, domain_context=domain_context, max_words=3)
     if not canonical:
         return []
@@ -624,6 +631,7 @@ def _subreddit_query_variants(phrase: str, *, domain_context) -> list[str]:
 
 
 def _subreddit_query_score(query: str, *, domain_context, keyword_set: set[str]) -> int:
+    """Score a query for ranking."""
     score = keyword_specificity(query)
     if query in keyword_set:
         score += 24

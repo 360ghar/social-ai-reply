@@ -1,3 +1,9 @@
+"""Dependency injection helpers for authenticated routes.
+
+This module provides dependencies for getting the current user, workspace,
+project, and other shared resources. All database operations use the Supabase client.
+"""
+
 import hashlib
 import logging
 from datetime import UTC, datetime
@@ -5,26 +11,26 @@ from datetime import UTC, datetime
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from supabase import Client
 
-from app.db.models import (
-    AccountUser,
-    BrandProfile,
-    Membership,
-    Project,
-    ProjectStatus,
-    PromptTemplate,
-    Workspace,
+from app.db.supabase_client import get_supabase
+from app.db.tables.projects import (
+    create_brand_profile,
+    create_project,
+    create_prompt_template,
+    get_project_by_id,
+    list_prompt_templates_for_project,
 )
-from app.db.session import get_db
+from app.db.tables.users import get_user_by_supabase_id
+from app.db.tables.workspaces import (
+    get_membership,
+    get_subscription_by_workspace,
+    get_workspace_by_id,
+    list_memberships_for_user,
+)
 from app.schemas.v1.auth import WorkspaceSummary
 from app.schemas.v1.billing import SubscriptionResponse
-from app.services.product.entitlements import (
-    PLAN_CATALOG,
-    feature_set,
-    get_or_create_subscription,
-)
+from app.services.product.entitlements import PLAN_CATALOG, feature_set
 from app.services.product.supabase_auth import verify_supabase_jwt
 from app.utils.slug import unique_slug as _unique_slug
 
@@ -34,6 +40,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def _issued_at_utc(payload: dict) -> datetime | None:
+    """Extract issued-at timestamp from JWT payload."""
     raw_value = payload.get("iat")
     if raw_value is None:
         return None
@@ -46,41 +53,45 @@ def _issued_at_utc(payload: dict) -> datetime | None:
 
 
 def _coerce_utc(value: datetime) -> datetime:
+    """Coerce datetime to UTC."""
     return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def _token_hash(token: str) -> str:
+    """Generate SHA256 hash of a token."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _is_token_revoked(user: AccountUser, payload: dict, token: str) -> bool:
-    if user.revoked_access_token_hash and _token_hash(token) == user.revoked_access_token_hash:
+def _is_token_revoked(user: dict, payload: dict, token: str) -> bool:
+    """Check if a token has been revoked."""
+    if user.get("revoked_access_token_hash") and _token_hash(token) == user["revoked_access_token_hash"]:
         return True
-    if not user.tokens_invalid_before:
+    if not user.get("tokens_invalid_before"):
         return False
     issued_at = _issued_at_utc(payload)
     if issued_at is None:
         return True
-    return issued_at < _coerce_utc(user.tokens_invalid_before)
-
-
-def _find_user_by_supabase_identity(db: Session, supabase_uid: str) -> AccountUser | None:
-    return db.scalar(
-        select(AccountUser).where(
-            AccountUser.supabase_user_id == supabase_uid,
-            AccountUser.is_active.is_(True),
-        )
-    )
+    tokens_invalid_before = user["tokens_invalid_before"]
+    # Handle both datetime objects and ISO strings
+    if isinstance(tokens_invalid_before, str):
+        try:
+            tokens_invalid_before = datetime.fromisoformat(tokens_invalid_before.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+    return issued_at < _coerce_utc(tokens_invalid_before)
 
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> AccountUser:
-    """Validate the Supabase JWT and return the local AccountUser.
+    supabase: Client = Depends(get_supabase),
+) -> dict:
+    """Validate the Supabase JWT and return the local user record.
 
     The token's `sub` claim contains the Supabase user UUID which maps
-    to AccountUser.supabase_user_id in our local database.
+    to our local account_users table.
+
+    Returns:
+        User record dict with keys: id, supabase_user_id, email, full_name, is_active, etc.
     """
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
@@ -91,10 +102,16 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
     except Exception as exc:
         logger.error("Unexpected error verifying JWT: %s", exc)
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Authentication service unavailable.") from exc
-    user = _find_user_by_supabase_identity(db, supabase_uid)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable.",
+        ) from exc
+
+    user = get_user_by_supabase_id(supabase, supabase_uid)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated.")
     if _is_token_revoked(user, payload, credentials.credentials):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
     return user
@@ -102,8 +119,8 @@ def get_current_user(
 
 def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> AccountUser | None:
+    supabase: Client = Depends(get_supabase),
+) -> dict | None:
     """Like get_current_user but returns None instead of raising when unauthenticated."""
     if not credentials:
         return None
@@ -115,8 +132,9 @@ def get_current_user_optional(
     except Exception:
         logger.error("Unexpected error verifying JWT in optional auth")
         return None
-    user = _find_user_by_supabase_identity(db, supabase_uid)
-    if not user:
+
+    user = get_user_by_supabase_id(supabase, supabase_uid)
+    if not user or not user.get("is_active", True):
         return None
     if _is_token_revoked(user, payload, credentials.credentials):
         return None
@@ -124,15 +142,23 @@ def get_current_user_optional(
 
 
 def get_current_workspace(
-    current_user: AccountUser = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> Workspace:
-    membership = db.scalar(
-        select(Membership).where(Membership.user_id == current_user.id).order_by(Membership.id.asc())
-    )
-    if not membership:
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase),
+) -> dict:
+    """Get the current user's primary workspace.
+
+    Returns the first workspace the user belongs to (by membership ID order).
+    This maintains backward compatibility with the existing UX.
+
+    Returns:
+        Workspace record dict with keys: id, name, slug, owner_user_id, etc.
+    """
+    memberships = list_memberships_for_user(supabase, current_user["id"])
+    if not memberships:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No workspace membership found.")
-    workspace = db.scalar(select(Workspace).where(Workspace.id == membership.workspace_id))
+
+    # Get the first workspace (by membership order)
+    workspace = get_workspace_by_id(supabase, memberships[0]["workspace_id"])
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
     return workspace
@@ -141,133 +167,176 @@ def get_current_workspace(
 # ── Shared query helpers ──────────────────────────────────────────
 
 
-def ensure_workspace_membership(db: Session, workspace_id: int, user_id: int) -> Membership:
-    membership = db.scalar(
-        select(Membership).where(Membership.workspace_id == workspace_id, Membership.user_id == user_id)
-    )
+def ensure_workspace_membership(
+    supabase: Client,
+    workspace_id: int,
+    user_id: int,
+) -> dict:
+    """Ensure a user has membership in a workspace."""
+    membership = get_membership(supabase, workspace_id, user_id)
     if not membership:
         raise HTTPException(status_code=403, detail="You do not have access to this workspace.")
     return membership
 
 
-def get_project(db: Session, workspace_id: int, project_id: int) -> Project:
-    project = db.scalar(
-        select(Project)
-        .where(Project.id == project_id, Project.workspace_id == workspace_id)
-        .options(selectinload(Project.brand_profile), selectinload(Project.prompts))
-    )
+def get_project(
+    supabase: Client,
+    workspace_id: int,
+    project_id: int,
+) -> dict:
+    """Get a project by ID, ensuring it belongs to the workspace."""
+    project = get_project_by_id(supabase, project_id)
     if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    if project["workspace_id"] != workspace_id:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
 
-def get_active_project(db: Session, workspace_id: int, project_id: int | None = None) -> Project | None:
+def get_active_project(
+    supabase: Client,
+    workspace_id: int,
+    project_id: int | None = None,
+) -> dict | None:
+    """Get the active project, either by ID or the most recent one."""
+    from app.db.tables.projects import list_projects_for_workspace
+
     if project_id is not None:
-        selected = db.scalar(
-            select(Project)
-            .where(
-                Project.id == project_id,
-                Project.workspace_id == workspace_id,
-                Project.status == ProjectStatus.ACTIVE,
-            )
-            .options(selectinload(Project.brand_profile), selectinload(Project.prompts))
-        )
-        if selected:
-            return selected
-    return db.scalar(
-        select(Project)
-        .where(Project.workspace_id == workspace_id, Project.status == ProjectStatus.ACTIVE)
-        .order_by(Project.created_at.desc())
-        .options(selectinload(Project.brand_profile), selectinload(Project.prompts))
-    )
+        project = get_project_by_id(supabase, project_id)
+        if project and project["workspace_id"] == workspace_id and project.get("status") == "active":
+            return project
+
+    # Get most recent active project
+    projects = list_projects_for_workspace(supabase, workspace_id)
+    for project in projects:
+        if project.get("status") == "active":
+            return project
+    return None
 
 
-def ensure_default_project(db: Session, workspace: Workspace) -> Project:
-    project = get_active_project(db, workspace.id)
+def ensure_default_project(supabase: Client, workspace: dict) -> dict:
+    """Ensure a default project exists for the workspace."""
+    project = get_active_project(supabase, workspace["id"])
     if project:
         return project
 
-    base_name = (workspace.name or "").strip() or "Default"
+    base_name = (workspace.get("name") or "").strip() or "Default"
     if not base_name.lower().endswith("project"):
         base_name = f"{base_name} Project"
 
-    project = Project(
-        workspace_id=workspace.id,
-        name=base_name,
-        slug=_unique_slug(db, Project, base_name, "workspace_id", workspace.id),
-        status=ProjectStatus.ACTIVE,
-    )
-    db.add(project)
-    db.flush()
-    db.add(BrandProfile(project_id=project.id, brand_name=project.name))
-    db.commit()
-    ensure_default_prompts(db, project.id)
-    db.refresh(project)
-    return get_project(db, workspace.id, project.id)
+    # Generate unique slug
+    slug = _unique_slug(supabase, "projects", base_name, "workspace_id", workspace["id"])
 
-
-def ensure_default_prompts(db: Session, project_id: int) -> None:
-    defaults = [
-        (
-            "reply",
-            "Helpful Reply",
-            "You write grounded Reddit replies that help first and pitch never.",
-            "Start with empathy, answer the actual question, avoid hard CTAs, and only mention the product when invited.",
-        ),
-        (
-            "post",
-            "Educational Post",
-            "You write Reddit posts that teach from direct experience.",
-            "Use first-hand lessons, concrete examples, and end with an invitation for discussion rather than a promo CTA.",
-        ),
-        (
-            "analysis",
-            "Signal Review",
-            "You summarize opportunities with clarity and no fluff.",
-            "Highlight why the thread matters, what the risk is, and how the brand can contribute credibly.",
-        ),
-    ]
-    existing_types = {
-        row.prompt_type
-        for row in db.scalars(select(PromptTemplate).where(PromptTemplate.project_id == project_id)).all()
+    project_data = {
+        "workspace_id": workspace["id"],
+        "name": base_name,
+        "slug": slug,
+        "status": "active",
+        "description": None,
     }
-    changed = False
-    for prompt_type, name, system_prompt, instructions in defaults:
-        if prompt_type in existing_types:
-            continue
-        db.add(
-            PromptTemplate(
-                project_id=project_id,
-                prompt_type=prompt_type,
-                name=name,
-                system_prompt=system_prompt,
-                instructions=instructions,
-                is_default=True,
-            )
+    project = create_project(supabase, project_data)
+
+    # Create brand profile
+    brand_profile_data = {
+        "project_id": project["id"],
+        "brand_name": project["name"],
+        "website_url": None,
+        "summary": None,
+        "voice_notes": None,
+        "product_summary": None,
+        "target_audience": None,
+        "call_to_action": None,
+        "business_domain": None,
+        "reddit_username": None,
+        "linkedin_url": None,
+    }
+    create_brand_profile(supabase, brand_profile_data)
+
+    # Ensure default prompts
+    ensure_default_prompts(supabase, project["id"])
+
+    return get_project_by_id(supabase, project["id"]) or project
+
+
+def ensure_default_prompts(supabase: Client, project_id: int) -> None:
+    """Ensure default prompt templates exist for a project."""
+    defaults = [
+        {
+            "prompt_type": "reply",
+            "name": "Helpful Reply",
+            "system_prompt": "You write grounded Reddit replies that help first and pitch never.",
+            "instructions": "Start with empathy, answer the actual question, avoid hard CTAs, and only mention the product when invited.",
+        },
+        {
+            "prompt_type": "post",
+            "name": "Educational Post",
+            "system_prompt": "You write Reddit posts that teach from direct experience.",
+            "instructions": "Use first-hand lessons, concrete examples, and end with an invitation for discussion rather than a promo CTA.",
+        },
+        {
+            "prompt_type": "analysis",
+            "name": "Signal Review",
+            "system_prompt": "You summarize opportunities with clarity and no fluff.",
+            "instructions": "Highlight why the thread matters, what the risk is, and how the brand can contribute credibly.",
+        },
+    ]
+
+    existing = list_prompt_templates_for_project(supabase, project_id)
+    existing_types = {p["prompt_type"] for p in existing}
+
+    for prompt in defaults:
+        if prompt["prompt_type"] not in existing_types:
+            prompt_data = {
+                **prompt,
+                "project_id": project_id,
+                "is_default": True,
+            }
+            create_prompt_template(supabase, prompt_data)
+
+
+def workspace_summary(supabase: Client, workspace: dict, user_id: int) -> WorkspaceSummary:
+    """Build workspace summary response."""
+    membership = ensure_workspace_membership(supabase, workspace["id"], user_id)
+    return WorkspaceSummary(
+        id=workspace["id"],
+        name=workspace["name"],
+        slug=workspace["slug"],
+        role=membership.get("role", "member"),
+    )
+
+
+def subscription_response(supabase: Client, workspace: dict) -> SubscriptionResponse:
+    """Build subscription response."""
+    subscription = get_subscription_by_workspace(supabase, workspace["id"])
+    if not subscription:
+        # Create default subscription
+        from app.db.tables.workspaces import create_subscription
+
+        subscription = create_subscription(
+            supabase,
+            {
+                "workspace_id": workspace["id"],
+                "plan_code": "free",
+                "status": "active",
+            },
         )
-        changed = True
-    if changed:
-        db.commit()
 
-
-def workspace_summary(db: Session, workspace: Workspace, user_id: int) -> WorkspaceSummary:
-    membership = ensure_workspace_membership(db, workspace.id, user_id)
-    return WorkspaceSummary(id=workspace.id, name=workspace.name, slug=workspace.slug, role=membership.role.value)
-
-
-def subscription_response(db: Session, workspace: Workspace) -> SubscriptionResponse:
-    subscription = get_or_create_subscription(db, workspace)
-    plan = next((plan for plan in PLAN_CATALOG if plan["code"] == subscription.plan_code), PLAN_CATALOG[0])
+    plan = next((plan for plan in PLAN_CATALOG if plan["code"] == subscription["plan_code"]), PLAN_CATALOG[0])
     return SubscriptionResponse(
-        plan_code=subscription.plan_code,
-        status=subscription.status.value,
-        current_period_end=subscription.current_period_end,
-        features=list(feature_set(subscription.plan_code)),
+        plan_code=subscription["plan_code"],
+        status=subscription["status"],
+        current_period_end=subscription.get("current_period_end"),
+        features=list(feature_set(subscription["plan_code"])),
         limits=dict(plan["limits"]),
     )
 
 
-def build_subreddit_analysis(name: str, description: str, rules: list[str]) -> tuple[list[str], list[str], list[str], str]:
+def build_subreddit_analysis(
+    name: str,
+    description: str,
+    rules: list[str],
+) -> tuple[list[str], list[str], list[str], str]:
+    """Build subreddit analysis from name, description, and rules."""
     text = f"{name} {description}".lower()
     top_post_types = []
     if "help" in text or "question" in text:
@@ -276,6 +345,7 @@ def build_subreddit_analysis(name: str, description: str, rules: list[str]) -> t
         top_post_types.append("case studies")
     if not top_post_types:
         top_post_types = ["discussion", "advice"]
+
     audience_signals = []
     if "startup" in text or "founder" in text:
         audience_signals.append("founders")
@@ -285,6 +355,7 @@ def build_subreddit_analysis(name: str, description: str, rules: list[str]) -> t
         audience_signals.append("software buyers")
     if not audience_signals:
         audience_signals = ["broad interest audience"]
+
     recommendation = "Engage with helpful, specific replies and avoid promotional language."
     posting_risk = [rule for rule in rules[:5]]
     return top_post_types, audience_signals, posting_risk, recommendation

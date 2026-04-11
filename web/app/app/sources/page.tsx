@@ -4,12 +4,16 @@ import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
-import { Card, CardContent } from "@/components/ui/card";
+import { getErrorMessage } from "@/types/errors";
+import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getCitations, getSourceDomains, getSourceGaps, CitationItem, apiRequest, type BrandProfile } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PageHeader } from "@/components/shared/page-header";
+import { KPIGrid, type KPICardProps } from "@/components/shared/kpi-card";
+import { DataTable, type ColumnDef } from "@/components/shared/data-table";
 
 interface SourceDomain {
   domain: string;
@@ -93,8 +97,8 @@ export default function SourcesPage() {
       } else {
         setOwnedWebsiteHost(null);
       }
-    } catch (e: any) {
-      const msg = e?.message || "";
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e);
       if (!msg.includes("No active project") && !msg.includes("Not Found") && !msg.includes("404")) {
         error("Failed to load source data", msg);
       }
@@ -105,13 +109,86 @@ export default function SourcesPage() {
   const ownedDomainItems = domains.filter((domainItem) => isOwnedDomain(domainItem.domain, ownedWebsiteHost));
   const ownedSources = ownedDomainItems.length;
 
+  // Column definitions for All Citations DataTable
+  const citationColumns: ColumnDef<Record<string, unknown>>[] = [
+    {
+      key: "domain",
+      header: "Domain",
+      render: (row) => <span className="font-semibold">{String(row.domain ?? "")}</span>,
+    },
+    {
+      key: "url",
+      header: "URL",
+      className: "max-w-[350px]",
+      render: (row) => (
+        <a href={String(row.url ?? "#")} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block">
+          {String(row.url ?? "")}
+        </a>
+      ),
+    },
+    {
+      key: "platform",
+      header: "Platform",
+      render: () => <Badge variant="secondary">AI Response</Badge>,
+    },
+    {
+      key: "content_type",
+      header: "Type",
+      render: (row) => <Badge variant="secondary">{String(row.content_type || "Page")}</Badge>,
+    },
+    {
+      key: "first_seen_at",
+      header: "First Seen",
+      render: (row) => {
+        const val = row.first_seen_at as string | null;
+        return (
+          <span className="text-xs text-muted-foreground">
+            {val ? new Date(val).toLocaleDateString() : "—"}
+          </span>
+        );
+      },
+    },
+  ];
+
+  // Column definitions for Our Sources DataTable
+  const ownedColumns: ColumnDef<Record<string, unknown>>[] = [
+    {
+      key: "domain",
+      header: "Domain",
+      render: (row) => <span className="font-semibold">{String(row.domain ?? "")}</span>,
+    },
+    {
+      key: "total_citations",
+      header: "Citations",
+    },
+    {
+      key: "share",
+      header: "Share",
+      render: (row) => {
+        const totalCitations = Number(row.total_citations ?? 0);
+        const share = citationTotal > 0 ? Math.round((totalCitations / citationTotal) * 100) : 0;
+        return (
+          <div className="flex items-center gap-2">
+            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full"
+                style={{ width: `${share}%` }}
+              />
+            </div>
+            <span className="text-xs">{share}%</span>
+          </div>
+        );
+      },
+    },
+  ];
+
   if (loading) {
     return (
-      <div>
-        <h2 className="text-2xl font-bold mb-6">Source Intelligence</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="flex flex-col gap-8">
+        <PageHeader title="Source Intelligence" description="Understand which domains and URLs AI models cite when responding to prompts about your category." />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
           {[1, 2, 3, 4].map(i => (
-            <Card key={i} className="p-4">
+            <Card key={i} className="p-5">
               <Skeleton className="h-8 w-3/5 mb-2" />
               <Skeleton className="h-3 w-full" />
             </Card>
@@ -121,38 +198,35 @@ export default function SourcesPage() {
     );
   }
 
+  // KPI cards
+  const kpiCards: KPICardProps[] = [
+    { label: "Unique Domains", value: uniqueDomains },
+    { label: "Total Citations", value: citationTotal },
+    { label: "Sources We Own", value: ownedSources },
+    { label: "Source Gaps", value: gaps.length },
+  ];
+
+  // Cast data for DataTable (requires Record<string, unknown>)
+  const citationRows = citations.slice(0, 50) as unknown as Record<string, unknown>[];
+  const citationColumnDefs = citationColumns as unknown as ColumnDef<Record<string, unknown>>[];
+  const ownedRows = ownedDomainItems as unknown as Record<string, unknown>[];
+  const ownedColumnDefs = ownedColumns as unknown as ColumnDef<Record<string, unknown>>[];
+
   return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold">Source Intelligence</h2>
-        <p className="text-muted-foreground">Understand which domains and URLs AI models cite when responding to prompts about your category.</p>
-      </div>
+    <div className="flex flex-col gap-8">
+      <PageHeader title="Source Intelligence" description="Understand which domains and URLs AI models cite when responding to prompts about your category." />
 
       {/* KPI Row - 4 cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{uniqueDomains}</div>
-          <div className="text-xs text-muted-foreground">Unique Domains</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{citationTotal}</div>
-          <div className="text-xs text-muted-foreground">Total Citations</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{ownedSources}</div>
-          <div className="text-xs text-muted-foreground">Sources We Own</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-2xl font-bold">{gaps.length}</div>
-          <div className="text-xs text-muted-foreground">Source Gaps</div>
-        </Card>
-      </div>
+      <KPIGrid cards={kpiCards} columns={4} className="grid-cols-2 md:grid-cols-4" />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="all">
             All Citations
-            <Badge variant="secondary" className="ml-1.5">{citationTotal}</Badge>
+            <Badge variant="secondary" className="ml-1.5">
+              {citationTotal}
+              {citationTotal > 50 && " (50 shown)"}
+            </Badge>
           </TabsTrigger>
           <TabsTrigger value="owned">
             Our Sources
@@ -166,104 +240,35 @@ export default function SourcesPage() {
 
         {/* Tab 1: All Citations */}
         <TabsContent value="all" className="mt-5">
-          {citations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="text-4xl mb-3">📝</div>
-              <h3 className="text-lg font-semibold mb-1">No citations found yet</h3>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Citations are automatically extracted from AI model responses when you run prompt sets on the AI Visibility page.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Domain</th>
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">URL</th>
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Platform</th>
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Type</th>
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">First Seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {citations.slice(0, 50).map(c => (
-                    <tr key={c.id} className="border-b last:border-b-0 h-10">
-                      <td className="p-3 font-semibold">{c.domain}</td>
-                      <td className="p-3 max-w-[350px] overflow-hidden text-ellipsis whitespace-nowrap">
-                        <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                          {c.url}
-                        </a>
-                      </td>
-                      <td className="p-3">
-                        <Badge variant="secondary">AI Response</Badge>
-                      </td>
-                      <td className="p-3">
-                        <Badge variant="secondary">{c.content_type || "Page"}</Badge>
-                      </td>
-                      <td className="p-3 text-xs text-muted-foreground">
-                        {c.first_seen_at ? new Date(c.first_seen_at).toLocaleDateString() : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={citationColumnDefs}
+            data={citationRows}
+            emptyState={{
+              title: "No citations found yet",
+              description: "Citations are automatically extracted from AI model responses when you run prompt sets on the AI Visibility page.",
+            }}
+          />
         </TabsContent>
 
         {/* Tab 2: Our Sources */}
         <TabsContent value="owned" className="mt-5">
-          {ownedSources === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="text-4xl mb-3">🏢</div>
-              <h3 className="text-lg font-semibold mb-1">No owned sources yet</h3>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Sources you own are identified from your brand profile. Set up your brand to track which of the cited domains are yours.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Domain</th>
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Citations</th>
-                    <th className="p-3 text-left text-xs font-semibold uppercase text-muted-foreground">Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ownedDomainItems.map(d => {
-                    const share = citationTotal > 0 ? Math.round((d.total_citations / citationTotal) * 100) : 0;
-                    return (
-                      <tr key={d.domain} className="border-b last:border-b-0 h-10">
-                        <td className="p-3 font-semibold">{d.domain}</td>
-                        <td className="p-3">{d.total_citations}</td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full"
-                                style={{ width: `${share}%` }}
-                              />
-                            </div>
-                            <span className="text-xs">{share}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={ownedColumnDefs}
+            data={ownedRows}
+            emptyState={{
+              title: "No owned sources yet",
+              description: "Sources you own are identified from your brand profile. Set up your brand to track which of the cited domains are yours.",
+            }}
+          />
         </TabsContent>
 
         {/* Tab 3: Source Gaps */}
         <TabsContent value="gaps" className="mt-5">
           {gaps.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="text-4xl mb-3">🔍</div>
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                <Loader2 className="h-8 w-8 text-muted-foreground/50" />
+              </div>
               <h3 className="text-lg font-semibold mb-1">No source gaps detected</h3>
               <p className="text-sm text-muted-foreground max-w-md">
                 Source gaps show where competitors are cited by AI but your brand is not. Run visibility tracking to discover gaps.
@@ -274,7 +279,7 @@ export default function SourcesPage() {
               {gaps.map(g => (
                 <div
                   key={g.id}
-                  className="rounded-lg border bg-card p-4 grid grid-cols-[1fr_auto] gap-3 items-center"
+                  className="rounded-xl border bg-card p-5 grid grid-cols-[1fr_auto] gap-3 items-center"
                 >
                   <div>
                     <div className="text-sm font-semibold">

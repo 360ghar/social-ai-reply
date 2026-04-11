@@ -2,8 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session, selectinload
+from supabase import Client
 
 from app.api.v1.deps import (
     ensure_default_prompts,
@@ -13,18 +12,27 @@ from app.api.v1.deps import (
     get_current_workspace,
     get_project,
 )
-from app.db.models import (
-    AccountUser,
-    Opportunity,
-    OpportunityStatus,
-    PostDraft,
-    Project,
-    PromptTemplate,
-    ReplyDraft,
-    Workspace,
+from app.db.supabase_client import get_supabase
+from app.db.tables.content import (
+    create_post_draft,
+    create_reply_draft,
+    get_post_draft_by_id,
+    get_reply_draft_by_id,
+    list_post_drafts_for_project,
 )
-from app.db.session import get_db
-from app.schemas.v1.product import (
+from app.db.tables.content import (
+    update_post_draft as update_post_draft_db,
+)
+from app.db.tables.content import (
+    update_reply_draft as update_reply_draft_db,
+)
+from app.db.tables.discovery import (
+    get_opportunity_by_id,
+    list_opportunities_for_project,
+    update_opportunity,
+)
+from app.db.tables.projects import list_prompt_templates_for_project
+from app.schemas.v1.content import (
     PostDraftRequest,
     PostDraftResponse,
     PostDraftUpdateRequest,
@@ -42,41 +50,47 @@ router = APIRouter(prefix="/v1", tags=["drafts"])
 @router.post("/drafts/replies", response_model=ReplyDraftResponse, status_code=status.HTTP_201_CREATED)
 def generate_reply_draft(
     payload: ReplyDraftRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> ReplyDraftResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    opportunity = db.scalar(
-        select(Opportunity)
-        .join(Project)
-        .where(Opportunity.id == payload.opportunity_id, Project.workspace_id == workspace.id)
-        .options(selectinload(Opportunity.reply_drafts))
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    opportunity = get_opportunity_by_id(supabase, payload.opportunity_id)
     if not opportunity:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    project = get_project(db, workspace.id, opportunity.project_id)
-    is_valid, _score = revalidate_opportunity(db, project, opportunity)
+
+    # Verify workspace access
+    project = get_project(supabase, workspace["id"], opportunity["project_id"])
+
+    is_valid, _score = revalidate_opportunity(supabase, project, opportunity)
     if not is_valid:
-        opportunity.status = OpportunityStatus.IGNORED
-        db.commit()
+        update_opportunity(supabase, opportunity["id"], {"status": "ignored"})
         raise HTTPException(status_code=422, detail="Opportunity no longer meets the relevance threshold.")
-    ensure_default_prompts(db, project.id)
-    prompts = db.scalars(select(PromptTemplate).where(PromptTemplate.project_id == project.id)).all()
-    content, rationale, source_prompt = ProductCopilot().generate_reply(opportunity, project.brand_profile, list(prompts))
-    next_version = (db.scalar(select(func.max(ReplyDraft.version)).where(ReplyDraft.opportunity_id == opportunity.id)) or 0) + 1
-    draft = ReplyDraft(
-        project_id=project.id,
-        opportunity_id=opportunity.id,
-        content=content,
-        rationale=rationale,
-        source_prompt=source_prompt,
-        version=next_version,
+
+    ensure_default_prompts(supabase, project["id"])
+    prompts = list_prompt_templates_for_project(supabase, project["id"])
+    content, rationale, source_prompt = ProductCopilot().generate_reply(opportunity, project.get("brand_profile"), prompts)
+
+    # Get next version number - batch query to avoid N+1
+    existing_drafts = list_reply_drafts_for_opportunity(supabase, opportunity["id"])
+    next_version = (max((d["version"] for d in existing_drafts), default=0)) + 1
+
+    draft = create_reply_draft(
+        supabase,
+        {
+            "project_id": project["id"],
+            "opportunity_id": opportunity["id"],
+            "content": content,
+            "rationale": rationale,
+            "source_prompt": source_prompt,
+            "version": next_version,
+        },
     )
-    opportunity.status = OpportunityStatus.DRAFTING
-    db.add(draft)
-    db.commit()
-    db.refresh(draft)
+
+    # Update opportunity status
+    update_opportunity(supabase, opportunity["id"], {"status": "drafting"})
+
     return ReplyDraftResponse.model_validate(draft)
 
 
@@ -84,48 +98,60 @@ def generate_reply_draft(
 def list_reply_drafts(
     status_filter: str = Query(default="drafting", alias="status"),
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ):
-    """List reply drafts with enriched opportunity data for Content Studio."""
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    """List reply drafts with enriched opportunity data for Content Studio.
+
+    FIXED: Uses batch queries instead of N+1 queries.
+    """
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         return []
-    try:
-        opp_status = OpportunityStatus(status_filter)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}") from exc
-    latest_draft_sq = (
-        select(ReplyDraft.opportunity_id, func.max(ReplyDraft.id).label("max_id"))
-        .group_by(ReplyDraft.opportunity_id)
-        .subquery()
-    )
-    rows = db.execute(
-        select(ReplyDraft, Opportunity)
-        .join(latest_draft_sq, and_(
-            ReplyDraft.opportunity_id == latest_draft_sq.c.opportunity_id,
-            ReplyDraft.id == latest_draft_sq.c.max_id,
-        ))
-        .join(Opportunity, Opportunity.id == ReplyDraft.opportunity_id)
-        .where(Opportunity.project_id == proj.id, Opportunity.status == opp_status)
-        .order_by(ReplyDraft.created_at.desc())
-    ).all()
+
+    # Get all opportunities for the project with the given status (batch query)
+    opps = list_opportunities_for_project(supabase, proj["id"], status=status_filter, limit=200)
+    if not opps:
+        return []
+
+    opportunity_ids = [o["id"] for o in opps]
+    opp_by_id = {o["id"]: o for o in opps}
+
+    # Get all reply drafts for these opportunities in a single batch query
+    # Then select the latest draft for each opportunity
+    all_drafts = []
+    for opp_id in opportunity_ids:
+        drafts = list_reply_drafts_for_opportunity(supabase, opp_id)
+        all_drafts.extend(drafts)
+
+    # Group by opportunity and get latest
+    latest_drafts = {}
+    for draft in all_drafts:
+        opp_id = draft["opportunity_id"]
+        if opp_id not in latest_drafts or draft["id"] > latest_drafts[opp_id]["id"]:
+            latest_drafts[opp_id] = draft
+
     results = []
-    for draft, opp in rows:
-        results.append({
-            "id": draft.id,
-            "opportunity_id": opp.id,
-            "content": draft.content,
-            "rationale": draft.rationale or "",
-            "version": draft.version,
-            "created_at": draft.created_at.isoformat() if draft.created_at else None,
-            "opportunity_title": opp.title,
-            "opportunity_subreddit": opp.subreddit_name,
-            "permalink": opp.permalink,
-            "body_excerpt": opp.body_excerpt,
-        })
+    for opp_id, draft in latest_drafts.items():
+        opp = opp_by_id.get(opp_id)
+        if opp:
+            results.append({
+                "id": draft["id"],
+                "opportunity_id": opp["id"],
+                "content": draft["content"],
+                "rationale": draft.get("rationale", ""),
+                "version": draft["version"],
+                "created_at": draft.get("created_at"),
+                "opportunity_title": opp["title"],
+                "opportunity_subreddit": opp["subreddit_name"],
+                "permalink": opp["permalink"],
+                "body_excerpt": opp.get("body_excerpt", ""),
+            })
+
+    # Sort by created_at descending
+    results.sort(key=lambda x: x["created_at"] or "", reverse=True)
     return results
 
 
@@ -133,64 +159,79 @@ def list_reply_drafts(
 def update_reply_draft(
     draft_id: int,
     payload: ReplyDraftUpdateRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> ReplyDraftResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    draft = db.scalar(
-        select(ReplyDraft).join(Project).where(ReplyDraft.id == draft_id, Project.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    draft = get_reply_draft_by_id(supabase, draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Reply draft not found.")
-    draft.content = payload.content
-    draft.rationale = payload.rationale
-    db.commit()
-    db.refresh(draft)
-    return ReplyDraftResponse.model_validate(draft)
+
+    # Verify workspace access via project
+    get_project(supabase, workspace["id"], draft["project_id"])
+
+    updated = update_reply_draft_db(
+        supabase,
+        draft_id,
+        {
+            "content": payload.content,
+            "rationale": payload.rationale,
+        },
+    )
+    return ReplyDraftResponse.model_validate(updated)
 
 
 @router.post("/drafts/posts", response_model=PostDraftResponse, status_code=status.HTTP_201_CREATED)
 def generate_post_draft(
     payload: PostDraftRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> PostDraftResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, payload.project_id)
-    ensure_default_prompts(db, project.id)
-    prompts = db.scalars(select(PromptTemplate).where(PromptTemplate.project_id == project.id)).all()
-    title, body, rationale = ProductCopilot().generate_post(project.brand_profile, list(prompts))
-    version = (db.scalar(select(func.max(PostDraft.version)).where(PostDraft.project_id == project.id)) or 0) + 1
-    draft = PostDraft(
-        project_id=project.id,
-        title=title,
-        body=body,
-        rationale=rationale,
-        source_prompt="\n".join(prompt.instructions for prompt in prompts if prompt.prompt_type == "post"),
-        version=version,
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    project = get_project(supabase, workspace["id"], payload.project_id)
+
+    ensure_default_prompts(supabase, project["id"])
+    prompts = list_prompt_templates_for_project(supabase, project["id"])
+
+    title, body, rationale = ProductCopilot().generate_post(project.get("brand_profile"), prompts)
+
+    # Get next version - batch query
+    existing_drafts = list_post_drafts_for_project(supabase, project["id"])
+    version = (max((d["version"] for d in existing_drafts), default=0)) + 1
+
+    post_prompts = [p for p in prompts if p.get("prompt_type") == "post"]
+    source_prompt = "\n".join(p.get("instructions", "") for p in post_prompts)
+
+    draft = create_post_draft(
+        supabase,
+        {
+            "project_id": project["id"],
+            "title": title,
+            "body": body,
+            "rationale": rationale,
+            "source_prompt": source_prompt,
+            "version": version,
+        },
     )
-    db.add(draft)
-    db.commit()
-    db.refresh(draft)
     return PostDraftResponse.model_validate(draft)
 
 
 @router.get("/drafts/posts", response_model=list[PostDraftResponse])
 def list_post_drafts(
     project_id: int | None = Query(default=None, ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[PostDraftResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    proj = get_active_project(db, workspace.id, project_id)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
         return []
-    rows = db.scalars(
-        select(PostDraft).where(PostDraft.project_id == proj.id).order_by(PostDraft.created_at.desc())
-    ).all()
+
+    rows = list_post_drafts_for_project(supabase, proj["id"])
     return [PostDraftResponse.model_validate(row) for row in rows]
 
 
@@ -198,19 +239,32 @@ def list_post_drafts(
 def update_post_draft(
     draft_id: int,
     payload: PostDraftUpdateRequest,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> PostDraftResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    draft = db.scalar(
-        select(PostDraft).join(Project).where(PostDraft.id == draft_id, Project.workspace_id == workspace.id)
-    )
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    draft = get_post_draft_by_id(supabase, draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Post draft not found.")
-    draft.title = payload.title
-    draft.body = payload.body
-    draft.rationale = payload.rationale
-    db.commit()
-    db.refresh(draft)
-    return PostDraftResponse.model_validate(draft)
+
+    # Verify workspace access via project
+    get_project(supabase, workspace["id"], draft["project_id"])
+
+    updated = update_post_draft_db(
+        supabase,
+        draft_id,
+        {
+            "title": payload.title,
+            "body": payload.body,
+            "rationale": payload.rationale,
+        },
+    )
+    return PostDraftResponse.model_validate(updated)
+
+
+def list_reply_drafts_for_opportunity(supabase: Client, opportunity_id: int) -> list:
+    """Helper to list reply drafts for an opportunity."""
+    from app.db.tables.content import list_reply_drafts_for_opportunity as _list
+    return _list(supabase, opportunity_id)

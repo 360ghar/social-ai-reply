@@ -152,7 +152,7 @@ export function FeatureShowcase() {
               </div>
 
               <div
-                className={`rounded-2xl border border-border bg-background p-6${feature.reverse ? " md:order-1" : ""}`}
+                className={`relative overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-xl shadow-primary/5 dark:shadow-primary/10 transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 dark:hover:shadow-primary/15 ${feature.reverse ? " md:order-1" : ""}`}
               >
                 {feature.mockup}
               </div>

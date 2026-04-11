@@ -1,4 +1,7 @@
-"""RedditFlow API - AI Visibility and Community Engagement Platform."""
+"""RedditFlow API - AI Visibility and Community Engagement Platform.
+
+Backend API server using FastAPI with Supabase for authentication and database.
+"""
 
 import logging
 from contextlib import asynccontextmanager
@@ -9,11 +12,10 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.routes import router as v1_router
 from app.core.config import get_settings
-from app.core.exceptions import AppException
-from app.db.base import Base
-from app.db.session import engine
+from app.core.exceptions import AppError
+from app.core.logging import setup_logging
+from app.db.supabase_client import get_supabase_client
 from app.middleware import RateLimitMiddleware, RequestTracingMiddleware
-from app.services.product.logging_config import setup_logging
 
 setup_logging("INFO")
 logger = logging.getLogger(__name__)
@@ -21,9 +23,16 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Application lifespan handler.
+
+    In the Supabase era, we don't create tables automatically since
+    Supabase manages the schema. Tables should be created via Supabase
+    dashboard, migrations, or SQL scripts.
+    """
     logger.info("Starting RedditFlow API...")
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables ensured.")
+    # Note: Table creation is now managed via Supabase dashboard/migrations
+    # Base.metadata.create_all(bind=engine) is no longer used
+    logger.info("RedditFlow API started successfully.")
     yield
     logger.info("Shutting down RedditFlow API.")
 
@@ -32,7 +41,7 @@ settings = get_settings()
 app = FastAPI(
     title="RedditFlow API",
     description="AI Visibility and Community Engagement Platform",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
@@ -53,33 +62,38 @@ app.add_middleware(
 app.include_router(v1_router)
 
 
-@app.exception_handler(AppException)
-async def app_exception_handler(request, exc: AppException):
+@app.exception_handler(AppError)
+async def app_exception_handler(request, exc: AppError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
-def _service_checks() -> dict[str, str]:
-    from sqlalchemy import text
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request, exc: RuntimeError):
+    """Catch LLM/provider runtime errors and return a structured 503 response."""
+    logger.error("RuntimeError in request handler: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+    )
 
+
+def _service_checks() -> dict[str, str]:
+    """Check service health (API + Supabase database)."""
     checks = {"api": "ok"}
     try:
-        from app.db.session import SessionLocal
-
-        db = SessionLocal()
-        try:
-            db.execute(text("SELECT 1"))
-            checks["database"] = "ok"
-        except Exception:
-            checks["database"] = "error"
-        finally:
-            db.close()
-    except Exception:
+        supabase = get_supabase_client()
+        # Actually query the database to verify connectivity
+        supabase.table("account_users").select("id").limit(1).execute()
+        checks["database"] = "ok"
+    except Exception as e:
+        logger.error("Supabase health check failed: %s", e)
         checks["database"] = "error"
     return checks
 
 
 @app.get("/health")
 def health_check():
+    """Health check endpoint."""
     checks = _service_checks()
     status = "healthy" if all(value == "ok" for value in checks.values()) else "degraded"
     return {"status": status, "checks": checks}
@@ -87,6 +101,7 @@ def health_check():
 
 @app.get("/ready")
 def readiness_check():
+    """Readiness check endpoint."""
     checks = _service_checks()
     ready = all(value == "ok" for value in checks.values())
     payload = {"status": "ready" if ready else "not_ready", "checks": checks}
@@ -95,4 +110,5 @@ def readiness_check():
 
 @app.get("/")
 def root():
-    return {"name": "RedditFlow API", "version": "2.0.0", "status": "running"}
+    """Root endpoint."""
+    return {"name": "RedditFlow API", "version": "2.1.0", "status": "running"}

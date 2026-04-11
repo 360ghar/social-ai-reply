@@ -1,10 +1,12 @@
-from sqlalchemy.orm import Session
+"""Audit logging utilities."""
 
-from app.db.models import AuditEvent
+from supabase import Client
+
+from app.db.tables.system import create_activity_log
 
 
 def record_audit(
-    db: Session,
+    supabase: Client,
     *,
     workspace_id: int | None,
     project_id: int | None,
@@ -14,14 +16,27 @@ def record_audit(
     entity_id: str,
     payload: dict | None = None,
 ) -> None:
-    db.add(
-        AuditEvent(
-            workspace_id=workspace_id,
-            project_id=project_id,
-            actor_user_id=actor_user_id,
-            event_type=event_type,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            payload=payload or {},
-        )
+    """Record an audit event.
+
+    Args:
+        supabase: Supabase client instance.
+        workspace_id: Workspace ID (if applicable).
+        project_id: Project ID (if applicable).
+        actor_user_id: User ID who performed the action.
+        event_type: Type of event (e.g., "project.created").
+        entity_type: Type of entity (e.g., "Project").
+        entity_id: ID of the entity.
+        payload: Optional additional data.
+    """
+    create_activity_log(
+        supabase,
+        {
+            "workspace_id": workspace_id,
+            "project_id": project_id,
+            "actor_user_id": actor_user_id,
+            "event_type": event_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "metadata_json": payload or {},
+        },
     )

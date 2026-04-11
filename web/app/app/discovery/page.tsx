@@ -1,13 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useState, useRef } from "react";
+import {
+  Loader2,
+  Target,
+  Users,
+  MessageSquare,
+  Plus,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Search,
+} from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,19 +48,16 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PageHeader } from "@/components/shared/page-header";
+import { KPIGrid } from "@/components/shared/kpi-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { SheetPanel } from "@/components/shared/sheet-panel";
 import { ScoreBadge } from "@/components/shared/score-badge";
 import { PlatformIcon } from "@/components/shared/platform-icon";
 import { redditUrl, copyText } from "@/lib/reddit";
@@ -113,7 +122,7 @@ export default function DiscoveryPage() {
   const [scanning, setScanning] = useState(false);
   const [generatingReply, setGeneratingReply] = useState<number | null>(null);
 
-  const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
+  const [draftingOpp, setDraftingOpp] = useState<Opportunity | null>(null);
   const [draftContent, setDraftContent] = useState("");
   const [draftRationale, setDraftRationale] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number; name: string } | null>(null);
@@ -126,6 +135,15 @@ export default function DiscoveryPage() {
   const [newCampaignName, setNewCampaignName] = useState("");
   const [newCampaignDesc, setNewCampaignDesc] = useState("");
   const [creatingCampaign, setCreatingCampaign] = useState(false);
+
+  // Collapsible sections in draft panel
+  const [showOriginalThread, setShowOriginalThread] = useState(true);
+  const [showRationale, setShowRationale] = useState(false);
+
+  // Section refs for workflow strip scroll
+  const signalsRef = useRef<HTMLDivElement>(null);
+  const communitiesRef = useRef<HTMLDivElement>(null);
+  const queueRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!token) {
@@ -170,8 +188,8 @@ export default function DiscoveryPage() {
       if (campRes.status === "fulfilled") {
         setCampaigns(campRes.value || []);
       }
-    } catch (err: any) {
-      error("Failed to load data", err?.message);
+    } catch (err: unknown) {
+      error("Failed to load data", getErrorMessage(err));
     }
     setLoading(false);
   }
@@ -198,8 +216,8 @@ export default function DiscoveryPage() {
       setNewKeyword("");
       success("Signal added");
       await loadAll();
-    } catch (err: any) {
-      error("Failed to add keyword", err.message);
+    } catch (err: unknown) {
+      error("Failed to add keyword", getErrorMessage(err));
     }
     setAddingKeyword(false);
   }
@@ -220,8 +238,8 @@ export default function DiscoveryPage() {
       );
       success("Audience signals generated");
       await loadAll();
-    } catch (err: any) {
-      error("Failed to generate", err.message);
+    } catch (err: unknown) {
+      error("Failed to generate", getErrorMessage(err));
     }
     setGeneratingKeywords(false);
   }
@@ -242,8 +260,8 @@ export default function DiscoveryPage() {
       );
       success("Communities discovered");
       await loadAll();
-    } catch (err: any) {
-      error("Failed to discover", err.message);
+    } catch (err: unknown) {
+      error("Failed to discover", getErrorMessage(err));
     }
     setDiscoveringCommunities(false);
   }
@@ -268,8 +286,8 @@ export default function DiscoveryPage() {
       );
       success("Scan complete", "Check the conversation queue below.");
       await loadAll();
-    } catch (err: any) {
-      error("Scan failed", err.message);
+    } catch (err: unknown) {
+      error("Scan failed", getErrorMessage(err));
     }
     setScanning(false);
   }
@@ -287,10 +305,12 @@ export default function DiscoveryPage() {
       );
       setDraftContent(res.content || "");
       setDraftRationale(res.rationale || "");
-      setSelectedOpp(opportunities.find((opp) => opp.id === oppId) || null);
+      setDraftingOpp(opportunities.find((opp) => opp.id === oppId) || null);
+      setShowOriginalThread(true);
+      setShowRationale(false);
       success("Response drafted");
-    } catch (err: any) {
-      error("Could not generate response", err.message);
+    } catch (err: unknown) {
+      error("Could not generate response", getErrorMessage(err));
     }
     setGeneratingReply(null);
   }
@@ -304,8 +324,8 @@ export default function DiscoveryPage() {
       success(`${deleteTarget.name} deleted`);
       setDeleteTarget(null);
       await loadAll();
-    } catch (err: any) {
-      error("Delete failed", err.message);
+    } catch (err: unknown) {
+      error("Delete failed", getErrorMessage(err));
     }
   }
 
@@ -340,10 +360,10 @@ export default function DiscoveryPage() {
         token
       );
       success("Marked as posted");
-      setSelectedOpp(null);
+      setDraftingOpp(null);
       await loadAll();
-    } catch (err: any) {
-      error("Could not update status", err.message);
+    } catch (err: unknown) {
+      error("Could not update status", getErrorMessage(err));
     }
   }
 
@@ -371,29 +391,58 @@ export default function DiscoveryPage() {
       setNewCampaignDesc("");
       setShowCampaignModal(false);
       success("Campaign created");
-    } catch (err: any) {
-      error("Failed to create campaign", err.message);
+    } catch (err: unknown) {
+      error("Failed to create campaign", getErrorMessage(err));
     }
     setCreatingCampaign(false);
   }
 
-  const steps = [
-    { label: "Audience Signals", done: keywords.length > 0 },
-    { label: "Community Coverage", done: subreddits.length > 0 },
-    { label: "Conversation Queue", done: opportunities.length > 0 },
+  // Workflow step definitions
+  const workflowSteps = [
+    { label: "Signals", count: keywords.length, done: keywords.length > 0, ref: signalsRef },
+    { label: "Communities", count: subreddits.length, done: subreddits.length > 0, ref: communitiesRef },
+    { label: "Queue", count: opportunities.length, done: opportunities.length > 0, ref: queueRef },
   ];
-  const currentStep = steps.findIndex((step) => !step.done);
+  const currentStep = workflowSteps.findIndex((step) => !step.done);
 
+  // Filtered opportunities
   let filteredOpps = [...opportunities];
   if (statusFilter) {
     filteredOpps = filteredOpps.filter((opp) => opp.status === statusFilter);
   }
+  // Note: campaignFilter is UI-ready but opportunities don't have campaign_id yet
+  // Future enhancement: add campaign association to opportunities table
   filteredOpps.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+  // Status filter tabs
+  const statusTabs = [
+    { label: "All", value: "" },
+    { label: "New", value: "new" },
+    { label: "Saved", value: "saved" },
+    { label: "Drafting", value: "drafting" },
+    { label: "Posted", value: "posted" },
+    { label: "Ignored", value: "ignored" },
+  ];
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-16">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-8 p-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-16 rounded-xl" />
+        <Skeleton className="h-32 rounded-xl" />
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -411,354 +460,421 @@ export default function DiscoveryPage() {
   }
 
   return (
-    <div className="grid gap-6">
-      <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Engagement Workflow</p>
-        <h2 className="text-2xl font-semibold tracking-tight">Engagement Radar</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Discover live Reddit conversations now using a workflow shaped for broader forum, Q and A, and social comment patterns over time.
-        </p>
-      </div>
-
-      {campaigns.length > 0 && (
-        <Card>
-          <CardContent>
-            <div className="flex items-center justify-between mb-3">
-              <Label className="text-sm font-medium">Active Campaigns</Label>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setShowCampaignModal(true)}
-              >
-                + New Campaign
+    <div className="grid gap-8">
+      {/* Page Header */}
+      <PageHeader
+        title="Opportunity Radar"
+        description="Discover live Reddit conversations using a workflow shaped for broader forum, Q&A, and social comment patterns."
+        actions={
+          <div className="flex items-center gap-2">
+            {campaigns.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => setShowCampaignModal(true)}>
+                <Plus className="h-4 w-4" />
+                Campaign
               </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {campaigns.map((campaign) => (
-                <Badge key={campaign.id} variant="secondary">
-                  {campaign.name}
-                  {campaign.status && <span className="text-[11px] opacity-70">({campaign.status})</span>}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+            )}
+            <Button onClick={runScan} disabled={scanning || subreddits.length === 0}>
+              {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
+              {scanning ? "Scanning..." : "Run Scan"}
+            </Button>
+          </div>
+        }
+      />
+
+      {/* Campaign Chips */}
+      {campaigns.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Campaigns:</span>
+          {campaigns.map((campaign) => (
+            <Badge key={campaign.id} variant="secondary">
+              {campaign.name}
+              {campaign.status && <span className="text-[11px] opacity-70">({campaign.status})</span>}
+            </Badge>
+          ))}
+        </div>
       )}
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
-        <Card>
-          <CardContent>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Signals</p>
-            <h3 className="mt-1 text-2xl font-semibold">{keywords.length}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Intent phrases and topic cues that seed community discovery.</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Coverage</p>
-            <h3 className="mt-1 text-2xl font-semibold">{subreddits.length}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Monitored communities with fit, activity, and rule context.</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Queue</p>
-            <h3 className="mt-1 text-2xl font-semibold">{filteredOpps.length}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Reply-ready conversations ranked by quality and contribution fit.</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* KPI Grid */}
+      <KPIGrid
+        columns={3}
+        cards={[
+          { label: "Signals", value: keywords.length, icon: Target },
+          { label: "Communities", value: subreddits.length, icon: Users },
+          { label: "Queue", value: filteredOpps.length, icon: MessageSquare },
+        ]}
+      />
 
+      {/* Workflow Strip */}
       <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Pattern Direction</CardTitle>
-            <CardDescription>
-              The current implementation is Reddit-native, but the workflow should support three reusable patterns: answer a question, join a discussion, and publish an original perspective.
-            </CardDescription>
-          </div>
-          <CardAction>
-            <Badge variant="default">Reddit live now</Badge>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">Q and A answers</Badge>
-            <Badge variant="secondary">Discussion replies</Badge>
-            <Badge variant="secondary">Original posts</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          {/* Step Indicator */}
-          <div className="flex items-center gap-2">
-            {steps.map((s, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <div
-                  className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
-                    s.done
-                      ? "bg-primary text-primary-foreground"
-                      : i === currentStep
-                        ? "bg-primary/10 text-primary ring-2 ring-primary/30"
-                        : "bg-muted text-muted-foreground"
-                  )}
+        <CardContent className="py-3">
+          <div className="flex items-center justify-center gap-1">
+            {workflowSteps.map((step, i) => (
+              <div key={step.label} className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => step.ref.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-colors hover:bg-muted"
                 >
-                  {s.done ? "\u2713" : i + 1}
-                </div>
-                {i < steps.length - 1 && (
+                  <span
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                      step.done
+                        ? "bg-primary text-primary-foreground"
+                        : i === currentStep
+                          ? "bg-primary/10 text-primary ring-2 ring-primary/30"
+                          : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {step.done ? "\u2713" : i + 1}
+                  </span>
+                  <span className="text-sm font-medium text-foreground">{step.label}</span>
+                  <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
+                    {step.count}
+                  </Badge>
+                </button>
+                {i < workflowSteps.length - 1 && (
                   <div
                     className={cn(
-                      "h-0.5 w-8",
-                      s.done ? "bg-primary" : "bg-muted"
+                      "h-0.5 w-6",
+                      step.done ? "bg-primary" : "bg-muted"
                     )}
                   />
                 )}
               </div>
             ))}
           </div>
-          <div className="mt-2 flex gap-6">
-            {steps.map((s, i) => (
-              <span key={i} className="text-xs text-muted-foreground">{s.label}</span>
-            ))}
-          </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-medium">Step 1: Audience Signals ({keywords.length})</h3>
-            <Button variant="outline" onClick={generateKeywords} disabled={generatingKeywords}>
-              {generatingKeywords && <Loader2 className="h-4 w-4 animate-spin" />}
-              Generate Signals
-            </Button>
-          </div>
-          <div className="flex gap-2 mb-4">
-            <Input
-              type="text"
-              value={newKeyword}
-              onChange={(event) => setNewKeyword(event.target.value)}
-              placeholder="Add a market phrase or audience signal"
-              onKeyDown={(event) => event.key === "Enter" && void addKeyword()}
-              className="flex-1"
-            />
-            <Button onClick={addKeyword} disabled={addingKeyword}>
-              {addingKeyword && <Loader2 className="h-4 w-4 animate-spin" />}
-              Add Signal
-            </Button>
-          </div>
-          {keywords.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {keywords.map((keyword) => (
-                <Badge key={keyword.id} variant="secondary" className="inline-flex items-center gap-1.5">
-                  {keyword.keyword}
-                  <button
-                    onClick={() => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
-                    className="ml-0.5 text-muted-foreground hover:text-foreground"
-                  >
-                    x
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-medium">Step 2: Community Coverage ({subreddits.length})</h3>
-            <Button
-              variant="outline"
-              onClick={discoverCommunities}
-              disabled={discoveringCommunities || keywords.length === 0}
-            >
-              {discoveringCommunities && <Loader2 className="h-4 w-4 animate-spin" />}
-              Discover Communities
-            </Button>
-          </div>
-          {subreddits.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Add audience signals first, then discover communities that match those intents.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {subreddits.map((community) => (
-                <Badge key={community.id} variant="secondary">
-                  r/{community.name}
-                  {community.fit_score !== undefined ? ` (${community.fit_score})` : ""}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-medium">Step 3: Conversation Queue ({filteredOpps.length})</h3>
+      {/* Section 1: Audience Signals */}
+      <div ref={signalsRef}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              Audience Signals
+              <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
+                {keywords.length}
+              </Badge>
+            </CardTitle>
+            <CardAction>
+              <Button variant="outline" size="sm" onClick={generateKeywords} disabled={generatingKeywords}>
+                {generatingKeywords ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Generate Signals
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="flex gap-2">
-              {campaigns.length > 0 && (
-                <Select value={campaignFilter} onValueChange={(v) => setCampaignFilter(v ?? "")}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Campaigns" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Campaigns</SelectItem>
-                    {campaigns.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "")}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All Statuses</SelectItem>
-                  <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="saved">Saved</SelectItem>
-                  <SelectItem value="drafting">Drafting</SelectItem>
-                  <SelectItem value="posted">Posted</SelectItem>
-                  <SelectItem value="ignored">Ignored</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={runScan} disabled={scanning || subreddits.length === 0}>
-                {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
-                {scanning ? "Scanning" : "Run Scan"}
+              <Input
+                type="text"
+                value={newKeyword}
+                onChange={(event) => setNewKeyword(event.target.value)}
+                placeholder="Add a market phrase or audience signal"
+                onKeyDown={(event) => event.key === "Enter" && void addKeyword()}
+                className="flex-1"
+              />
+              <Button size="sm" onClick={addKeyword} disabled={addingKeyword}>
+                {addingKeyword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add
               </Button>
             </div>
-          </div>
-
-          {filteredOpps.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-              <div className="text-4xl">Q</div>
-              <h3 className="mt-4 text-lg font-medium">
-                {opportunities.length === 0 ? "No conversations found yet" : "No matches for this filter"}
-              </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {opportunities.length === 0
-                  ? "Add signals, discover communities, then scan for reply-ready discussions."
-                  : "Try changing the status filter."}
+            {keywords.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {keywords.map((keyword) => (
+                  <Badge key={keyword.id} variant="secondary" className="inline-flex items-center gap-1.5">
+                    {keyword.keyword}
+                    <button
+                      onClick={() => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
+                      className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      x
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Add audience signals or generate them from your project description to seed community discovery.
               </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredOpps.map((opp) => (
-                <div key={opp.id} className="rounded-lg border bg-card p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Section 2: Community Coverage */}
+      <div ref={communitiesRef}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              Community Coverage
+              <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
+                {subreddits.length}
+              </Badge>
+            </CardTitle>
+            <CardAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={discoverCommunities}
+                disabled={discoveringCommunities || keywords.length === 0}
+              >
+                {discoveringCommunities ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Discover Communities
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            {subreddits.length === 0 ? (
+              <EmptyState
+                icon={Users}
+                title="No communities yet"
+                description="Add audience signals first, then discover communities that match those intents."
+              />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {subreddits.map((community) => (
+                  <div
+                    key={community.id}
+                    className="flex items-center justify-between rounded-lg border bg-card p-3"
+                  >
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <PlatformIcon platform="reddit" />
-                        <Badge variant="secondary">Live Source</Badge>
-                        <a
-                          href={redditUrl(opp.permalink)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-semibold text-foreground truncate hover:underline"
-                        >
-                          {opp.title}
-                        </a>
+                        <span className="text-sm font-medium truncate">r/{community.name}</span>
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Badge variant="outline">r/{opp.subreddit_name}</Badge>
-                        {(opp.score_reasons || []).slice(0, 2).map((reason) => (
-                          <Badge key={reason} variant="outline">
-                            {reason}
-                          </Badge>
-                        ))}
-                      </div>
+                      {community.description && (
+                        <p className="mt-1 text-xs text-muted-foreground truncate">
+                          {community.description.substring(0, 80)}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-4">
+                    <div className="flex items-center gap-2 shrink-0 ml-3">
+                      {community.fit_score !== undefined && (
+                        <ScoreBadge score={community.fit_score} />
+                      )}
+                      <button
+                        onClick={() => setDeleteTarget({ type: "subreddits", id: community.id, name: `r/${community.name}` })}
+                        className="text-muted-foreground hover:text-foreground text-xs"
+                      >
+                        x
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Section 3: Conversation Queue */}
+      <div ref={queueRef}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              Conversation Queue
+              <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
+                {filteredOpps.length}
+              </Badge>
+            </CardTitle>
+            <CardAction>
+              <div className="flex items-center gap-2">
+                {campaigns.length > 0 && (
+                  <Select value={campaignFilter} onValueChange={(v) => setCampaignFilter(v ?? "")}>
+                    <SelectTrigger className="h-8 w-[140px] text-xs">
+                      <SelectValue placeholder="All Campaigns" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Campaigns</SelectItem>
+                      {campaigns.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Status Filter Pills */}
+            <div className="flex flex-wrap gap-1.5">
+              {statusTabs.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.value)}
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                    statusFilter === tab.value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-transparent bg-muted text-muted-foreground hover:bg-muted/80"
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Opportunity List */}
+            {filteredOpps.length === 0 ? (
+              <EmptyState
+                icon={MessageSquare}
+                title={opportunities.length === 0 ? "No conversations found yet" : "No matches for this filter"}
+                description={
+                  opportunities.length === 0
+                    ? "Add signals, discover communities, then scan for reply-ready discussions."
+                    : "Try changing the status filter."
+                }
+                action={
+                  subreddits.length > 0
+                    ? { label: "Run Scan", onClick: () => void runScan() }
+                    : undefined
+                }
+              />
+            ) : (
+              <div className="space-y-2">
+                {filteredOpps.map((opp) => (
+                  <div
+                    key={opp.id}
+                    className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border bg-card p-5"
+                  >
+                    {/* Left: Platform + subreddit */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <PlatformIcon platform="reddit" />
+                      <Badge variant="outline" className="text-xs">r/{opp.subreddit_name}</Badge>
+                    </div>
+
+                    {/* Center: Title + score reasons */}
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={redditUrl(opp.permalink)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-foreground hover:underline truncate block"
+                      >
+                        {opp.title}
+                      </a>
+                      {(opp.score_reasons || []).length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {(opp.score_reasons || []).slice(0, 3).map((reason) => (
+                            <Badge key={reason} variant="secondary" className="text-[11px] px-1.5 py-0">
+                              {reason}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: Score + Action */}
+                    <div className="flex items-center gap-2 shrink-0">
                       <ScoreBadge score={opp.score || 0} />
                       <Button
+                        size="sm"
                         onClick={() => generateReply(opp.id)}
                         disabled={generatingReply === opp.id}
                       >
                         {generatingReply === opp.id && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Draft Response
+                        Draft Reply
                       </Button>
                     </div>
                   </div>
-                  {opp.body_excerpt && (
-                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-                      {opp.body_excerpt.substring(0, 220)}...
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Reply Draft Sheet */}
+      <SheetPanel
+        title="Reply Draft"
+        description={draftingOpp?.title?.substring(0, 60) || ""}
+        open={!!draftingOpp}
+        onOpenChange={(open) => !open && setDraftingOpp(null)}
+        width="lg"
+        footer={
+          <div className="flex flex-wrap gap-2">
+            <a href="/app/content">
+              <Button variant="ghost" size="sm">Review in Studio</Button>
+            </a>
+            <Button variant="outline" size="sm" onClick={() => copyToClipboard(draftContent)}>
+              Copy
+            </Button>
+            {draftingOpp?.permalink && (
+              <Button size="sm" onClick={() => copyAndOpenReddit(draftContent, draftingOpp.permalink)}>
+                Copy &amp; Open Reddit
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => draftingOpp && markAsPosted(draftingOpp.id)}>
+              Mark as Posted
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Collapsible: Original Thread */}
+          {draftingOpp?.permalink && (
+            <div className="rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setShowOriginalThread(!showOriginalThread)}
+                className="flex w-full items-center justify-between p-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
+              >
+                <span>Original Thread</span>
+                {showOriginalThread ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+              {showOriginalThread && (
+                <div className="border-t px-3 pb-3 pt-2">
+                  <a
+                    href={redditUrl(draftingOpp.permalink)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                  >
+                    View on Reddit <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {draftingOpp.body_excerpt && (
+                    <p className="mt-2 text-xs text-muted-foreground leading-snug">
+                      {draftingOpp.body_excerpt.substring(0, 280)}...
                     </p>
                   )}
                 </div>
-              ))}
+              )}
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Reply Draft Sheet */}
-      <Sheet open={!!selectedOpp} onOpenChange={(open) => !open && setSelectedOpp(null)}>
-        <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Draft Response: {selectedOpp?.title?.substring(0, 52) || ""}</SheetTitle>
-            <SheetDescription>Edit and manage your generated reply draft.</SheetDescription>
-          </SheetHeader>
-
-          <div className="flex-1 overflow-y-auto px-4">
-            {selectedOpp?.permalink && (
-              <div className="mb-4 rounded-lg bg-muted p-3">
-                <a
-                  href={redditUrl(selectedOpp.permalink)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-medium text-primary hover:underline"
-                >
-                  View original Reddit thread {"->"}
-                </a>
-                {selectedOpp.body_excerpt && (
-                  <p className="mt-2 text-xs text-muted-foreground leading-snug">
-                    {selectedOpp.body_excerpt.substring(0, 220)}...
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>Generated Response</Label>
-              <Textarea
-                rows={10}
-                value={draftContent}
-                onChange={(event) => setDraftContent(event.target.value)}
-                className="text-sm leading-relaxed"
-              />
-              <p className="text-xs text-muted-foreground">{draftContent.length} characters</p>
-            </div>
-            {draftRationale && (
-              <div className="mt-4 rounded-lg bg-muted p-4">
-                <h4 className="text-sm font-medium">Why this response works</h4>
-                <p className="mt-1 text-sm text-muted-foreground">{draftRationale}</p>
-              </div>
-            )}
+          {/* Draft Textarea */}
+          <div className="space-y-2">
+            <Label>Generated Response</Label>
+            <Textarea
+              rows={10}
+              value={draftContent}
+              onChange={(event) => setDraftContent(event.target.value)}
+              className="text-sm leading-relaxed"
+            />
+            <p className="text-xs text-muted-foreground">{draftContent.length} characters</p>
           </div>
 
-          <SheetFooter className="flex-row flex-wrap justify-end gap-2">
-            <a href="/app/content">
-              <Button variant="ghost">Review in Studio</Button>
-            </a>
-            <Button variant="outline" onClick={() => copyToClipboard(draftContent)}>
-              Copy
-            </Button>
-            {selectedOpp?.permalink && (
-              <Button onClick={() => copyAndOpenReddit(draftContent, selectedOpp.permalink)}>
-                Copy and Open on Reddit
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => selectedOpp && markAsPosted(selectedOpp.id)}>
-              Mark as Posted
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+          {/* Collapsible: Rationale */}
+          {draftRationale && (
+            <div className="rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setShowRationale(!showRationale)}
+                className="flex w-full items-center justify-between p-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
+              >
+                <span>Why this response works</span>
+                {showRationale ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+              {showRationale && (
+                <div className="border-t px-3 pb-3 pt-2">
+                  <p className="text-sm text-muted-foreground">{draftRationale}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </SheetPanel>
 
       {/* Delete Confirm */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

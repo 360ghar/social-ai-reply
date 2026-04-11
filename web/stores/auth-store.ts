@@ -17,6 +17,26 @@ interface AuthState {
 export const STORAGE_KEY = "redditflow-auth";
 export const LEGACY_STORAGE_KEY = "reply-radar-auth";
 
+/**
+ * One-time migration: if the legacy key exists and the current key does not,
+ * copy the data over and delete the legacy key. Called once on store init
+ * (browser-side only) so existing users are not logged out after the rename.
+ */
+function migrateLegacyStorage(): void {
+  if (typeof window === "undefined") return;
+  const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (!legacyRaw) return;
+  const currentRaw = window.localStorage.getItem(STORAGE_KEY);
+  if (!currentRaw) {
+    // Migrate: copy legacy data to the new key before deleting the old one.
+    window.localStorage.setItem(STORAGE_KEY, legacyRaw);
+  }
+  window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+}
+
+// Run migration eagerly at module load time (runs once per page load).
+migrateLegacyStorage();
+
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   user: null,

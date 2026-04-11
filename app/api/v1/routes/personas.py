@@ -2,8 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from app.api.v1.deps import (
     ensure_workspace_membership,
@@ -11,9 +10,19 @@ from app.api.v1.deps import (
     get_current_workspace,
     get_project,
 )
-from app.db.models import AccountUser, Persona, Project, Workspace
-from app.db.session import get_db
-from app.schemas.v1.product import PersonaRequest, PersonaResponse
+from app.db.supabase_client import get_supabase
+from app.db.tables.discovery import (
+    create_persona as create_persona_table,
+)
+from app.db.tables.discovery import (
+    delete_persona as delete_persona_table,
+)
+from app.db.tables.discovery import (
+    get_persona_by_id,
+    list_personas_for_project,
+    update_persona as update_persona_table,
+)
+from app.schemas.v1.personas import PersonaRequest, PersonaResponse, PersonaUpdateRequest
 from app.services.product.copilot import ProductCopilot
 
 logger = logging.getLogger(__name__)
@@ -23,30 +32,35 @@ router = APIRouter(prefix="/v1", tags=["personas"])
 @router.get("/personas", response_model=list[PersonaResponse])
 def list_personas(
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[PersonaResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    rows = db.scalars(select(Persona).where(Persona.project_id == project.id).order_by(Persona.created_at.desc())).all()
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    # Validate project access
+    get_project(supabase, workspace["id"], project_id)
+    rows = list_personas_for_project(supabase, project_id)
     return [PersonaResponse.model_validate(row) for row in rows]
 
 
 @router.post("/personas", response_model=PersonaResponse, status_code=status.HTTP_201_CREATED)
-def create_persona(
+def create_persona_endpoint(
     payload: PersonaRequest,
     project_id: int = Query(..., ge=1),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> PersonaResponse:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    persona = Persona(project_id=project.id, **payload.model_dump())
-    db.add(persona)
-    db.commit()
-    db.refresh(persona)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    # Validate project access
+    get_project(supabase, workspace["id"], project_id)
+
+    persona_data = {
+        "project_id": project_id,
+        **payload.model_dump(),
+        "source": payload.source if hasattr(payload, 'source') and payload.source else "manual",
+    }
+    persona = create_persona_table(supabase, persona_data)
     return PersonaResponse.model_validate(persona)
 
 
@@ -54,35 +68,63 @@ def create_persona(
 def generate_personas(
     project_id: int = Query(..., ge=1),
     count: int = Query(default=4, ge=1, le=8),
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
 ) -> list[PersonaResponse]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    project = get_project(db, workspace.id, project_id)
-    generated = ProductCopilot().suggest_personas(project.brand_profile, count=count)
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    project = get_project(supabase, workspace["id"], project_id)
+
+    generated = ProductCopilot().suggest_personas(project.get("brand_profile"), count=count)
     rows = []
     for item in generated:
-        persona = Persona(project_id=project.id, **item)
-        db.add(persona)
+        persona_data = {"project_id": project_id, **item}
+        persona = create_persona_table(supabase, persona_data)
         rows.append(persona)
-    db.commit()
-    for row in rows:
-        db.refresh(row)
+
     return [PersonaResponse.model_validate(row) for row in rows]
 
 
-@router.delete("/personas/{persona_id}")
-def delete_persona(
+@router.put("/personas/{persona_id}", response_model=PersonaResponse)
+def update_persona_endpoint(
     persona_id: int,
-    current_user: AccountUser = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: Session = Depends(get_db),
-) -> dict[str, bool]:
-    ensure_workspace_membership(db, workspace.id, current_user.id)
-    persona = db.scalar(select(Persona).join(Project).where(Persona.id == persona_id, Project.workspace_id == workspace.id))
+    payload: PersonaUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+) -> PersonaResponse:
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    persona = get_persona_by_id(supabase, persona_id)
     if not persona:
         raise HTTPException(status_code=404, detail="Persona not found.")
-    db.delete(persona)
-    db.commit()
+
+    # Verify workspace access via project
+    get_project(supabase, workspace["id"], persona["project_id"])
+
+    update_data = payload.model_dump(exclude_unset=True)
+    updated = update_persona_table(supabase, persona_id, update_data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Persona not found.")
+    return PersonaResponse.model_validate(updated)
+
+
+@router.delete("/personas/{persona_id}")
+def delete_persona_endpoint(
+    persona_id: int,
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+) -> dict[str, bool]:
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    persona = get_persona_by_id(supabase, persona_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail="Persona not found.")
+
+    # Verify workspace access
+    if persona["project_id"] != get_project(supabase, workspace["id"], persona["project_id"])["id"]:
+        raise HTTPException(status_code=404, detail="Persona not found.")
+
+    delete_persona_table(supabase, persona_id)
     return {"ok": True}

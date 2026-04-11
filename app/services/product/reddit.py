@@ -320,10 +320,10 @@ class RedditClient:
         return relevance
 
     def post_comment(self, subreddit: str, parent_id: str, text: str) -> str:
-        raise NotImplementedError("Reddit posting requires OAuth integration. Connect a Reddit account first.")
+        raise NotImplementedError
 
     def post_thread(self, subreddit: str, title: str, body: str) -> str:
-        raise NotImplementedError("Reddit posting requires OAuth integration. Connect a Reddit account first.")
+        raise NotImplementedError
 
     def get_post_stats(self, reddit_id: str) -> dict[str, Any]:
         try:

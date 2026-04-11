@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.services.product.relevance import (
     DomainContext,
@@ -23,7 +23,7 @@ from app.services.product.relevance import (
 )
 
 if TYPE_CHECKING:
-    from app.db.models import BrandProfile, MonitoredSubreddit
+    from app.models.project import BrandProfile
     from app.services.product.reddit import RedditPost
 
 
@@ -43,23 +43,51 @@ class OpportunityScore:
 
 def score_post(
     post: RedditPost,
-    brand_profile: BrandProfile | None,
-    subreddit: MonitoredSubreddit | None,
+    brand_profile: dict[str, Any] | None,
+    subreddit: dict[str, Any] | None,
     keywords: list[str],
     subreddit_rules: list[str],
 ) -> OpportunityScore:
+    """Score a Reddit post for engagement opportunity.
+
+    Evaluates a post based on keyword matching, domain alignment, intent signals,
+    audience overlap, thread freshness, competition level, and subreddit rules.
+
+    Args:
+        post: RedditPost object with title, body, author, score, num_comments, etc.
+        brand_profile: Brand profile dict with brand_name, summary, product_summary,
+                       target_audience, and business_domain.
+        subreddit: Monitored subreddit dict with name, fit_score, rules_summary.
+        keywords: List of discovery keywords to match against.
+        subreddit_rules: List of subreddit rule strings.
+
+    Returns:
+        OpportunityScore dataclass with total score, keyword hits, reasons,
+        rule_risk indicators, and eligibility status.
+
+    Scoring factors:
+        - Keyword matches (exact and partial)
+        - Domain vocabulary alignment
+        - Intent signals (questions, recommendations, comparisons)
+        - Audience overlap
+        - Thread age (freshness bonus, staleness penalty)
+        - Comment count (low competition bonus)
+        - Upvote score (visibility indicator)
+        - Self-promotion detection (penalty)
+        - Off-topic detection (penalty)
+    """
     text = normalize_phrase(f"{post.title} {post.body}")
     domain_context = build_domain_context(
-        brand_name=brand_profile.brand_name if brand_profile else None,
-        summary=brand_profile.summary if brand_profile else None,
-        product_summary=brand_profile.product_summary if brand_profile else None,
-        target_audience=brand_profile.target_audience if brand_profile else None,
+        brand_name=brand_profile.get("brand_name") if brand_profile else None,
+        summary=brand_profile.get("summary") if brand_profile else None,
+        product_summary=brand_profile.get("product_summary") if brand_profile else None,
+        target_audience=brand_profile.get("target_audience") if brand_profile else None,
         keywords=keywords,
-        business_domain=getattr(brand_profile, "business_domain", "") or "",
+        business_domain=brand_profile.get("business_domain", "") or "",
     )
     search_keywords = select_high_signal_keywords(
         keywords,
-        brand_name=brand_profile.brand_name if brand_profile else None,
+        brand_name=brand_profile.get("brand_name") if brand_profile else None,
         limit=12,
         domain_context=domain_context,
     )
@@ -104,7 +132,7 @@ def score_post(
         eligibility_reasons.append("Rejected: missing domain-specific overlap with the business context.")
     if not intent_hits and not direct_brand_match:
         eligibility_reasons.append("Rejected: missing explicit help-seeking or recommendation intent.")
-    if subreddit and subreddit.fit_score < MIN_SUBREDDIT_FIT_FOR_AUTOMATION and not direct_brand_match:
+    if subreddit and subreddit.get("fit_score", 0) < MIN_SUBREDDIT_FIT_FOR_AUTOMATION and not direct_brand_match:
         eligibility_reasons.append("Rejected: subreddit fit is too weak for automated discovery.")
     if _is_low_context(post) and not direct_brand_match:
         eligibility_reasons.append("Rejected: the thread has too little context to draft a reliable reply.")
@@ -140,7 +168,7 @@ def score_post(
 
     score += intent_score
 
-    audience_terms = split_csv_terms(brand_profile.target_audience if brand_profile else None)
+    audience_terms = split_csv_terms(brand_profile.get("target_audience") if brand_profile else None)
     matched_audience = [term for term in audience_terms if term in text]
     if matched_audience:
         score += min(len(matched_audience) * 4, 12)
@@ -190,8 +218,8 @@ def score_post(
         reasons.append("Downvoted or zero-visibility thread.")
 
     if subreddit:
-        score += min(subreddit.fit_score // 8, 12)
-        if subreddit.rules_summary:
+        score += min(subreddit.get("fit_score", 0) // 8, 12)
+        if subreddit.get("rules_summary"):
             rule_risk.append("Review subreddit rules before posting.")
 
     rules_penalty = 0
@@ -271,9 +299,8 @@ def _score_topic_match(
             # For single-word or low-specificity keywords, verify the
             # match is contextually relevant — the post should also
             # contain at least one domain anchor term nearby.
-            if len(keyword_tokens) == 1 and specificity < 50 and domain_context:
-                if not _keyword_has_domain_context(keyword, token_set, domain_context):
-                    continue
+            if len(keyword_tokens) == 1 and specificity < 50 and domain_context and not _keyword_has_domain_context(keyword, token_set, domain_context):
+                continue
             hits.append(keyword)
             score += max(12, specificity // 3)
             continue
@@ -288,8 +315,8 @@ def _score_topic_match(
                 score += max(8, specificity // 5)
 
     direct_brand_match = False
-    if brand_profile and brand_profile.brand_name:
-        brand_phrase = normalize_phrase(brand_profile.brand_name)
+    if brand_profile and brand_profile.get("brand_name"):
+        brand_phrase = normalize_phrase(brand_profile.get("brand_name", ""))
         if brand_phrase and len(brand_phrase) >= 3 and brand_phrase in text:
             # Verify the brand mention isn't a substring of a longer
             # unrelated word (e.g. "acme" inside "acmeology").
@@ -349,8 +376,4 @@ def _is_low_context(post: RedditPost) -> bool:
     title_tokens = tokenize(post.title)
     body_tokens = tokenize(post.body)
     total_tokens = len(title_tokens) + len(body_tokens)
-    if total_tokens < 8:
-        return True
-    if len(title_tokens) < 3 and len(body_tokens) < 6:
-        return True
-    return False
+    return total_tokens < 8 or (len(title_tokens) < 3 and len(body_tokens) < 6)

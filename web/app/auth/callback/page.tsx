@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { apiRequest, isSetupRequired, type AuthPayload } from "@/lib/api";
-import { STORAGE_KEY } from "@/stores/auth-store";
-import { buttonVariants } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth-store";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -17,7 +17,7 @@ export default function AuthCallbackPage() {
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    async function resolveSession(accessToken: string) {
+    async function resolveSession(accessToken: string, retries = 0) {
       if (cancelled) return;
       try {
         const payload = await apiRequest<AuthPayload>(
@@ -26,11 +26,14 @@ export default function AuthCallbackPage() {
           accessToken,
         );
         const stored = { ...payload, access_token: accessToken };
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+        useAuthStore.getState().persist(stored);
         router.replace("/app/dashboard");
       } catch (err) {
         if (isSetupRequired(err)) {
           router.replace("/auth/setup");
+        } else if (retries < 1) {
+          // Retry once after a brief delay for transient errors
+          timeoutId = setTimeout(() => resolveSession(accessToken, retries + 1), 2000);
         } else {
           setError(
             err instanceof Error
@@ -59,12 +62,13 @@ export default function AuthCallbackPage() {
           }
         });
 
-        timeoutId = setTimeout(() => {
+        const retryTimer = setTimeout(() => {
           if (!cancelled) {
             subscription.unsubscribe();
             setError("Authentication timed out. Please try again.");
           }
         }, 10000);
+        timeoutId = retryTimer;
 
         return;
       }
@@ -83,23 +87,45 @@ export default function AuthCallbackPage() {
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <div className="w-full max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
-          <h2 className="mb-3 text-xl font-semibold">Sign-in Failed</h2>
-          <p className="mb-5 text-muted-foreground">{error}</p>
-          <Link href="/login" className={buttonVariants()}>
-            Back to Login
-          </Link>
+        <div className="w-full max-w-sm text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
+            <span className="text-2xl text-destructive">!</span>
+          </div>
+          <h2 className="text-xl font-semibold">Sign-in Failed</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <div className="mt-6 flex flex-col gap-3">
+            <Button
+              onClick={() => {
+                setError(null);
+                window.location.reload();
+              }}
+              className="w-full"
+              size="lg"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Try Again
+            </Button>
+            <Link
+              href="/login"
+              className={`${buttonVariants({ variant: "outline", size: "lg" })} w-full`}
+            >
+              Back to Login
+            </Link>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="flex w-full max-w-md flex-col items-center rounded-xl border bg-card p-12 shadow-sm">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-muted-foreground">Completing sign-in...</p>
-      </div>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+      <Link href="/" className="mb-6 text-2xl font-bold text-primary">
+        RedditFlow
+      </Link>
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="mt-4 text-sm text-muted-foreground">
+        Completing sign-in...
+      </p>
     </div>
   );
 }

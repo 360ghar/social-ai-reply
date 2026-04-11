@@ -22,6 +22,7 @@ e2e_results.log*
 node_modules/
 .next/
 .factory/
+.claude/worktrees/
 web/next-env.d.ts
 
 instagram_poacher.egg-info/

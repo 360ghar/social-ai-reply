@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { type Variants, m, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const containerVariants: Variants = {
   hidden: {},
@@ -22,7 +24,7 @@ export function Hero() {
   const imageY = useTransform(scrollYProgress, [0, 1], [0, 30]);
 
   return (
-    <section ref={ref} className="relative overflow-hidden pb-8 pt-32 md:pb-16 md:pt-44">
+    <section ref={ref} aria-labelledby="hero-heading" className="relative overflow-hidden pb-8 pt-32 md:pb-16 md:pt-44">
       {/* Decorative gradient orbs */}
       <div
         className="pointer-events-none absolute -top-40 left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full opacity-20 blur-3xl"
@@ -46,8 +48,9 @@ export function Hero() {
 
         {/* Headline */}
         <m.h1
+          id="hero-heading"
           variants={fadeUp}
-          className="mx-auto max-w-4xl text-4xl font-bold leading-tight tracking-tight text-foreground md:text-6xl lg:text-7xl"
+          className="mx-auto max-w-4xl text-4xl font-bold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl"
         >
           See How AI Talks About{" "}
           <span
@@ -73,13 +76,13 @@ export function Hero() {
         <m.div variants={fadeUp} className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
             href="/register"
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-8 text-base font-semibold text-white transition-all duration-200 hover:bg-[var(--color-coral-hover)] hover:scale-[1.02]"
+            className={cn(buttonVariants({ size: "default" }), "h-12 rounded-xl px-8 text-base font-semibold hover:scale-[1.02]")}
           >
             Start Free Trial
           </Link>
           <a
             href="#features"
-            className="inline-flex h-12 items-center justify-center rounded-xl border border-border px-8 text-base font-semibold text-foreground transition-all duration-200 hover:border-primary hover:text-primary"
+            className={cn(buttonVariants({ variant: "outline", size: "default" }), "h-12 rounded-xl px-8 text-base font-semibold hover:scale-[1.02]")}
           >
             Watch Demo
           </a>

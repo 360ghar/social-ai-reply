@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { getErrorMessage } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ import { Loader2 } from "lucide-react";
 import { type PromptTemplate, apiRequest } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { PageHeader } from "@/components/shared/page-header";
 
 type PromptType = "reply" | "post" | "analysis";
 
@@ -98,8 +100,8 @@ export default function PromptsPage() {
       setProjectId(currentProject.id);
       const rows = await apiRequest<PromptTemplate[]>(`/v1/prompts?project_id=${currentProject.id}`, {}, token);
       setTemplates(rows);
-    } catch (error: any) {
-      toast.error("Failed to load prompts", error.message);
+    } catch (error: unknown) {
+      toast.error("Failed to load prompts", getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -131,8 +133,8 @@ export default function PromptsPage() {
       toast.success("Template saved");
       setShowDrawer(false);
       setEditingTemplate(null);
-    } catch (error: any) {
-      toast.error("Save failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Save failed", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -164,8 +166,8 @@ export default function PromptsPage() {
       toast.success("Template created");
       setShowCreateModal(false);
       setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
-    } catch (error: any) {
-      toast.error("Create failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Create failed", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -194,8 +196,8 @@ export default function PromptsPage() {
       );
       setTemplates((rows) => [...rows, duplicated]);
       toast.success("Template duplicated");
-    } catch (error: any) {
-      toast.error("Duplicate failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Duplicate failed", getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -212,8 +214,8 @@ export default function PromptsPage() {
       setTemplates((rows) => rows.filter((row) => row.id !== id));
       toast.success("Template deleted");
       setShowDeleteModal(null);
-    } catch (error: any) {
-      toast.error("Delete failed", error.message);
+    } catch (error: unknown) {
+      toast.error("Delete failed", getErrorMessage(error));
     } finally {
       setDeleting(null);
     }
@@ -222,15 +224,17 @@ export default function PromptsPage() {
   const filteredTemplates = templates.filter((template) => template.prompt_type === activeTab);
   const activeCopy = PROMPT_TYPE_COPY[activeTab];
 
+  // Precompute tab counts once per render
+  const replyCount = templates.filter((item) => item.prompt_type === "reply").length;
+  const postCount = templates.filter((item) => item.prompt_type === "post").length;
+  const analysisCount = templates.filter((item) => item.prompt_type === "analysis").length;
+
   return (
-    <div className="grid gap-6">
-      <Card className="p-6">
-        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Template Systems
-        </div>
-        <h2 className="mb-2 text-lg font-semibold text-foreground">{activeCopy.label}</h2>
-        <p className="text-sm text-muted-foreground">{activeCopy.description}</p>
-        <div className="mt-5 flex flex-wrap gap-2">
+    <div className="grid gap-8">
+      <PageHeader
+        title="Prompt Templates"
+        description={activeCopy.description}
+        actions={
           <Button
             onClick={() => {
               setNewTemplate({ prompt_type: activeTab, name: "", system_prompt: "", instructions: "" });
@@ -239,37 +243,40 @@ export default function PromptsPage() {
           >
             Create Template
           </Button>
-        </div>
-      </Card>
+        }
+        tabs={
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptType)}>
+            <TabsList>
+              <TabsTrigger value="reply">
+                Reply
+                {replyCount > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 text-xs">
+                    {replyCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="post">
+                Post
+                {postCount > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 text-xs">
+                    {postCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="analysis">
+                Analysis
+                {analysisCount > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 text-xs">
+                    {analysisCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        }
+      />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptType)}>
-        <TabsList>
-          <TabsTrigger value="reply">
-            Reply
-            {templates.filter((item) => item.prompt_type === "reply").length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {templates.filter((item) => item.prompt_type === "reply").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="post">
-            Post
-            {templates.filter((item) => item.prompt_type === "post").length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {templates.filter((item) => item.prompt_type === "post").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="analysis">
-            Analysis
-            {templates.filter((item) => item.prompt_type === "analysis").length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {templates.filter((item) => item.prompt_type === "analysis").length}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
         <TabsContent value={activeTab}>
           {loading && (
             <div className="flex justify-center p-8">
@@ -278,11 +285,11 @@ export default function PromptsPage() {
           )}
 
           {!loading && filteredTemplates.length > 0 && (
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredTemplates.map((template) => (
                 <div
                   key={template.id}
-                  className="cursor-pointer rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50"
+                  className="cursor-pointer rounded-xl border bg-card p-5 transition-all hover:shadow-md hover:border-primary/30"
                   onClick={() => {
                     setEditingTemplate(template);
                     setShowDrawer(true);

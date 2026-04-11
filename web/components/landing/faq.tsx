@@ -85,7 +85,7 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
 
 export function Faq() {
   return (
-    <section className="py-20 md:py-28">
+    <section aria-labelledby="faq-heading" className="py-20 md:py-28">
       <div className="mx-auto max-w-3xl px-6">
         <m.div
           initial={{ opacity: 0, y: 20 }}
@@ -97,7 +97,7 @@ export function Faq() {
           <span className="mb-4 inline-block text-xs font-semibold uppercase tracking-widest text-primary">
             FAQ
           </span>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+          <h2 id="faq-heading" className="text-3xl font-bold tracking-tight text-foreground md:text-4xl">
             Frequently asked questions
           </h2>
         </m.div>

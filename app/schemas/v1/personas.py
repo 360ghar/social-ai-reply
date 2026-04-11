@@ -15,6 +15,17 @@ class PersonaRequest(BaseModel):
     is_active: bool = True
 
 
+class PersonaUpdateRequest(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    summary: str | None = None
+    pain_points: list[str] | None = None
+    goals: list[str] | None = None
+    triggers: list[str] | None = None
+    preferred_subreddits: list[str] | None = None
+    is_active: bool | None = None
+
+
 class PersonaResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
