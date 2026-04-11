@@ -33,7 +33,7 @@ export default function AuthCallbackPage() {
           router.replace("/auth/setup");
         } else if (retries < 1) {
           // Retry once after a brief delay for transient errors
-          setTimeout(() => resolveSession(accessToken, retries + 1), 2000);
+          timeoutId = setTimeout(() => resolveSession(accessToken, retries + 1), 2000);
         } else {
           setError(
             err instanceof Error

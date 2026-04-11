@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 export interface KPICardProps {
+  id?: string;
   label: string;
   value: string | number;
   trend?: { value: number; direction: "up" | "down" };
@@ -75,8 +76,8 @@ export function KPIGrid({
         className
       )}
     >
-      {cards.map((card, index) => (
-        <KPICard key={card.label + index} {...card} />
+      {cards.map((card) => (
+        <KPICard key={card.id ?? card.label} {...card} />
       ))}
     </div>
   );

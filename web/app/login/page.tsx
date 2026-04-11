@@ -71,7 +71,8 @@ function LoginForm() {
     } catch (err: unknown) {
       const message = getErrorMessage(err);
       if (message === "SETUP_REQUIRED") {
-        router.push("/auth/setup");
+        setLoading(false);
+        router.replace("/auth/setup");
         return;
       }
       error("Login failed", message || "Invalid email or password.");
