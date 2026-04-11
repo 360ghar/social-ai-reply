@@ -189,7 +189,7 @@ export default function VisibilityPage() {
           ) : (
             <div className="space-y-4">
               {promptSets.map(ps => {
-                const psResults = promptResults.filter(r => r.prompt_text === ps.prompts[0]);
+                const psResults = promptResults.filter(r => ps.prompts.includes(r.prompt_text));
                 const lastChecked = psResults.length > 0 ? psResults[0].completed_at : null;
                 const visScore = psResults.filter(r => r.brand_mentioned).length > 0 ? 75 : 25;
                 return (
@@ -283,7 +283,7 @@ export default function VisibilityPage() {
             </div>
             <div className="space-y-2">
               {promptSets.map(ps => {
-                const result = promptResults.find(r => r.prompt_text === ps.prompts[0] && r.model_name === selectedModel);
+                const result = promptResults.find(r => ps.prompts.includes(r.prompt_text) && r.model_name === selectedModel);
                 return (
                   <div key={ps.id} className={`p-2.5 rounded-md text-xs ${
                     result?.brand_mentioned

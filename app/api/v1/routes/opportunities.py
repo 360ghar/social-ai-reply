@@ -13,7 +13,7 @@ from app.db.tables.discovery import (
     update_opportunity,
 )
 from app.db.tables.projects import get_project_by_id
-from app.schemas.v1.product import OpportunityResponse, OpportunityStatusRequest
+from app.schemas.v1.discovery import OpportunityResponse, OpportunityStatusRequest
 
 logger = logging.getLogger(__name__)
 

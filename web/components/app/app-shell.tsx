@@ -10,6 +10,7 @@ import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 
 import { useAuth } from "@/components/auth/auth-provider";
+import { supabase } from "@/lib/supabase";
 import { useUIStore, COLLAPSED_WIDTH, MIN_WIDTH, MAX_WIDTH } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ import {
   Terminal,
   Settings,
   Check,
+  BarChart2,
 } from "lucide-react";
 import { MobileNav } from "@/components/shared/mobile-nav";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -79,6 +81,7 @@ const NAV_SECTIONS = [
     icon: LayoutDashboard,
     items: [
       { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/app/analytics", label: "Analytics", icon: BarChart2 },
       { href: "/app/auto-pipeline", label: "Auto Pipeline", icon: Workflow, badge: true },
     ],
   },
@@ -260,16 +263,46 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);
       if (dashFailed) {
-        void logout();
-        router.replace("/login");
-        return;
+        // Token may have expired between bootstrap and this fetch.
+        // Attempt a Supabase token refresh before giving up entirely.
+        try {
+          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+          if (refreshed?.access_token) {
+            const retryRes = await apiRequest<DashData>(
+              withProjectId("/v1/dashboard", projectId), {}, refreshed.access_token
+            );
+            setDash(retryRes);
+          } else {
+            void logout();
+            router.replace("/login");
+            return;
+          }
+        } catch {
+          void logout();
+          router.replace("/login");
+          return;
+        }
       }
     } catch (e: unknown) {
       const msg = getErrorMessage(e);
       if (isAuthError(e)) {
-        void logout();
-        router.replace("/login");
-        return;
+        try {
+          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+          if (refreshed?.access_token) {
+            const retryRes = await apiRequest<DashData>(
+              withProjectId("/v1/dashboard", projectId), {}, refreshed.access_token
+            );
+            setDash(retryRes);
+          } else {
+            void logout();
+            router.replace("/login");
+            return;
+          }
+        } catch {
+          void logout();
+          router.replace("/login");
+          return;
+        }
       }
       setError(msg || "Failed to load workspace");
     }
@@ -279,13 +312,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   async function loadNotifications() {
     try {
-      const res = await apiRequest<{ notifications: NotificationItem[] }>(
+      const res = await apiRequest<{ items: NotificationItem[] }>(
         `/v1/notifications?workspace_id=${selectedProjectId}`,
         {},
         token
       );
-      setNotifications(res.notifications || []);
-      const unread = (res.notifications || []).filter((n) => !n.read).length;
+      setNotifications(res.items || []);
+      const unread = (res.items || []).filter((n) => !n.read).length;
       setNotifCount(unread);
     } catch {
       // Silently ignore — notifications are non-critical and may hit rate limits during heavy usage
@@ -660,7 +693,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {/* Main content */}
         <main
           id="main-content"
-          className="rf-main-content flex-1 flex flex-col min-w-0"
+          className="rf-main-content relative flex-1 flex flex-col min-w-0"
           style={{
             ["--sidebar-w" as string]: `${effectiveWidth}px`,
           }}

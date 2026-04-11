@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useToast } from "@/stores/toast";
 import { useAuth } from "@/components/auth/auth-provider";
 import { apiRequest, type SecretRecord, type WebhookEndpoint } from "@/lib/api";
+import { getRedditAccounts, connectReddit as apiConnectReddit, disconnectRedditAccount, type RedditAccount } from "@/lib/api/reddit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,13 +34,6 @@ import { PageHeader } from "@/components/shared/page-header";
 
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];
-
-interface RedditAccount {
-  id: number;
-  username: string;
-  karma?: number;
-  connected_at?: string;
-}
 
 export default function SettingsPage() {
   const { token, user } = useAuth();
@@ -93,9 +87,7 @@ export default function SettingsPage() {
       const [webhookRows, secretRows, redditRows] = await Promise.all([
         apiRequest<WebhookEndpoint[]>("/v1/webhooks", {}, token),
         apiRequest<SecretRecord[]>("/v1/secrets", {}, token),
-        apiRequest<{ items: RedditAccount[] }>("/v1/reddit/accounts", {}, token)
-          .then((res) => res.items)
-          .catch(() => []),
+        getRedditAccounts(token).catch(() => [] as RedditAccount[]),
       ]);
       setWebhooks(webhookRows);
       setSecrets(secretRows);
@@ -109,7 +101,7 @@ export default function SettingsPage() {
     if (!token) return;
     setConnectingReddit(true);
     try {
-      const result = await apiRequest<{ auth_url: string }>("/v1/reddit/connect", { method: "POST" }, token);
+      const result = await apiConnectReddit(token);
       if (result.auth_url) {
         window.open(result.auth_url, "_blank", "width=600,height=700");
         setTimeout(() => void loadData(), 3000);
@@ -124,7 +116,7 @@ export default function SettingsPage() {
     if (!token) return;
     setDisconnectingReddit(accountId);
     try {
-      await apiRequest(`/v1/reddit/accounts/${accountId}`, { method: "DELETE" }, token);
+      await disconnectRedditAccount(token, accountId);
       setRedditAccounts((rows) => rows.filter((r) => r.id !== accountId));
       toast.success("Reddit account disconnected");
     } catch (err) {

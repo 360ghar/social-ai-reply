@@ -38,8 +38,8 @@ class WebsiteAnalyzer:
         "Chrome/124.0.0.0 Safari/537.36"
     )
 
-    def __init__(self, use_ai: bool = True) -> None:
-        self.llm = LLMClient(enabled=use_ai)
+    def __init__(self) -> None:
+        self.llm = LLMClient()
 
     @staticmethod
     def _normalize_url(url: str) -> str:
@@ -119,22 +119,14 @@ class WebsiteAnalyzer:
         text = " ".join(part for part in [title, description, headings, paragraphs] if part).strip()
         cleaned = re.sub(r"\s+", " ", text)
         fallback_name = urlparse(website_url).netloc.replace("www.", "").split(".")[0].replace("-", " ").title()
-        summary = cleaned[:500] or f"{fallback_name} helps customers solve a focused problem."
 
-        if self.llm.enabled:
-            ai_result = _structured_brand_analysis(self.llm, cleaned or fallback_name, fallback_name)
-            if ai_result:
-                return ai_result
-
-        return WebsiteAnalysis(
-            brand_name=title.split("|")[0].strip() or fallback_name,
-            summary=summary[:280],
-            product_summary=(description or summary[:220])[:280],
-            target_audience=infer_audience(summary),
-            call_to_action=infer_cta(summary),
-            voice_notes="Helpful, specific, non-spammy, and conversational.",
-            business_domain=infer_business_domain(summary, description),
-        )
+        ai_result = _structured_brand_analysis(self.llm, cleaned or fallback_name, fallback_name)
+        if not ai_result:
+            raise RuntimeError(
+                "Failed to analyze website — the LLM returned no usable response. "
+                "Check that your LLM provider API key is configured and try again."
+            )
+        return ai_result
 
 
 def _structured_brand_analysis(llm: LLMClient, text: str, fallback_name: str) -> WebsiteAnalysis | None:
@@ -188,15 +180,14 @@ def _structured_brand_analysis(llm: LLMClient, text: str, fallback_name: str) ->
         return None
 
 
-def analyze_website(website_url: str, use_ai: bool = True) -> WebsiteAnalysis:
+def analyze_website(website_url: str) -> WebsiteAnalysis:
     """Convenience function to analyze a website.
 
     Args:
         website_url: URL of the website to analyze.
-        use_ai: Whether to use LLM for analysis (default True).
 
     Returns:
         WebsiteAnalysis dataclass with extracted brand information.
     """
-    analyzer = WebsiteAnalyzer(use_ai=use_ai)
+    analyzer = WebsiteAnalyzer()
     return analyzer.analyze_website(website_url)

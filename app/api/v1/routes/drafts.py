@@ -32,7 +32,7 @@ from app.db.tables.discovery import (
     update_opportunity,
 )
 from app.db.tables.projects import list_prompt_templates_for_project
-from app.schemas.v1.product import (
+from app.schemas.v1.content import (
     PostDraftRequest,
     PostDraftResponse,
     PostDraftUpdateRequest,

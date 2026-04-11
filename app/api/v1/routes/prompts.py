@@ -19,7 +19,7 @@ from app.db.tables.projects import (
     list_prompt_templates_for_project,
     update_prompt_template,
 )
-from app.schemas.v1.product import PromptTemplateRequest, PromptTemplateResponse
+from app.schemas.v1.prompts import PromptTemplateRequest, PromptTemplateResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["prompts"])

@@ -17,16 +17,6 @@ export class ApiError extends Error {
 }
 
 /**
- * Authentication error for login/session failures.
- */
-export class AuthError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AuthError";
-  }
-}
-
-/**
  * Validation error for form/input validation failures.
  */
 export class ValidationError extends Error {
@@ -44,13 +34,6 @@ export class ValidationError extends Error {
  */
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
-}
-
-/**
- * Type guard to check if an error is an AuthError.
- */
-export function isAuthError(error: unknown): error is AuthError {
-  return error instanceof AuthError;
 }
 
 /**

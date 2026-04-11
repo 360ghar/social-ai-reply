@@ -1,8 +1,9 @@
 """Reddit OAuth, posting, and published post endpoints."""
 import logging
+import secrets
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.v1.deps import (
@@ -24,6 +25,9 @@ from app.services.product.reddit import RedditClient
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["reddit-posting"])
 
+# In-memory store for pending OAuth state tokens: state → workspace_id
+_pending_oauth_states: dict[str, int] = {}
+
 
 @router.post("/reddit/connect")
 def initiate_reddit_oauth(
@@ -34,8 +38,10 @@ def initiate_reddit_oauth(
 ):
     """Initiate Reddit OAuth connection."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
-    reddit_auth_url = "https://www.reddit.com/api/v1/authorize?client_id=YOUR_CLIENT_ID&response_type=code&state=random_state&redirect_uri=YOUR_CALLBACK_URL&duration=permanent&scope=submit,edit,delete,read"
-    return {"auth_url": reddit_auth_url, "message": "Redirect user to this URL to authorize Reddit access."}
+    state = secrets.token_urlsafe(32)
+    _pending_oauth_states[state] = workspace["id"]
+    reddit_auth_url = f"https://www.reddit.com/api/v1/authorize?client_id=YOUR_CLIENT_ID&response_type=code&state={state}&redirect_uri=YOUR_CALLBACK_URL&duration=permanent&scope=submit,edit,delete,read"
+    return {"auth_url": reddit_auth_url, "state": state, "message": "Redirect user to this URL to authorize Reddit access."}
 
 
 @router.post("/reddit/callback")
@@ -53,6 +59,13 @@ def handle_reddit_callback(
     code = payload.get("code")
     if not code:
         raise HTTPException(400, "Authorization code is required.")
+
+    state = payload.get("state")
+    expected_wid = _pending_oauth_states.pop(state, None)
+    if expected_wid is None:
+        raise HTTPException(400, "Invalid or expired state parameter.")
+    if expected_wid != workspace["id"]:
+        raise HTTPException(403, "State mismatch.")
 
     try:
         reddit = create_reddit_account(
@@ -93,6 +106,24 @@ def list_reddit_accounts(
             for acc in accounts
         ]
     }
+
+
+@router.delete("/reddit/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_reddit_account(
+    account_id: str,
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+):
+    """Delete a connected Reddit account."""
+    from app.db.tables.integrations import delete_reddit_account as _delete
+    from app.db.tables.integrations import get_reddit_account_by_id
+
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    account = get_reddit_account_by_id(supabase, account_id)
+    if not account or account["workspace_id"] != workspace["id"]:
+        raise HTTPException(404, "Reddit account not found.")
+    _delete(supabase, account_id)
 
 
 @router.post("/reddit/post")
@@ -177,6 +208,8 @@ def post_to_reddit(
             "status": published["status"],
             "published_at": published.get("published_at"),
         }
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Reddit posting is not yet available. Copy the draft and post manually — auto-posting is coming soon.") from None
     except Exception as e:
         raise HTTPException(500, f"Failed to post to Reddit: {str(e)}") from e
 

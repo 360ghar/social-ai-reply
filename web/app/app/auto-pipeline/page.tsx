@@ -207,7 +207,7 @@ export default function AutoPipelinePage() {
         { method: "POST" },
         token
       );
-      toast.success("Sales package executed! All drafts published.");
+      toast.success("Drafts marked as ready! Copy each draft and post to Reddit manually.");
       setActiveRun(null);
       loadPreviousRuns();
     } catch (error: unknown) {
@@ -585,7 +585,7 @@ export default function AutoPipelinePage() {
           <Button variant="outline" onClick={() => router.push("/app/content")}>
             Review Individually
           </Button>
-          <Button onClick={handleExecuteAll}>Execute All & Publish</Button>
+          <Button onClick={handleExecuteAll}>Mark All as Ready</Button>
         </div>
       </div>
     );

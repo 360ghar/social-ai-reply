@@ -302,6 +302,8 @@ def oauth_complete(
         or metadata.get("name")
         or (email.split("@")[0] if email else "")
     )
+    if not full_name.strip():
+        full_name = email.split("@")[0] or "User"
 
     def _respond_existing(existing_user: dict) -> JSONResponse:
         """Return the 200 response for a user that already has a local row."""

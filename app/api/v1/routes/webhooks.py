@@ -1,8 +1,11 @@
 """Webhook CRUD and testing endpoints."""
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,7 +21,7 @@ from app.db.tables.webhooks import (
     list_webhook_endpoints_for_workspace,
     update_webhook_endpoint,
 )
-from app.schemas.v1.product import (
+from app.schemas.v1.webhooks import (
     WebhookRequest,
     WebhookResponse,
     WebhookTestRequest,
@@ -170,6 +173,20 @@ async def test_webhook(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # DNS rebinding protection: resolve hostname and reject private/reserved IPs
+    hostname = urlparse(row["target_url"]).hostname
+    if hostname:
+        try:
+            addrs = socket.getaddrinfo(hostname, None)
+            for (_, _, _, _, sockaddr) in addrs:
+                ip = ipaddress.ip_address(sockaddr[0])
+                if not ip.is_global:
+                    raise HTTPException(status_code=422, detail="Webhook URL resolves to a private/reserved IP address")
+        except HTTPException:
+            raise
+        except Exception as dns_err:
+            raise HTTPException(status_code=422, detail=f"Failed to resolve webhook URL hostname: {dns_err}") from dns_err
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             headers = {
@@ -178,10 +195,19 @@ async def test_webhook(
                 "X-Webhook-Event": "webhook.test",
             }
             resp = await client.post(row["target_url"], content=body, headers=headers)
+        if resp.status_code >= 400:
+            return {
+                "delivered": False,
+                "status_code": resp.status_code,
+                "response_body": resp.text[:500],
+                "error": f"Endpoint returned HTTP {resp.status_code}",
+            }
         return {
             "delivered": True,
             "status_code": resp.status_code,
             "response_body": resp.text[:500],
         }
+    except HTTPException:
+        raise
     except Exception as e:
         return {"delivered": False, "error": str(e)}

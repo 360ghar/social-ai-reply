@@ -25,11 +25,12 @@ DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 # Schema is managed by Supabase — no local database URL needed
 
 # LLM provider defaults
-DEFAULT_LLM_PROVIDER = "gemini"
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash-exp"
+DEFAULT_LLM_PROVIDER = "openai"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
-DEFAULT_USE_MOCK_LLM = False
+DEFAULT_PERPLEXITY_MODEL = "sonar"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
 
 # Reddit API defaults
 REDDIT_BASE_URL = "https://www.reddit.com"

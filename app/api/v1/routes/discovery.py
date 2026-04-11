@@ -22,7 +22,7 @@ from app.db.tables.discovery import (
     list_keywords_for_project,
     list_subreddits_for_project,
 )
-from app.schemas.v1.product import (
+from app.schemas.v1.discovery import (
     KeywordGenerateRequest,
     KeywordRequest,
     KeywordResponse,

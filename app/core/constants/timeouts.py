@@ -61,7 +61,6 @@ WEBHOOK_RETRY_DELAY_MS = 1000
 
 # LLM-specific timeouts
 GEMINI_REQUEST_TIMEOUT = 90
-MOCK_LLM_DELAY_MS = 500
 
 # Instagram scraping (legacy)
 SCRAPE_REQUESTS_PER_MINUTE = 30

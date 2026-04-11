@@ -6,7 +6,7 @@ from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
 from app.db.supabase_client import get_supabase
-from app.schemas.v1.product import ScanRequest, ScanRunResponse
+from app.schemas.v1.discovery import ScanRequest, ScanRunResponse
 from app.services.product.scanner import run_scan
 
 logger = logging.getLogger(__name__)

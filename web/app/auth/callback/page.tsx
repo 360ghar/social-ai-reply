@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { apiRequest, isSetupRequired, type AuthPayload } from "@/lib/api";
-import { STORAGE_KEY } from "@/stores/auth-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { Button, buttonVariants } from "@/components/ui/button";
 
 export default function AuthCallbackPage() {
@@ -26,7 +26,7 @@ export default function AuthCallbackPage() {
           accessToken,
         );
         const stored = { ...payload, access_token: accessToken };
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+        useAuthStore.getState().persist(stored);
         router.replace("/app/dashboard");
       } catch (err) {
         if (isSetupRequired(err)) {

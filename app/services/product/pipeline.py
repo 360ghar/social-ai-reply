@@ -208,7 +208,15 @@ def run_auto_pipeline_background(
                 )
         except Exception as e:
             log.error("Subreddit discovery FAILED: %s\n%s", e, traceback.format_exc())
-            discovered_subreddits = []
+            update_auto_pipeline(db, pipeline_id, {
+                "status": "failed",
+                "error_message": f"Subreddit discovery failed: {str(e)[:500]}",
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
+            return
+
+        if not discovered_subreddits and subreddits_to_discover > 0:
+            log.warning("Subreddit discovery returned 0 results for project %s — continuing with existing subreddits", project_id)
 
         update_auto_pipeline(db, pipeline_id, {
             "subreddits_found": existing_sub_count + len(discovered_subreddits),
@@ -324,12 +332,10 @@ def run_auto_pipeline_background(
     except Exception as e:
         log.error("=== AUTO-PIPELINE FAILED === id=%s error=%s\n%s", pipeline_id, e, traceback.format_exc())
         try:
-            pipeline = get_auto_pipeline_by_id(db, pipeline_id)
-            if pipeline:
-                update_auto_pipeline(db, pipeline_id, {
-                    "status": "error",
-                    "error_message": str(e)[:500],
-                    "completed_at": datetime.now(UTC).isoformat(),
-                })
+            update_auto_pipeline(db, pipeline_id, {
+                "status": "failed",
+                "error_message": str(e)[:500],
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
         except Exception as inner:
             log.error("Failed to save error status: %s", inner)

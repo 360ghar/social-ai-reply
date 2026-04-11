@@ -10,15 +10,17 @@ from app.services.product.copilot.llm_client import LLMClient
 def generate_post(
     brand: dict | None,
     prompts: list[dict],
-    use_ai: bool = True,
 ) -> tuple[str, str, str]:
     """
     Generate a Reddit post draft from brand context.
 
     Returns:
         Tuple of (title, body, rationale).
+
+    Raises:
+        RuntimeError: If the LLM call fails or returns no usable content.
     """
-    llm = LLMClient(enabled=use_ai)
+    llm = LLMClient()
 
     prompt_context = "\n".join(
         f"{prompt.get('name', '')}: {prompt.get('instructions', '')}"
@@ -26,23 +28,14 @@ def generate_post(
         if prompt.get('prompt_type') == "post"
     )
 
-    if llm.enabled:
-        ai_post = _ai_post(llm, brand, prompt_context)
-        if ai_post:
-            return ai_post
+    ai_post = _ai_post(llm, brand, prompt_context)
+    if ai_post:
+        return ai_post
 
-    # Fallback: non-AI template
-    brand_name = brand.get("brand_name") if brand else "Your Product"
-    title = f"What we learned shipping {brand_name} without relying on spammy growth loops"
-    body = (
-        "Three things changed our outcomes:\n\n"
-        "1. We prioritized signal-rich customer conversations over volume.\n"
-        "2. We documented repeat objections before changing our message.\n"
-        "3. We treated every community interaction as trust building, not lead capture.\n\n"
-        "If helpful, I can share the exact rubric we use to decide where to engage."
+    raise RuntimeError(
+        "Failed to generate post draft — the LLM returned no usable response. "
+        "Check that your LLM provider API key is configured and try again."
     )
-    rationale = "The post is educational, specific, and designed to invite opt-in conversation."
-    return title, body, rationale
 
 
 def _ai_post(llm: LLMClient, brand: dict | None, prompt_context: str) -> tuple[str, str, str] | None:

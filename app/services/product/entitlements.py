@@ -13,6 +13,9 @@ from app.db.tables.workspaces import (
     get_subscription_by_workspace,
 )
 
+# Feature flag constants used for entitlement checks in route handlers.
+FEATURE_AUTO_PIPELINE = "auto_pipeline"
+
 PLAN_CATALOG = [
     {
         "code": "free",
@@ -64,12 +67,8 @@ def get_or_create_subscription(supabase: Client, workspace: dict) -> dict:
     subscription = get_subscription_by_workspace(supabase, workspace["id"])
 
     if subscription:
-        if subscription["plan_code"] not in ("free", "internal"):
-            subscription = update_subscription(supabase, subscription["id"], {"plan_code": "free"})
         if subscription["status"] != "active":
             subscription = update_subscription(supabase, subscription["id"], {"status": "active"})
-        if subscription.get("current_period_end") is not None:
-            subscription = update_subscription(supabase, subscription["id"], {"current_period_end": None})
         return subscription
 
     return create_subscription(
@@ -101,11 +100,13 @@ def get_limit(supabase: Client, workspace: dict, feature_key: str) -> int:
 
 
 def enforce_limit(supabase: Client, workspace: dict, feature_key: str, current_count: int) -> None:
-    """Enforce a feature limit.
-
-    For the private workspace, limits are intentionally disabled.
-    """
-    pass
+    """Raise HTTPException if current_count has reached the plan limit for feature_key."""
+    limit = get_limit(supabase, workspace, feature_key)
+    if current_count >= limit:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Plan limit reached for {feature_key} ({current_count}/{limit}). Upgrade your plan to add more.",
+        )
 
 
 def count_projects(supabase: Client, workspace_id: int) -> int:
@@ -143,3 +144,15 @@ def feature_set(plan_code: str) -> Iterable[str]:
         if plan["code"] == plan_code:
             return plan["features"]
     return ()
+
+
+def has_feature(supabase: Client, workspace: dict, feature_key: str) -> bool:
+    """Return True if the workspace's active plan grants access to the named feature.
+
+    Feature keys (e.g. FEATURE_AUTO_PIPELINE) are matched against human-readable
+    feature strings in PLAN_CATALOG via case-insensitive substring match.
+    """
+    subscription = get_or_create_subscription(supabase, workspace)
+    plan_features = [f.lower() for f in feature_set(subscription["plan_code"])]
+    feature_lower = feature_key.lower().replace("_", " ")
+    return any(feature_lower in f for f in plan_features)

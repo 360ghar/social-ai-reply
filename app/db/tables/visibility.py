@@ -65,6 +65,7 @@ def list_prompt_runs_for_prompt_set(
     project_id: int | None = None,
     model_filter: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """List prompt runs for a prompt set, or all prompt sets for a project."""
     query = db.table(PROMPT_RUNS_TABLE).select("*")
@@ -86,7 +87,7 @@ def list_prompt_runs_for_prompt_set(
     result = (
         query
         .order("scheduled_at", desc=True)
-        .limit(limit)
+        .range(offset, offset + limit - 1)
         .execute()
     )
     return list(result.data)

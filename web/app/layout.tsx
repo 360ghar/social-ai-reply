@@ -6,6 +6,7 @@ import "../styles/globals.css";
 import { AuthProvider } from "../components/auth/auth-provider";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { MotionProvider } from "@/components/providers/motion-provider";
 import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning className={cn(inter.variable)} data-scroll-behavior="smooth">
-      <body>
+      <body suppressHydrationWarning className="relative">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded-md"
@@ -36,10 +37,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           <ErrorBoundary>
             <AuthProvider>
-              <TooltipProvider>
-                {children}
-                <Toaster richColors position="bottom-right" />
-              </TooltipProvider>
+              <MotionProvider>
+                <TooltipProvider>
+                  {children}
+                  <Toaster richColors position="bottom-right" />
+                </TooltipProvider>
+              </MotionProvider>
             </AuthProvider>
           </ErrorBoundary>
         </ThemeProvider>

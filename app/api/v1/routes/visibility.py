@@ -26,7 +26,8 @@ from app.db.tables.visibility import (
 from app.db.tables.visibility import (
     create_prompt_set as create_prompt_set_db,
 )
-from app.services.product.visibility import CitationExtractor, MentionDetector, ModelRunner
+from app.services.infrastructure.llm.service import VisibilityRunner
+from app.services.product.visibility import CitationExtractor, MentionDetector
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["visibility"])
@@ -122,7 +123,7 @@ def run_prompt_set(
     brand_name = brand["brand_name"] if brand else proj["name"]
     competitors = []
 
-    runner = ModelRunner()
+    runner = VisibilityRunner()
     detector = MentionDetector()
     extractor = CitationExtractor()
 

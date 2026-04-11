@@ -19,7 +19,7 @@ from app.db.tables.projects import (
 from app.db.tables.projects import (
     update_brand_profile as update_brand_profile_table,
 )
-from app.schemas.v1.product import (
+from app.schemas.v1.brands import (
     BrandAnalysisRequest,
     BrandProfileRequest,
     BrandProfileResponse,

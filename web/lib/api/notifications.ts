@@ -24,6 +24,6 @@ export async function markNotificationRead(token: string, id: number) {
 
 export async function markAllNotificationsRead(token: string) {
   return apiRequest<{ ok: boolean }>(
-    `/v1/notifications/read-all`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+    `/v1/notifications/read-all`, { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
   );
 }

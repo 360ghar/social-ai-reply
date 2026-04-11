@@ -1,7 +1,7 @@
 """Billing endpoints."""
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 
 from app.api.v1.deps import (
@@ -11,14 +11,14 @@ from app.api.v1.deps import (
     subscription_response,
 )
 from app.db.supabase_client import get_supabase
-from app.schemas.v1.product import (
+from app.schemas.v1.billing import (
     BillingUpgradeRequest,
     PlanResponse,
     RedemptionRequest,
     RedemptionResponse,
     SubscriptionResponse,
 )
-from app.services.product.entitlements import serialize_plan_catalog
+from app.services.product.entitlements import PLAN_CATALOG, get_or_create_subscription, serialize_plan_catalog, update_subscription
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,11 @@ def upgrade_billing(
     supabase: Client = Depends(get_supabase),
 ) -> SubscriptionResponse:
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
-    # The workspace is always unlocked, so plan changes are a no-op.
-    _ = payload.plan_code
+    valid_codes = {plan["code"] for plan in PLAN_CATALOG}
+    if payload.plan_code not in valid_codes:
+        raise HTTPException(status_code=400, detail=f"Invalid plan code '{payload.plan_code}'. Valid options: {sorted(valid_codes)}")
+    subscription = get_or_create_subscription(supabase, workspace)
+    update_subscription(supabase, subscription["id"], {"plan_code": payload.plan_code})
     return subscription_response(supabase, workspace)
 
 

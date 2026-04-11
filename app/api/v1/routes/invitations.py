@@ -1,5 +1,6 @@
 """Invitation management endpoints."""
 import logging
+import secrets
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,7 +17,7 @@ from app.db.tables.workspaces import (
     list_invitations_for_workspace,
     update_invitation,
 )
-from app.schemas.v1.product import InvitationRequest, InvitationResponse
+from app.schemas.v1.invitations import InvitationRequest, InvitationResponse
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ def create_invitation_endpoint(
     if pending and not pending.get("accepted_at") and pending.get("expires_at", datetime.now(UTC).isoformat()) > datetime.now(UTC).isoformat():
         raise HTTPException(status_code=409, detail="A pending invitation already exists for this email.")
 
+    token = secrets.token_urlsafe(32)
     invitation = create_invitation_table(
         supabase,
         {
@@ -74,8 +76,23 @@ def create_invitation_endpoint(
             "email": payload.email.lower(),
             "role": payload.role,
             "invited_by_user_id": current_user["id"],
+            "token": token,
         },
     )
+
+    try:
+        from app.services.product.email_service import EmailService
+        inviter_name = current_user.get("full_name") or current_user.get("email", "A teammate")
+        workspace_name = workspace.get("name", "a workspace")
+        EmailService.send_invitation(
+            to_email=payload.email.lower(),
+            workspace_name=workspace_name,
+            inviter_name=inviter_name,
+            token=token,
+        )
+    except Exception as email_err:
+        logger.warning("Failed to send invitation email to %s: %s", payload.email, email_err)
+
     return InvitationResponse.model_validate(invitation)
 
 

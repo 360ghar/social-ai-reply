@@ -3,6 +3,15 @@ from functools import lru_cache
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.constants.app import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_GEMINI_API_URL,
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_LLM_PROVIDER,
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_PERPLEXITY_MODEL,
+)
+
 
 class Settings(BaseSettings):
     app_name: str = "RedditFlow"
@@ -21,14 +30,26 @@ class Settings(BaseSettings):
 
     encryption_key: str | None = None
 
-    openai_api_key: str | None = None
-    openai_model: str = "gpt-4.1-mini"
-    use_mock_llm: bool = False
+    # LLM Provider selection
+    llm_provider: str = DEFAULT_LLM_PROVIDER
 
-    # Gemini (primary LLM)
+    # OpenAI (primary)
+    openai_api_key: str | None = None
+    openai_model: str = DEFAULT_OPENAI_MODEL
+    openai_base_url: str | None = None
+
+    # Gemini
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3-flash-preview"
-    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemini_api_url: str = DEFAULT_GEMINI_API_URL
+
+    # Perplexity
+    perplexity_api_key: str | None = None
+    perplexity_model: str = DEFAULT_PERPLEXITY_MODEL
+
+    # Anthropic (Claude)
+    anthropic_api_key: str | None = None
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
 
     reddit_base_url: str = "https://www.reddit.com"
     reddit_user_agent: str = "web:redditflow:v1.2 (by /u/redditflow_bot)"
@@ -57,6 +78,8 @@ class Settings(BaseSettings):
                 raise ValueError("SUPABASE_PUBLISHABLE_KEY is required in production.")
             if not self.supabase_jwt_secret:
                 raise ValueError("SUPABASE_JWT_SECRET is required in production.")
+            if not self.encryption_key:
+                raise ValueError("ENCRYPTION_KEY is required in production.")
         return self
 
     @property

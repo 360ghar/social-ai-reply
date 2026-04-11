@@ -43,7 +43,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               clearAuth();
               router.replace("/auth/setup");
             } else {
-              clearAuth();
+              // Transient error (network, 503, timeout). Keep the Supabase
+              // session alive — set the token so the user isn't immediately
+              // bounced to login. The next API call will either succeed or
+              // surface a real auth error.
+              setToken(session.access_token);
             }
           }
         } else {

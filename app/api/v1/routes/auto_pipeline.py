@@ -22,6 +22,7 @@ from app.db.tables.discovery import (
     list_personas_for_project,
 )
 from app.db.tables.projects import get_project_by_id
+from app.services.product.entitlements import FEATURE_AUTO_PIPELINE, has_feature
 from app.services.product.pipeline import run_auto_pipeline_background
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,9 @@ def start_auto_pipeline(
 ):
     """Start the full auto-pipeline from website URL."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    if not has_feature(supabase, workspace, FEATURE_AUTO_PIPELINE):
+        raise HTTPException(403, "Auto-pipeline is not available on your current plan")
 
     website_url = payload.get("website_url")
     project_id = payload.get("project_id")
@@ -235,5 +239,5 @@ def execute_auto_pipeline(
         "id": pipeline["id"],
         "status": "executed",
         "drafted_replies": len(reply_drafts),
-        "message": "Sales package has been executed. Drafts are ready for review and posting.",
+        "message": "Drafts marked as ready. Copy each draft and post to Reddit manually — auto-posting is coming soon.",
     }

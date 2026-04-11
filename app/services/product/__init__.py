@@ -33,7 +33,7 @@ from app.services.product.supabase_auth import (
     sign_up,
     verify_supabase_jwt,
 )
-from app.services.product.visibility import CitationExtractor, MentionDetector, ModelRunner
+from app.services.product.visibility import CitationExtractor, MentionDetector
 from app.utils.encryption import decrypt_text, encrypt_text
 from app.utils.security import slugify, validate_webhook_url
 
@@ -79,7 +79,6 @@ __all__ = [
     "extract_user_from_response",
     "SupabaseAuthError",
     # Visibility
-    "ModelRunner",
     "MentionDetector",
     "CitationExtractor",
 ]

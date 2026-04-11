@@ -1,15 +1,10 @@
-"""LLM provider abstraction."""
+"""LLM provider abstraction — unified entry points for all LLM operations."""
 
-from app.services.infrastructure.llm.base import (
-    GeminiLLMProvider,
-    LLMProvider,
-    MockLLMProvider,
-    select_llm_provider,
-)
+from app.services.infrastructure.llm.base import LLMProvider
+from app.services.infrastructure.llm.service import LLMService, VisibilityRunner
 
 __all__ = [
     "LLMProvider",
-    "MockLLMProvider",
-    "GeminiLLMProvider",
-    "select_llm_provider",
+    "LLMService",
+    "VisibilityRunner",
 ]

@@ -67,6 +67,16 @@ async def app_exception_handler(request, exc: AppError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request, exc: RuntimeError):
+    """Catch LLM/provider runtime errors and return a structured 503 response."""
+    logger.error("RuntimeError in request handler: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+    )
+
+
 def _service_checks() -> dict[str, str]:
     """Check service health (API + Supabase database)."""
     checks = {"api": "ok"}

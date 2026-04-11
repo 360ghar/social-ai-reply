@@ -20,8 +20,9 @@ from app.db.tables.discovery import (
 from app.db.tables.discovery import (
     get_persona_by_id,
     list_personas_for_project,
+    update_persona as update_persona_table,
 )
-from app.schemas.v1.product import PersonaRequest, PersonaResponse
+from app.schemas.v1.personas import PersonaRequest, PersonaResponse, PersonaUpdateRequest
 from app.services.product.copilot import ProductCopilot
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,30 @@ def generate_personas(
         rows.append(persona)
 
     return [PersonaResponse.model_validate(row) for row in rows]
+
+
+@router.put("/personas/{persona_id}", response_model=PersonaResponse)
+def update_persona_endpoint(
+    persona_id: int,
+    payload: PersonaUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+) -> PersonaResponse:
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+
+    persona = get_persona_by_id(supabase, persona_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail="Persona not found.")
+
+    # Verify workspace access via project
+    get_project(supabase, workspace["id"], persona["project_id"])
+
+    update_data = payload.model_dump(exclude_unset=True)
+    updated = update_persona_table(supabase, persona_id, update_data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Persona not found.")
+    return PersonaResponse.model_validate(updated)
 
 
 @router.delete("/personas/{persona_id}")

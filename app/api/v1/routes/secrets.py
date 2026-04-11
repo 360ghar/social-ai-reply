@@ -14,7 +14,7 @@ from app.db.tables.integrations import (
     list_integration_secrets_for_workspace,
     update_integration_secret,
 )
-from app.schemas.v1.product import SecretRequest, SecretResponse
+from app.schemas.v1.secrets import SecretRequest, SecretResponse
 from app.utils.encryption import encrypt_text
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def upsert_secret(
     )
     encrypted = encrypt_text(payload.value)
     if row:
-        updated = update_integration_secret(supabase, row["id"], {"encrypted_payload": encrypted})
+        updated = update_integration_secret(supabase, row["id"], {"encrypted_value": encrypted})
         return SecretResponse.model_validate(updated)
     else:
         row = create_integration_secret(
@@ -57,7 +57,7 @@ def upsert_secret(
                 "workspace_id": workspace["id"],
                 "provider": payload.provider,
                 "label": payload.label,
-                "encrypted_payload": encrypted,
+                "encrypted_value": encrypted,
             },
         )
         return SecretResponse.model_validate(row)

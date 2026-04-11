@@ -6,9 +6,6 @@ New code should import directly from app.services.product.copilot.* submodules.
 
 from __future__ import annotations
 
-import os
-
-from app.core.config import get_settings
 from app.services.product.copilot.analyzer import WebsiteAnalysis, WebsiteAnalyzer, analyze_website
 from app.services.product.copilot.inference import infer_audience, infer_business_domain, infer_cta
 from app.services.product.copilot.keyword import GeneratedKeyword, generate_keywords
@@ -25,20 +22,17 @@ class ProductCopilot:
     """
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self.api_key = settings.gemini_api_key or settings.openai_api_key
-        self.use_ai = bool(self.api_key) and "PYTEST_CURRENT_TEST" not in os.environ
-        self.model = settings.gemini_model or "gemini-2-flash-preview"
-        self.api_url = settings.gemini_api_url or "https://generativelanguage.googleapis.com/v1beta"
-        self.user_agent = settings.reddit_user_agent
+        self._analyzer: WebsiteAnalyzer | None = None
 
-        # Initialize sub-components
-        self._analyzer = WebsiteAnalyzer(use_ai=self.use_ai)
-        self._llm = LLMClient(enabled=self.use_ai)
+    def _get_analyzer(self) -> WebsiteAnalyzer:
+        """Lazily create the analyzer — only needed for website analysis."""
+        if self._analyzer is None:
+            self._analyzer = WebsiteAnalyzer()
+        return self._analyzer
 
     def analyze_website(self, website_url: str) -> WebsiteAnalysis:
         """Analyze a website and extract brand context."""
-        return self._analyzer.analyze_website(website_url)
+        return self._get_analyzer().analyze_website(website_url)
 
     def suggest_personas(self, brand: dict | None, count: int = 4) -> list[dict]:
         """Generate persona suggestions from brand target audience."""
@@ -60,11 +54,11 @@ class ProductCopilot:
         prompts: list[dict],
     ) -> tuple[str, str, str]:
         """Generate a reply draft for a Reddit opportunity."""
-        return generate_reply(opportunity, brand, prompts, use_ai=self.use_ai)
+        return generate_reply(opportunity, brand, prompts)
 
     def generate_post(self, brand: dict | None, prompts: list[dict]) -> tuple[str, str, str]:
         """Generate a Reddit post draft from brand context."""
-        return generate_post(brand, prompts, use_ai=self.use_ai)
+        return generate_post(brand, prompts)
 
     # Keep original private methods for backward compatibility
     def _meaningful_terms(self, text: str) -> list[str]:
@@ -100,12 +94,12 @@ class ProductCopilot:
 
     def _call_gemini(self, system_prompt: str, user_content: str, temperature: float = 0.2) -> dict | list | None:
         """Call the LLM API and return parsed JSON response."""
-        return self._llm.call(system_prompt, user_content, temperature)
+        return LLMClient().call(system_prompt, user_content, temperature)
 
     def _structured_brand_analysis(self, text: str, fallback_name: str) -> WebsiteAnalysis | None:
         """Use LLM to extract structured brand analysis."""
         from app.services.product.copilot.analyzer import _structured_brand_analysis
-        return _structured_brand_analysis(self._llm, text, fallback_name)
+        return _structured_brand_analysis(LLMClient(), text, fallback_name)
 
     def _ai_reply(
         self,
@@ -115,12 +109,12 @@ class ProductCopilot:
     ) -> tuple[str, str, str] | None:
         """Generate reply using LLM."""
         from app.services.product.copilot.reply import _ai_reply
-        return _ai_reply(self._llm, opportunity, brand, prompt_context)
+        return _ai_reply(LLMClient(), opportunity, brand, prompt_context)
 
     def _ai_post(self, brand: dict | None, prompt_context: str) -> tuple[str, str, str] | None:
         """Generate post using LLM."""
         from app.services.product.copilot.post import _ai_post
-        return _ai_post(self._llm, brand, prompt_context)
+        return _ai_post(LLMClient(), brand, prompt_context)
 
     def _parse_json_payload(self, text: str) -> dict | list | None:
         """Parse JSON from LLM response text."""
