@@ -71,6 +71,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === "SIGNED_OUT" || !session) {
           clearAuth();
         } else if (event === "TOKEN_REFRESHED" && session?.access_token) {
+          // Persist the refreshed token immediately
+          setToken(session.access_token);
           // Re-validate with backend to catch deactivation or other server-side changes
           try {
             const payload = await apiRequest<AuthPayload>(
@@ -86,11 +88,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else if (isSetupRequired(err)) {
               clearAuth();
               router.replace("/auth/setup");
-            } else {
-              // Non-auth errors (network) — persist the new token before handling error
-              setToken(session.access_token);
-              // Next API call will handle the network error
             }
+            // Non-auth errors (network) — token already persisted above
+            // Next API call will handle the network error
           }
         }
       },

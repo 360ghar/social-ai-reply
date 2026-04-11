@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
+import { Button } from "@/components/ui/button";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -126,13 +127,15 @@ export function Navbar() {
             )}
 
             {/* Mobile hamburger button */}
-            <button
+            <Button
+              variant="outline"
+              size="icon"
               onClick={() => setMobileMenuOpen(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors duration-200 md:hidden"
+              className="md:hidden h-8 w-8"
               aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
-            </button>
+            </Button>
           </div>
 
           {/* Mobile menu sheet */}

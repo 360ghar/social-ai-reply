@@ -34,4 +34,12 @@ describe("KPIGrid", () => {
     render(<KPIGrid cards={trendCards} />);
     expect(screen.getByText("12%")).toBeInTheDocument();
   });
+
+  it("renders down trend indicators", () => {
+    const trendCards = [
+      { label: "Score", value: 85, trend: { value: 5, direction: "down" as const } },
+    ];
+    render(<KPIGrid cards={trendCards} />);
+    expect(screen.getByText("5%")).toBeInTheDocument();
+  });
 });

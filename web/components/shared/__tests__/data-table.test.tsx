@@ -53,5 +53,7 @@ describe("DataTable", () => {
     render(<DataTable columns={columns} data={[]} emptyState={{ title: "Empty", action: { label: "Add", onClick } }} />);
     const button = screen.getByText("Add");
     expect(button).toBeInTheDocument();
+    button.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

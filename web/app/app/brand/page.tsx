@@ -62,7 +62,6 @@ export default function BrandPage() {
   const [brand, setBrand] = useState<BrandProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isFilling, setIsFilling] = useState(false);
   const [activeTab, setActiveTab] = useState("profile");
 
@@ -81,6 +80,7 @@ export default function BrandPage() {
 
   useEffect(() => {
     if (!token || !project) {
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -180,6 +180,7 @@ export default function BrandPage() {
 
   return (
     <div className="space-y-8">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
       <PageHeader
         title="Brand Profile"
         actions={
@@ -192,18 +193,15 @@ export default function BrandPage() {
           </div>
         }
         tabs={
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="profile">Brand Profile</TabsTrigger>
-              <TabsTrigger value="analysis">Analysis</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <TabsList>
+            <TabsTrigger value="profile">Brand Profile</TabsTrigger>
+            <TabsTrigger value="analysis">Analysis</TabsTrigger>
+          </TabsList>
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsContent value="profile">
-          <form onSubmit={saveBrand}>
+      <TabsContent value="profile">
+        <form onSubmit={saveBrand}>
             <div className="grid gap-8">
               {/* Identity Group */}
               <Card>
@@ -349,51 +347,51 @@ export default function BrandPage() {
               </div>
             </div>
           </form>
-        </TabsContent>
+      </TabsContent>
 
-        <TabsContent value="analysis">
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Website analysis</p>
-              <h2 className="text-lg font-semibold mt-1">Fastest way to fill this page</h2>
-              <p className="text-sm text-muted-foreground mb-6">Paste your website URL and click &quot;Analyze website&quot; to auto-fill fields, then edit as needed.</p>
+      <TabsContent value="analysis">
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Website analysis</p>
+            <h2 className="text-lg font-semibold mt-1">Fastest way to fill this page</h2>
+            <p className="text-sm text-muted-foreground mb-6">Paste your website URL and click &quot;Analyze website&quot; to auto-fill fields, then edit as needed.</p>
 
-              <form onSubmit={analyzeWebsite}>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    type="submit"
-                    disabled={!brand.website_url || isAnalyzing}
-                  >
-                    {isAnalyzing && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Analyze website
-                  </Button>
-                </div>
-              </form>
-
-              <div className="space-y-3 mt-6">
-                <div className="rounded-xl border bg-card p-5">
-                  <strong className="text-sm font-semibold">Summary</strong>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {brand.summary && brand.summary.trim() ? brand.summary : "No summary yet. Analyze your website to fill this."}
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-card p-5">
-                  <strong className="text-sm font-semibold">Call to action</strong>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {brand.call_to_action && brand.call_to_action.trim() ? brand.call_to_action : "No CTA yet. Analyze your website to fill this."}
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-card p-5">
-                  <strong className="text-sm font-semibold">Last website scan</strong>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {brand.last_analyzed_at ? new Date(brand.last_analyzed_at).toLocaleDateString() : "Not analyzed yet"}
-                  </p>
-                </div>
+            <form onSubmit={analyzeWebsite}>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  type="submit"
+                  disabled={!brand.website_url || isFilling}
+                >
+                  {isFilling && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Analyze website
+                </Button>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </form>
+
+            <div className="space-y-3 mt-6">
+              <div className="rounded-xl border bg-card p-5">
+                <strong className="text-sm font-semibold">Summary</strong>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {brand.summary && brand.summary.trim() ? brand.summary : "No summary yet. Analyze your website to fill this."}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-card p-5">
+                <strong className="text-sm font-semibold">Call to action</strong>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {brand.call_to_action && brand.call_to_action.trim() ? brand.call_to_action : "No CTA yet. Analyze your website to fill this."}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-card p-5">
+                <strong className="text-sm font-semibold">Last website scan</strong>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {brand.last_analyzed_at ? new Date(brand.last_analyzed_at).toLocaleDateString() : "Not analyzed yet"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
       </Tabs>
     </div>
   );

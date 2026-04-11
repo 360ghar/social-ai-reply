@@ -75,8 +75,9 @@ function LoginForm() {
         return;
       }
       error("Login failed", message || "Invalid email or password.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   async function handleGoogle() {
@@ -202,7 +203,6 @@ function LoginForm() {
                 />
                 <button
                   type="button"
-                  tabIndex={-1}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? "Hide password" : "Show password"}

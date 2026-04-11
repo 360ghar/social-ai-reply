@@ -16,13 +16,22 @@ interface ScoreBadgeProps {
   className?: string;
 }
 
+/** Centralized score-threshold resolution — shared with status-badge */
+function scoreToVariant(score: number): "success" | "warning" | "error" {
+  if (score >= 70) return "success";
+  if (score >= 40) return "warning";
+  return "error";
+}
+
+const scoreBadgeVariants: Record<"success" | "warning" | "error", string> = {
+  success: "bg-success/10 text-success border-success/20",
+  warning: "bg-warning/10 text-warning border-warning/20",
+  error: "bg-destructive/10 text-destructive border-destructive/20",
+};
+
 export function ScoreBadge({ score, className }: ScoreBadgeProps) {
-  const colorClass =
-    score >= 70
-      ? "bg-success/10 text-success border-success/20"
-      : score >= 40
-        ? "bg-warning/10 text-warning border-warning/20"
-        : "bg-destructive/10 text-destructive border-destructive/20";
+  const variant = scoreToVariant(score);
+  const colorClass = scoreBadgeVariants[variant];
 
   return (
     <span

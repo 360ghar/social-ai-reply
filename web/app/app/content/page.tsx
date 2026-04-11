@@ -328,17 +328,17 @@ export default function ContentPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader
-        title="Content Studio"
-        description="Manage reply drafts, original posts, and published activity from one workflow."
-        actions={
-          <Button onClick={generatePostDraft} disabled={generatingPost || !project}>
-            {generatingPost && <Loader2 className="h-4 w-4 animate-spin" />}
-            New Original Post
-          </Button>
-        }
-        tabs={
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <PageHeader
+          title="Content Studio"
+          description="Manage reply drafts, original posts, and published activity from one workflow."
+          actions={
+            <Button onClick={generatePostDraft} disabled={generatingPost || !project}>
+              {generatingPost && <Loader2 className="h-4 w-4 animate-spin" />}
+              New Original Post
+            </Button>
+          }
+          tabs={
             <TabsList>
               <TabsTrigger value="replies">
                 Reply Queue
@@ -360,14 +360,10 @@ export default function ContentPage() {
               </TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
             </TabsList>
-          </Tabs>
-        }
-      />
+          }
+        />
 
-      {loading && <p className="text-sm text-muted-foreground">Loading studio content...</p>}
-
-      {/* Tabs Content Wrapper */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        {loading && <p className="text-sm text-muted-foreground">Loading studio content...</p>}
         {/* Replies Tab */}
         {!loading && (
           <TabsContent value="replies">

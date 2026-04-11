@@ -43,4 +43,28 @@ describe("StatusBadge", () => {
     expect(dot).toBeInTheDocument();
     expect(dot?.className).toContain("rounded-full");
   });
+
+  it("resolves success variant at exact threshold (score = 70)", () => {
+    const { container } = render(<StatusBadge score={70} />);
+    const badge = container.querySelector("span");
+    expect(badge?.className).toContain("text-success");
+  });
+
+  it("resolves warning variant at exact threshold (score = 40)", () => {
+    const { container } = render(<StatusBadge score={40} />);
+    const badge = container.querySelector("span");
+    expect(badge?.className).toContain("text-warning");
+  });
+
+  it("resolves warning variant at boundary (score = 69)", () => {
+    const { container } = render(<StatusBadge score={69} />);
+    const badge = container.querySelector("span");
+    expect(badge?.className).toContain("text-warning");
+  });
+
+  it("resolves error variant at boundary (score = 39)", () => {
+    const { container } = render(<StatusBadge score={39} />);
+    const badge = container.querySelector("span");
+    expect(badge?.className).toContain("text-destructive");
+  });
 });

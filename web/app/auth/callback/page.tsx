@@ -62,12 +62,13 @@ export default function AuthCallbackPage() {
           }
         });
 
-        timeoutId = setTimeout(() => {
+        const retryTimer = setTimeout(() => {
           if (!cancelled) {
             subscription.unsubscribe();
             setError("Authentication timed out. Please try again.");
           }
         }, 10000);
+        timeoutId = retryTimer;
 
         return;
       }

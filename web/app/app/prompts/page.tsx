@@ -224,6 +224,11 @@ export default function PromptsPage() {
   const filteredTemplates = templates.filter((template) => template.prompt_type === activeTab);
   const activeCopy = PROMPT_TYPE_COPY[activeTab];
 
+  // Precompute tab counts once per render
+  const replyCount = templates.filter((item) => item.prompt_type === "reply").length;
+  const postCount = templates.filter((item) => item.prompt_type === "post").length;
+  const analysisCount = templates.filter((item) => item.prompt_type === "analysis").length;
+
   return (
     <div className="grid gap-8">
       <PageHeader
@@ -244,25 +249,25 @@ export default function PromptsPage() {
             <TabsList>
               <TabsTrigger value="reply">
                 Reply
-                {templates.filter((item) => item.prompt_type === "reply").length > 0 && (
+                {replyCount > 0 && (
                   <Badge variant="secondary" className="ml-1.5 text-xs">
-                    {templates.filter((item) => item.prompt_type === "reply").length}
+                    {replyCount}
                   </Badge>
                 )}
               </TabsTrigger>
               <TabsTrigger value="post">
                 Post
-                {templates.filter((item) => item.prompt_type === "post").length > 0 && (
+                {postCount > 0 && (
                   <Badge variant="secondary" className="ml-1.5 text-xs">
-                    {templates.filter((item) => item.prompt_type === "post").length}
+                    {postCount}
                   </Badge>
                 )}
               </TabsTrigger>
               <TabsTrigger value="analysis">
                 Analysis
-                {templates.filter((item) => item.prompt_type === "analysis").length > 0 && (
+                {analysisCount > 0 && (
                   <Badge variant="secondary" className="ml-1.5 text-xs">
-                    {templates.filter((item) => item.prompt_type === "analysis").length}
+                    {analysisCount}
                   </Badge>
                 )}
               </TabsTrigger>

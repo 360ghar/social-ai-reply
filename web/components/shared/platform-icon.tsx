@@ -23,9 +23,10 @@ const ICON_MAP: Record<string, { icon: React.ElementType; color: string }> = {
 };
 
 export function PlatformIcon({ platform, className }: PlatformIconProps) {
-  const { icon: Icon, color } = ICON_MAP[platform] ?? ICON_MAP.default;
+  const normalizedPlatform = platform.trim().toLowerCase();
+  const { icon: Icon, color } = ICON_MAP[normalizedPlatform] ?? ICON_MAP.default;
   return (
-    <span role="img" aria-label={platform} className={cn("inline-flex", color, className)}>
+    <span role="img" aria-label={normalizedPlatform} className={cn("inline-flex", color, className)}>
       <Icon className="h-4 w-4" />
     </span>
   );

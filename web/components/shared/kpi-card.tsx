@@ -75,8 +75,8 @@ export function KPIGrid({
         className
       )}
     >
-      {cards.map((card) => (
-        <KPICard key={card.label} {...card} />
+      {cards.map((card, index) => (
+        <KPICard key={card.label + index} {...card} />
       ))}
     </div>
   );

@@ -10,7 +10,7 @@ export default function SettingsLoading() {
       </div>
 
       {/* Tabs bar */}
-      <Skeleton className="h-10 w-96 rounded-lg" />
+      <Skeleton className="h-10 w-full max-w-md rounded-lg" />
 
       {/* Form card */}
       <Skeleton className="h-96 rounded-xl" />

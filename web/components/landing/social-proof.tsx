@@ -2,6 +2,7 @@
 
 import { m, useInView } from "framer-motion";
 import { useRef, useEffect, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface StatProps {
   value: number;
@@ -77,13 +78,14 @@ export function SocialProof() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.6 }}
-          className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:hidden"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:hidden no-scrollbar"
         >
           {stats.map((stat) => (
-            <div key={stat.label} className="min-w-[200px] snap-center flex-shrink-0 rounded-2xl border border-border bg-background p-6">
-              <AnimatedStat {...stat} />
-            </div>
+            <Card key={stat.label} className="min-w-[200px] snap-center flex-shrink-0 p-6">
+              <CardContent className="p-0">
+                <AnimatedStat {...stat} />
+              </CardContent>
+            </Card>
           ))}
         </m.div>
       </div>
