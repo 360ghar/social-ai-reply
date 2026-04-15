@@ -173,18 +173,21 @@ def run_auto_pipeline_background(
         from app.db.tables.discovery import create_discovery_keyword, list_discovery_keywords_for_project
         existing_kw = {row["keyword"] for row in list_discovery_keywords_for_project(db, project_id)}
         new_kw_count = 0
+        # copilot.generate_keywords returns list[GeneratedKeyword] (a @dataclass),
+        # NOT list[dict] — use attribute access, not subscript. suggest_personas
+        # returns list[dict] so the pattern is different for personas above.
         for k_data in keywords_data:
-            if k_data["keyword"] in existing_kw:
-                log.info("Keyword '%s' already exists — skipping", k_data["keyword"])
+            if k_data.keyword in existing_kw:
+                log.info("Keyword '%s' already exists — skipping", k_data.keyword)
                 continue
             create_discovery_keyword(db, {
                 "project_id": project_id,
-                "keyword": k_data["keyword"],
-                "rationale": k_data["rationale"],
-                "priority_score": k_data["priority_score"],
+                "keyword": k_data.keyword,
+                "rationale": k_data.rationale,
+                "priority_score": k_data.priority_score,
                 "source": "generated",
             })
-            existing_kw.add(k_data["keyword"])
+            existing_kw.add(k_data.keyword)
             new_kw_count += 1
         update_auto_pipeline(db, pipeline_id, {"keywords_generated": len(keywords_data), "progress": 45})
         log.info("Inserted %d new keywords (%d already existed)", new_kw_count, len(keywords_data) - new_kw_count)
