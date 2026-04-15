@@ -237,12 +237,16 @@ def discover_and_store_subreddits(
             },
         )
 
-        # Create analysis record
+        # Create analysis record. Note: the DB column is subreddit_id (FK
+        # to monitored_subreddits.id), not monitored_subreddit_id. The
+        # subreddits_analyses table only has: id, subreddit_id,
+        # recommendation, audience_signals, top_post_types, posting_risk,
+        # created_at — keep this insert payload aligned with that shape.
         from app.db.tables.discovery import create_subreddit_analysis
         create_subreddit_analysis(
             supabase,
             {
-                "monitored_subreddit_id": row["id"],
+                "subreddit_id": row["id"],
                 "top_post_types": assessment.top_post_types,
                 "audience_signals": assessment.audience_signals,
                 "posting_risk": assessment.posting_risk,
@@ -297,12 +301,14 @@ def refresh_subreddit_analysis(
         },
     )
 
-    # Create new analysis record
+    # Create new analysis record — DB column is subreddit_id (not
+    # monitored_subreddit_id); keep shape consistent with the other call
+    # site above and with the actual subreddits_analyses schema.
     from app.db.tables.discovery import create_subreddit_analysis
     create_subreddit_analysis(
         supabase,
         {
-            "monitored_subreddit_id": subreddit["id"],
+            "subreddit_id": subreddit["id"],
             "top_post_types": assessment.top_post_types,
             "audience_signals": assessment.audience_signals,
             "posting_risk": assessment.posting_risk,
