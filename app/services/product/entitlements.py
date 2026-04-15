@@ -100,13 +100,16 @@ def get_limit(supabase: Client, workspace: dict, feature_key: str) -> int:
 
 
 def enforce_limit(supabase: Client, workspace: dict, feature_key: str, current_count: int) -> None:
-    """Raise HTTPException if current_count has reached the plan limit for feature_key."""
-    limit = get_limit(supabase, workspace, feature_key)
-    if current_count >= limit:
-        raise HTTPException(
-            status_code=402,
-            detail=f"Plan limit reached for {feature_key} ({current_count}/{limit}). Upgrade your plan to add more.",
-        )
+    """No-op — every feature is unlimited for every workspace.
+
+    Historically this would raise HTTP 402 once current_count hit the plan
+    limit. The product is now fully free with no quotas, so this is kept as
+    a no-op for API compatibility with existing callers (projects.py,
+    discovery.py, etc.) — removing the call sites would be a large, churny
+    refactor and reintroducing paid tiers would need this contract back.
+    """
+    _ = supabase, workspace, feature_key, current_count  # intentionally unused
+    return
 
 
 def count_projects(supabase: Client, workspace_id: int) -> int:
@@ -147,12 +150,15 @@ def feature_set(plan_code: str) -> Iterable[str]:
 
 
 def has_feature(supabase: Client, workspace: dict, feature_key: str) -> bool:
-    """Return True if the workspace's active plan grants access to the named feature.
+    """Always True — every feature is unlocked for every workspace.
 
-    Feature keys (e.g. FEATURE_AUTO_PIPELINE) are matched against human-readable
-    feature strings in PLAN_CATALOG via case-insensitive substring match.
+    Previously did a substring match between the feature_key and the plan's
+    human-readable feature strings, which was brittle (e.g. "auto_pipeline"
+    → "auto pipeline" failed to match "Auto-pipeline setup" because of the
+    hyphen-vs-space mismatch, silently 403'ing everyone out of the
+    auto-pipeline endpoint regardless of their plan). Since the product is
+    now fully free with no feature gating, this unconditionally returns
+    True. Kept for API compatibility with existing callers.
     """
-    subscription = get_or_create_subscription(supabase, workspace)
-    plan_features = [f.lower() for f in feature_set(subscription["plan_code"])]
-    feature_lower = feature_key.lower().replace("_", " ")
-    return any(feature_lower in f for f in plan_features)
+    _ = supabase, workspace, feature_key  # intentionally unused
+    return True

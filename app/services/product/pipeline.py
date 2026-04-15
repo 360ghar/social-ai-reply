@@ -75,7 +75,7 @@ def run_auto_pipeline_background(
 
         brand = get_brand_profile_by_project(db, project_id)
         if brand:
-            update_brand_profile(db, brand["id"], {
+            updated_brand = update_brand_profile(db, brand["id"], {
                 "brand_name": website_analysis.brand_name,
                 "summary": website_analysis.summary,
                 "product_summary": website_analysis.product_summary,
@@ -84,9 +84,10 @@ def run_auto_pipeline_background(
                 "voice_notes": website_analysis.voice_notes,
                 "business_domain": website_analysis.business_domain,
             })
+            brand = updated_brand or brand
             log.info("Updated existing BrandProfile id=%s", brand["id"])
         else:
-            create_brand_profile(db, {
+            brand = create_brand_profile(db, {
                 "project_id": project_id,
                 "brand_name": website_analysis.brand_name,
                 "website_url": website_url,
@@ -98,6 +99,13 @@ def run_auto_pipeline_background(
                 "business_domain": website_analysis.business_domain,
             })
             log.info("Created new BrandProfile for project %s", project_id)
+
+        # Attach brand profile to proj so downstream discovery steps have
+        # domain context. discover_and_store_subreddits and the helpers it
+        # calls (get_project_search_keywords, assess_subreddit_candidate)
+        # all read project["brand_profile"] — without this, business_domain
+        # is empty and discovery filters out nearly every candidate.
+        proj["brand_profile"] = brand
 
         # ── Step 2: Generate Personas (15→30%) ──────────────────
         log.info("Step 2/7: Generating personas")
