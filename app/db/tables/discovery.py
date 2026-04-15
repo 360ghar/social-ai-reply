@@ -12,6 +12,7 @@ DISCOVERY_KEYWORDS_TABLE = "discovery_keywords"
 MONITORED_SUBREDDITS_TABLE = "monitored_subreddits"
 SCAN_RUNS_TABLE = "scan_runs"
 OPPORTUNITIES_TABLE = "opportunities"
+SUBREDDITS_ANALYSES_TABLE = "subreddits_analyses"  # note: plural "subreddits_", DB name is authoritative
 
 
 # Persona operations
@@ -136,7 +137,7 @@ def get_subreddit_by_project_and_name(db: Client, project_id: int, name: str) ->
 
 def create_subreddit_analysis(db: Client, analysis_data: dict[str, Any]) -> dict[str, Any]:
     """Create a new subreddit analysis record."""
-    result = db.table("subreddit_analyses").insert(analysis_data).execute()
+    result = db.table(SUBREDDITS_ANALYSES_TABLE).insert(analysis_data).execute()
     return result.data[0]
 
 
