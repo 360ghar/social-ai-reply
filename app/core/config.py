@@ -30,24 +30,27 @@ class Settings(BaseSettings):
 
     encryption_key: str | None = None
 
-    # LLM Provider selection
+    # LLM Provider selection — Gemini is the default for RedditFlow.
+    # See app/core/constants/app.py::DEFAULT_LLM_PROVIDER. Only the active
+    # provider's credentials are required; the registry silently skips any
+    # provider whose API key is missing.
     llm_provider: str = DEFAULT_LLM_PROVIDER
 
-    # OpenAI (primary)
-    openai_api_key: str | None = None
-    openai_model: str = DEFAULT_OPENAI_MODEL
-    openai_base_url: str | None = None
-
-    # Gemini
+    # Gemini (primary — default provider, normally the only one configured)
     gemini_api_key: str | None = None
     gemini_model: str = DEFAULT_GEMINI_MODEL
     gemini_api_url: str = DEFAULT_GEMINI_API_URL
 
-    # Perplexity
+    # OpenAI (optional alternative — leave unset unless llm_provider="openai")
+    openai_api_key: str | None = None
+    openai_model: str = DEFAULT_OPENAI_MODEL
+    openai_base_url: str | None = None
+
+    # Perplexity (optional alternative)
     perplexity_api_key: str | None = None
     perplexity_model: str = DEFAULT_PERPLEXITY_MODEL
 
-    # Anthropic (Claude)
+    # Anthropic / Claude (optional alternative)
     anthropic_api_key: str | None = None
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
 

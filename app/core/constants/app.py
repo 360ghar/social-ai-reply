@@ -25,7 +25,12 @@ DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 # Schema is managed by Supabase — no local database URL needed
 
 # LLM provider defaults
-DEFAULT_LLM_PROVIDER = "openai"
+# Gemini is the primary/default provider for RedditFlow. OpenAI, Perplexity,
+# and Claude are supported alternatives but are NOT required — with only a
+# GEMINI_API_KEY set, the whole stack works end-to-end. The registry at
+# app/services/infrastructure/llm/providers/_registry.py skips any provider
+# whose API key is missing, so unused providers are silently inert.
+DEFAULT_LLM_PROVIDER = "gemini"
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"

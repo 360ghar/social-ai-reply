@@ -77,7 +77,7 @@ npm run build     # type-check + production build (used as the "test" step)
 - `product/supabase_auth.py` — Supabase Auth HTTP client (sign up, sign in, JWT verification)
 - `product/discovery.py` — Subreddit discovery and analysis
 - `product/relevance.py` — Relevance scoring logic (split into submodules: `scorer.py`, `audience.py`, `keyword.py`, `signals.py`, `config.py`)
-- `infrastructure/llm/` — Modular LLM provider system with `LLMService` facade. Supports OpenAI (default, custom base_url), Gemini, Perplexity, Claude. Adding a new provider = one file + `register()` call.
+- `infrastructure/llm/` — Modular LLM provider system with `LLMService` facade. **Gemini is the default provider for RedditFlow.** OpenAI (supports custom base_url), Perplexity, and Claude are supported alternatives but not required — only the active provider's API key needs to be set. Adding a new provider = one file + `register()` call.
 - `utils/` — Utility modules: `security.py` (webhook validation, slugify), `encryption.py` (Fernet encryption), `slug.py`, `audit.py`, `datetime.py`
 
 **Core** (`app/core/`): 
@@ -282,7 +282,7 @@ def get_top_opportunities(supabase: Client, project_id: int, limit: int = 10) ->
 
 - **Auth flow**: Supabase Auth with JWT Bearer tokens. Registration creates a Supabase identity + local AccountUser + workspace + membership atomically. Token carries `sub` (Supabase user ID). Workspace is resolved from membership.
 - **Multi-tenancy**: Everything is scoped through `workspace_id`. Projects belong to workspaces. Most API routes require both authentication and workspace membership checks.
-- **LLM**: OpenAI is the default provider (supports custom `OPENAI_BASE_URL` for OpenAI-compatible endpoints). Set `LLM_PROVIDER` env var to select provider (`openai`, `gemini`, `perplexity`, `claude`). Always use a real LLM with a valid API key — never use mock or simulated data. The `LLMService` facade in `app/services/infrastructure/llm/service.py` is the entry point. For visibility, `VisibilityRunner` calls all configured providers.
+- **LLM**: **Gemini is the default provider for RedditFlow** (`LLM_PROVIDER=gemini`, default in `DEFAULT_LLM_PROVIDER`). Only `GEMINI_API_KEY` is required in normal operation; `OPENAI_API_KEY` and the other provider keys can be left blank. Set `LLM_PROVIDER` env var to switch to `openai`, `perplexity`, or `claude` if you need an alternative (OpenAI supports custom `OPENAI_BASE_URL` for OpenAI-compatible endpoints like Azure, Ollama, LM Studio). Always use a real LLM with a valid API key — never use mock or simulated data. The `LLMService` facade in `app/services/infrastructure/llm/service.py` is the entry point. For visibility, `VisibilityRunner` calls all configured providers.
 - **Rate limiting**: In-memory rate limiter in `app/middleware.py` with per-endpoint-type limits (scan: 5/60s, generate: 10/60s, auth: 10/300s, default: 60/60s).
 - **Testing**: Tests use Supabase local development or a test Supabase project. Fixtures in `conftest.py` provide `client`, `authed_client`, `authed_headers`.
 - **Linting**: Ruff with `target-version = "py311"`, `line-length = 120`. Rules: E, F, W, I, N, UP, B, SIM, TCH. E501 ignored.
@@ -309,9 +309,10 @@ Set these in the Railway dashboard (do not commit secrets):
 - `SUPABASE_PUBLISHABLE_KEY` — Supabase anon/public key
 - `SUPABASE_SECRET_KEY` — Supabase service role key
 - `SUPABASE_JWT_SECRET` — Supabase JWT secret for local verification
-- `GEMINI_API_KEY`
-- `OPENAI_API_KEY` (or other LLM provider key)
-- `LLM_PROVIDER` — set to `openai`, `gemini`, `perplexity`, or `claude` (default: `openai`)
+- `GEMINI_API_KEY` — **required** (Gemini is the default LLM provider)
+- `LLM_PROVIDER` — default is `gemini`. Only set this to `openai` / `perplexity` / `claude` if you're switching providers.
+- `OPENAI_API_KEY` — **not required** unless `LLM_PROVIDER=openai`. Leave unset for Gemini-only deployments.
+- `PERPLEXITY_API_KEY`, `ANTHROPIC_API_KEY` — likewise optional alternatives.
 - Optional: `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_*`
 
 ### Netlify environment variables
@@ -359,7 +360,7 @@ Because the two services live on different domains, the frontend and backend URL
   - `infrastructure/llm/providers/` — One file per provider: `openai_provider.py`, `gemini_provider.py`, `perplexity_provider.py`, `claude_provider.py`
   - `infrastructure/llm/providers/_registry.py` — Lightweight registry with `register()`, `get_provider()`, `get_configured_providers()`
   - `infrastructure/llm/service.py` — `LLMService` (single-provider facade) + `VisibilityRunner` (multi-provider facade)
-- **OpenAI as default**: Supports `OPENAI_BASE_URL` for custom endpoints (Azure, Ollama, LM Studio, Together AI)
+- **Gemini as default** (changed from OpenAI on 2026-04-15 — see commit on branch `claude/pedantic-mirzakhani`). OpenAI provider still supported as an alternative and retains `OPENAI_BASE_URL` support for custom endpoints (Azure, Ollama, LM Studio, Together AI), but is no longer required.
 - **Backward compatible**: `LLMClient` refactored to thin adapter, zero changes to consumer modules
 - **Visibility unified**: `ModelRunner` replaced by `VisibilityRunner`, all 4 providers use shared abstraction
 - **Config**: `LLM_PROVIDER` env var selects active provider. Per-provider API key/model/base_url settings.
@@ -401,6 +402,6 @@ Study these files to understand the correct patterns:
 - `app/services/infrastructure/llm/base.py` — `LLMProvider` Protocol definition
 - `app/services/infrastructure/llm/service.py` — `LLMService` + `VisibilityRunner` facades
 - `app/services/infrastructure/llm/providers/_registry.py` — Provider registry and factory
-- `app/services/infrastructure/llm/providers/openai_provider.py` — OpenAI (primary, custom base_url)
-- `app/services/infrastructure/llm/providers/gemini_provider.py` — Gemini via httpx
+- `app/services/infrastructure/llm/providers/gemini_provider.py` — Gemini via httpx (**primary/default provider**)
+- `app/services/infrastructure/llm/providers/openai_provider.py` — OpenAI (optional alternative, custom base_url support)
 - `app/services/product/copilot/llm_client.py` — Backward-compatible adapter over LLMService

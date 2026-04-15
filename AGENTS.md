@@ -48,7 +48,7 @@ FastAPI + Supabase Postgres + Supabase Auth. Entry point: `app/main.py` — crea
   - `product/security.py` — JWT encode/decode, password hashing
   - `product/supabase_auth.py` — Supabase Auth HTTP client
   - `product/discovery.py` — Subreddit discovery and analysis
-  - `infrastructure/llm/` — Modular LLM provider system (`LLMService` facade, per-provider modules in `providers/`). OpenAI default, also supports Gemini, Perplexity, Claude.
+  - `infrastructure/llm/` — Modular LLM provider system (`LLMService` facade, per-provider modules in `providers/`). **Gemini is the default provider;** OpenAI, Perplexity, and Claude are supported alternatives but not required.
 - **Core** (`app/core/`) — `config.py` (pydantic-settings), `exceptions.py` (custom hierarchy: `AppException` → `NotFoundError`, `ForbiddenError`, `ConflictError`, `AuthenticationError`, `BusinessRuleError`).
 
 **Database:** Supabase Postgres via `supabase-py` client. All queries go through helpers in `app/db/tables/`.
@@ -83,14 +83,14 @@ Next.js 16 + React 19 + Tailwind CSS v4 + shadcn/ui (on `@base-ui/react`) + Zust
       opps = list_opportunities_for_project(supabase, project_id=1)
       return opps
   ```
-- **LLM:** OpenAI is the default provider (supports `OPENAI_BASE_URL` for custom endpoints). Set `LLM_PROVIDER` env var to select (`openai`, `gemini`, `perplexity`, `claude`). Always use a real LLM with a valid API key — never use mock or simulated data.
+- **LLM:** **Gemini is the default provider** (`LLM_PROVIDER=gemini`, set in `DEFAULT_LLM_PROVIDER`). Only `GEMINI_API_KEY` is required; `OPENAI_API_KEY` and other provider keys can be left unset. Switch to `openai` / `perplexity` / `claude` via `LLM_PROVIDER` if you need an alternative (OpenAI supports `OPENAI_BASE_URL` for Azure/Ollama/LM Studio/Together AI). Always use a real LLM with a valid API key — never use mock or simulated data.
 - **Rate limiting:** In-memory in `app/middleware.py` — scan: 5/60s, generate: 10/60s, auth: 10/300s, default: 60/60s.
 - **Testing:** Supabase local dev or test Supabase project. `conftest.py` fixtures: `client`, `authed_client`, `authed_headers`.
 - **Linting:** Ruff, `target-version = "py311"`, `line-length = 120`. Rules: E, F, W, I, N, UP, B, SIM, TCH. E501 ignored.
 
 ## Environment Variables
 
-Key vars (see `.env.example` for full list): `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_JWT_SECRET`, `LLM_PROVIDER` (default: `openai`), `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FRONTEND_URL`, `CORS_ORIGINS_RAW`, `REDDIT_USER_AGENT`.
+Key vars (see `.env.example` for full list): `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_JWT_SECRET`, `LLM_PROVIDER` (default: `gemini`), `GEMINI_API_KEY` (required for default LLM), `FRONTEND_URL`, `CORS_ORIGINS_RAW`, `REDDIT_USER_AGENT`. `OPENAI_API_KEY` / `PERPLEXITY_API_KEY` / `ANTHROPIC_API_KEY` are optional — only needed if you switch `LLM_PROVIDER` away from Gemini.
 
 ## Deployment
 
@@ -101,7 +101,7 @@ Monorepo with two deploy targets:
 
 **Do NOT add a root `package.json`.** Nixpacks will see it and pick the Node.js provider instead of Python, breaking the backend build with `pip: command not found`. All JS/Node config must live under `web/`.
 
-**Railway env vars** (set in dashboard): `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_JWT_SECRET`, `ENVIRONMENT=production`, `FRONTEND_URL`, `CORS_ORIGINS_RAW`, `LLM_PROVIDER` (default: `openai`), `OPENAI_API_KEY`, `GEMINI_API_KEY`. Optional: `ENCRYPTION_KEY`, `STRIPE_*`, `SMTP_*`, `PERPLEXITY_API_KEY`, `ANTHROPIC_API_KEY`.
+**Railway env vars** (set in dashboard): `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_JWT_SECRET`, `ENVIRONMENT=production`, `FRONTEND_URL`, `CORS_ORIGINS_RAW`, `GEMINI_API_KEY` (required — Gemini is the default LLM provider). Optional: `LLM_PROVIDER` (defaults to `gemini`, set to `openai`/`perplexity`/`claude` only if switching), `ENCRYPTION_KEY`, `STRIPE_*`, `SMTP_*`, `OPENAI_API_KEY` / `PERPLEXITY_API_KEY` / `ANTHROPIC_API_KEY` (only if using an alternative provider).
 
 **Netlify env vars** (set in dashboard): `NEXT_PUBLIC_API_BASE_URL` (Railway URL, consumed by `web/lib/api.ts:1`), `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 
