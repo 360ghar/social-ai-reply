@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import {
   Loader2,
   MessageSquare,
@@ -58,6 +58,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { SheetPanel } from "@/components/shared/sheet-panel";
 import { ScoreBadge } from "@/components/shared/score-badge";
 import { redditUrl, copyText } from "@/lib/reddit";
+import { setStoredProjectId } from "@/lib/project";
 
 interface ReplyDraftRow {
   id: number;
@@ -94,11 +95,24 @@ interface PublishedPost {
   comments?: number;
 }
 
+function parsePositiveInt(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 export default function ContentPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { token } = useAuth();
   const { success, error } = useToast();
   const selectedProjectId = useSelectedProjectId();
+  const requestedProjectId = parsePositiveInt(searchParams.get("project_id"));
+  const requestedOpportunityId = parsePositiveInt(searchParams.get("opportunity"));
+  const pendingOpportunityIdRef = useRef<number | null>(null);
+  const handledOpportunityIdRef = useRef<number | null>(null);
 
   const [activeTab, setActiveTab] = useState("replies");
   const [drafts, setDrafts] = useState<ReplyDraftRow[]>([]);
@@ -125,6 +139,12 @@ export default function ContentPage() {
 
   const [threadOpen, setThreadOpen] = useState(true);
   const [rationaleOpen, setRationaleOpen] = useState(false);
+
+  useEffect(() => {
+    if (requestedProjectId && requestedProjectId !== selectedProjectId) {
+      setStoredProjectId(requestedProjectId);
+    }
+  }, [requestedProjectId, selectedProjectId]);
 
   useEffect(() => {
     if (!token) {
@@ -232,6 +252,61 @@ export default function ContentPage() {
     setPostTitle(draft.title);
     setPostBody(draft.body);
   }
+
+  useEffect(() => {
+    if (!requestedOpportunityId || loading) {
+      return;
+    }
+    if (requestedProjectId && selectedProjectId !== requestedProjectId) {
+      return;
+    }
+
+    const existingDraft = drafts.find((draft) => draft.opportunity_id === requestedOpportunityId);
+    if (existingDraft && handledOpportunityIdRef.current !== requestedOpportunityId) {
+      openReplyDraft(existingDraft);
+      handledOpportunityIdRef.current = requestedOpportunityId;
+    }
+  }, [drafts, loading, requestedOpportunityId, requestedProjectId, selectedProjectId]);
+
+  useEffect(() => {
+    if (!token || !requestedOpportunityId || loading) {
+      return;
+    }
+    if (requestedProjectId && selectedProjectId !== requestedProjectId) {
+      return;
+    }
+    if (handledOpportunityIdRef.current === requestedOpportunityId) {
+      return;
+    }
+    if (drafts.some((draft) => draft.opportunity_id === requestedOpportunityId)) {
+      return;
+    }
+    if (pendingOpportunityIdRef.current === requestedOpportunityId) {
+      return;
+    }
+
+    const generateMissingDraft = async () => {
+      pendingOpportunityIdRef.current = requestedOpportunityId;
+      try {
+        await apiRequest(
+          "/v1/drafts/replies",
+          {
+            method: "POST",
+            body: JSON.stringify({ opportunity_id: requestedOpportunityId }),
+          },
+          token,
+        );
+        await loadDrafts();
+      } catch (err: unknown) {
+        handledOpportunityIdRef.current = requestedOpportunityId;
+        error("Could not create reply draft", getErrorMessage(err));
+      } finally {
+        pendingOpportunityIdRef.current = null;
+      }
+    };
+
+    void generateMissingDraft();
+  }, [drafts, error, loading, requestedOpportunityId, requestedProjectId, selectedProjectId, token]);
 
   async function copyToClipboard(text: string) {
     try {
@@ -663,36 +738,68 @@ export default function ContentPage() {
       >
         {selectedReply && (
           <div className="space-y-4">
-            {/* Original thread collapsible */}
-            {selectedReply.permalink && (
-              <Collapsible open={threadOpen} onOpenChange={setThreadOpen}>
-                <CollapsibleTrigger className="flex items-center gap-1.5 text-sm font-medium w-full">
-                  <ChevronDown
-                    className={cn(
-                      "h-4 w-4 transition-transform",
-                      !threadOpen && "-rotate-90"
+            {/* Original Reddit post context — always visible so the reviewer
+                can see exactly what they're replying to. */}
+            {(selectedReply.opportunity_title ||
+              selectedReply.opportunity_subreddit ||
+              selectedReply.body_excerpt ||
+              selectedReply.permalink) && (
+              <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {selectedReply.opportunity_subreddit && (
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        r/{selectedReply.opportunity_subreddit}
+                      </Badge>
                     )}
-                  />
-                  Original Thread
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-2">
-                  <div className="rounded-lg bg-muted p-3">
+                    {typeof selectedReply.score === "number" && (
+                      <ScoreBadge score={selectedReply.score} />
+                    )}
+                  </div>
+                  {selectedReply.permalink && (
                     <a
                       href={redditUrl(selectedReply.permalink)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-medium text-primary hover:underline inline-flex items-center gap-1"
+                      className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
                     >
                       View on Reddit <ExternalLink className="h-3 w-3" />
                     </a>
-                    {selectedReply.body_excerpt && (
-                      <p className="mt-2 text-xs text-muted-foreground leading-snug">
-                        {selectedReply.body_excerpt.substring(0, 220)}...
-                      </p>
+                  )}
+                </div>
+                {selectedReply.opportunity_title && (
+                  <h3 className="text-sm font-semibold leading-snug">
+                    {selectedReply.opportunity_title}
+                  </h3>
+                )}
+                {selectedReply.body_excerpt && (
+                  <div>
+                    <div
+                      className={cn(
+                        "text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap",
+                        !threadOpen && "line-clamp-4"
+                      )}
+                    >
+                      {selectedReply.body_excerpt}
+                    </div>
+                    {selectedReply.body_excerpt.length > 280 && (
+                      <button
+                        type="button"
+                        onClick={() => setThreadOpen((prev) => !prev)}
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-3.5 w-3.5 transition-transform",
+                            !threadOpen && "-rotate-90"
+                          )}
+                        />
+                        {threadOpen ? "Show less" : "Show full post"}
+                      </button>
                     )}
                   </div>
-                </CollapsibleContent>
-              </Collapsible>
+                )}
+              </div>
             )}
 
             {/* Reply content */}

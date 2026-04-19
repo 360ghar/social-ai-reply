@@ -248,24 +248,36 @@ def run_auto_pipeline_background(
             scan_req = ScanRequest(
                 project_id=project_id,
                 search_window_hours=72,
-                max_posts_per_subreddit=10,
+                max_posts_per_subreddit=15,
                 min_score=MIN_RELEVANT_OPPORTUNITY_SCORE,
             )
             scan_run = run_scan(db, proj, scan_req)
             opp_found = scan_run["opportunities_found"]
-            if opp_found == 0:
+            # Fallback scan: when the narrow 72-hour window yields nothing,
+            # widen the time horizon to 30 days AND drop the score floor so
+            # the user gets *something* to review. The previous
+            # `max(MIN - 10, 45)` expression was a bug — it RAISED the floor
+            # above MIN (35 → 45), which made the fallback stricter than the
+            # primary scan. We now use a sensible lower floor (15) so the
+            # fallback is genuinely looser.
+            if opp_found <= 1:
                 fallback_scan_req = ScanRequest(
                     project_id=project_id,
                     search_window_hours=720,
-                    max_posts_per_subreddit=10,
-                    min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 45),
+                    max_posts_per_subreddit=15,
+                    min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 15),
                 )
                 fallback_scan_run = run_scan(db, proj, fallback_scan_req)
                 opp_found = fallback_scan_run["opportunities_found"]
             log.info("Scan complete — %d opportunities found", opp_found)
         except Exception as e:
-            log.warning("Scan step skipped or failed: %s", e)
-            opp_found = 0
+            log.error("Scan step failed: %s\n%s", e, traceback.format_exc())
+            update_auto_pipeline(db, pipeline_id, {
+                "status": "failed",
+                "error_message": f"Opportunity scan failed: {str(e)[:500]}",
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
+            return
         update_auto_pipeline(db, pipeline_id, {"opportunities_found": opp_found, "progress": 75})
 
         # ── Step 6: Generate Drafts (75→95%) ────────────────────

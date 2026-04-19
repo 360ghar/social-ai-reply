@@ -27,8 +27,16 @@ if TYPE_CHECKING:
     from app.services.product.reddit import RedditPost
 
 
-MIN_RELEVANT_OPPORTUNITY_SCORE = 55
-MIN_SUBREDDIT_FIT_FOR_AUTOMATION = 40
+# Tuned down 2026-04-19 after users reported scans returning only a single
+# opportunity. Prior floor (35) combined with the multi-AND eligibility gate
+# below (keyword + domain_match + domain_vocab) still rejected the majority
+# of posts Reddit returned. 25 keeps obvious noise out while giving the
+# human reviewer enough candidates to judge. The eligibility gates below
+# were also relaxed — see the "hard gates" block in `score_post`.
+MIN_RELEVANT_OPPORTUNITY_SCORE = 25
+# Subreddits below this fit score are scored with a penalty rather than
+# skipped entirely. A lower floor keeps mid-fit subreddits in the running.
+MIN_SUBREDDIT_FIT_FOR_AUTOMATION = 25
 
 
 @dataclass
@@ -126,24 +134,43 @@ def score_post(
         post_text_raw, domain_context.business_domain,
     )
 
-    if not keyword_hits and not direct_brand_match:
-        eligibility_reasons.append("Rejected: no high-signal topical overlap with the project keywords.")
-    if not domain_match.aligned and not direct_brand_match:
-        eligibility_reasons.append("Rejected: missing domain-specific overlap with the business context.")
-    if not intent_hits and not direct_brand_match:
-        eligibility_reasons.append("Rejected: missing explicit help-seeking or recommendation intent.")
-    if subreddit and subreddit.get("fit_score", 0) < MIN_SUBREDDIT_FIT_FOR_AUTOMATION and not direct_brand_match:
-        eligibility_reasons.append("Rejected: subreddit fit is too weak for automated discovery.")
-    if _is_low_context(post) and not direct_brand_match:
-        eligibility_reasons.append("Rejected: the thread has too little context to draft a reliable reply.")
-    if domain_context.business_domain and not domain_vocab_ok and not direct_brand_match:
+    # ── Topical / domain gates (hard, but OR'd) ────────────────────────
+    # 2026-04-19: Relaxed from multi-AND to single-OR. Previously a post
+    # had to satisfy keyword_hits AND domain_match AND domain_vocab AND
+    # no-self-promo — in practice the intersection was nearly empty and
+    # users saw only 1 opportunity per scan. Now a post is eligible if
+    # ANY of the three topical signals is present: high-signal keyword
+    # hits, curated domain-vocabulary terms, or a direct brand mention.
+    # Domain-match and domain-vocab absence are still penalised later in
+    # this function so weakly-aligned posts drop below the score floor.
+    has_topical_signal = bool(
+        keyword_hits
+        or direct_brand_match
+        or domain_match.aligned
+        or (domain_context.business_domain and domain_vocab_ok)
+    )
+    if not has_topical_signal:
         eligibility_reasons.append(
-            f"Rejected: post lacks any {domain_context.business_domain} vocabulary — likely off-domain."
+            "Rejected: no high-signal topical overlap, no domain-specific overlap "
+            "with the business context, and no brand mention."
         )
 
-    # ── Self-promotion gate ────────────────────────────────────────────
+    # Soft-quality signals (missing intent / weak subreddit fit) are
+    # tracked here but applied as score penalties *after* `score` is
+    # initialized below. Thin-context already has a dedicated penalty
+    # further down in this function.
+    missing_intent_penalty = not intent_hits and not direct_brand_match
+    weak_fit_penalty = (
+        subreddit
+        and subreddit.get("fit_score", 0) < MIN_SUBREDDIT_FIT_FOR_AUTOMATION
+        and not direct_brand_match
+    )
+
+    # ── Self-promotion gate (still hard) ───────────────────────────────
     # Posts where the author is showcasing their own work are not
-    # opportunities — the user is promoting, not seeking help.
+    # opportunities — the user is promoting, not seeking help. This
+    # stays a hard rejection because a reply to a self-promo post is
+    # never the right move.
     promo_signals = find_self_promo_signals(post_text_raw)
     if promo_signals and not direct_brand_match:
         eligibility_reasons.append(
@@ -151,6 +178,16 @@ def score_post(
         )
 
     score = topic_score
+
+    # Apply the soft-quality penalties tracked above. These used to be
+    # hard rejections — now they just push the score down so the post
+    # can still surface if everything else about it is strong.
+    if missing_intent_penalty:
+        score -= 8
+        reasons.append("No explicit help-seeking language — reply will need to offer value unprompted.")
+    if weak_fit_penalty:
+        score -= 10
+        reasons.append("Subreddit fit is weak — proceed carefully.")
 
     # ── Title-weighted bonus ───────────────────────────────────────────
     # Keywords matched in the title are a stronger signal than body-only

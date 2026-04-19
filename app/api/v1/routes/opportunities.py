@@ -18,11 +18,14 @@ from app.schemas.v1.discovery import OpportunityResponse, OpportunityStatusReque
 logger = logging.getLogger(__name__)
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
-    "new": {"saved", "drafting", "ignored"},
-    "saved": {"drafting", "ignored"},
+    "new": {"saved", "drafting", "ignored", "rejected"},
+    "saved": {"drafting", "ignored", "rejected"},
     "drafting": {"posted", "saved", "ignored"},
     "posted": set(),
     "ignored": {"new"},
+    # "rejected" was filtered by the scoring pipeline — the user can
+    # always manually promote it back to "new" for review.
+    "rejected": {"new", "ignored"},
 }
 
 router = APIRouter(prefix="/v1", tags=["opportunities"])

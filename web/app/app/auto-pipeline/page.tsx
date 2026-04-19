@@ -12,70 +12,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { apiRequest } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PageHeader } from "@/components/shared/page-header";
-
-// Types
-interface PipelineRun {
-  id: string;
-  project_id: number;
-  website_url: string;
-  status: "pending" | "analyzing" | "generating_personas" | "discovering_keywords" | "finding_subreddits" | "scanning_opportunities" | "generating_drafts" | "ready" | "error";
-  progress: number;
-  personas_count: number;
-  keywords_count: number;
-  subreddits_count: number;
-  opportunities_count: number;
-  drafts_count: number;
-  current_step: string;
-  error_message?: string;
-  created_at: string;
-  completed_at?: string;
-  results?: PipelineResults;
-}
-
-interface PipelineResults {
-  brand_summary: string;
-  personas: Persona[];
-  keywords: Keyword[];
-  subreddits: Subreddit[];
-  opportunities: Opportunity[];
-  drafts: Draft[];
-}
-
-interface Persona {
-  name: string;
-  role: string;
-  summary: string;
-  pain_points: string[];
-}
-
-interface Keyword {
-  keyword: string;
-  score: number;
-  source: string;
-}
-
-interface Subreddit {
-  name: string;
-  fit_score: number;
-  subscribers: number;
-  description: string;
-}
-
-interface Opportunity {
-  title: string;
-  subreddit: string;
-  score: number;
-  author: string;
-}
-
-interface Draft {
-  title: string;
-  content: string;
-  opportunity_title: string;
-}
+import { setStoredProjectId } from "@/lib/project";
+import {
+  executePipelineRun,
+  getPipelineRun,
+  listPipelineRuns,
+  startPipelineRun,
+  type PipelineRun,
+} from "@/lib/api/pipeline";
 
 // Step definitions
 const PIPELINE_STEPS = [
@@ -86,6 +32,28 @@ const PIPELINE_STEPS = [
   { key: "scanning_opportunities", label: "Scanning opportunities" },
   { key: "generating_drafts", label: "Generating drafts" },
 ];
+
+function isFailureStatus(status: PipelineRun["status"]) {
+  return status === "failed" || status === "error";
+}
+
+function isResultStatus(status: PipelineRun["status"]) {
+  return status === "ready" || status === "executed";
+}
+
+function isTerminalStatus(status: PipelineRun["status"]) {
+  return isFailureStatus(status) || isResultStatus(status);
+}
+
+function isLlmSetupError(message?: string | null) {
+  const normalized = message?.toLowerCase() ?? "";
+  return normalized.includes("no llm provider available") || normalized.includes("backend .env.local");
+}
+
+function openContentStudioForProject(router: ReturnType<typeof useRouter>, projectId: number) {
+  setStoredProjectId(projectId);
+  router.push(`/app/content?project_id=${projectId}`);
+}
 
 export default function AutoPipelinePage() {
   const router = useRouter();
@@ -118,11 +86,11 @@ export default function AutoPipelinePage() {
 
   // Poll active run
   useEffect(() => {
-    if (!activeRun || activeRun.status === "ready" || activeRun.status === "error") return;
+    if (!activeRun || isTerminalStatus(activeRun.status)) return;
     if (!token) return;
 
     const interval = setInterval(() => {
-      pollRun();
+      void pollRun();
     }, 2000);
 
     return () => clearInterval(interval);
@@ -131,10 +99,7 @@ export default function AutoPipelinePage() {
   async function loadPreviousRuns() {
     setLoading(true);
     try {
-      const url = selectedProjectId
-        ? `/v1/auto-pipeline?project_id=${selectedProjectId}`
-        : `/v1/auto-pipeline`;
-      const runs = await apiRequest<{ items: PipelineRun[] }>(url, {}, token);
+      const runs = await listPipelineRuns(token, selectedProjectId);
       setPreviousRuns(runs.items || []);
     } catch (err: unknown) {
       toast.error("Failed to load pipeline runs", getErrorMessage(err));
@@ -145,14 +110,24 @@ export default function AutoPipelinePage() {
   async function pollRun() {
     if (!activeRun || !token) return;
     try {
-      const updated = await apiRequest<PipelineRun>(
-        `/v1/auto-pipeline/${activeRun.id}`,
-        {},
-        token
-      );
+      const updated = await getPipelineRun(token, activeRun.id);
       setActiveRun(updated);
     } catch (err: unknown) {
       toast.error("Failed to refresh pipeline status", getErrorMessage(err));
+    }
+  }
+
+  async function openRun(runId: string) {
+    if (!token) {
+      toast.error("Please log in first.");
+      return;
+    }
+
+    try {
+      const run = await getPipelineRun(token, runId);
+      setActiveRun(run);
+    } catch (error: unknown) {
+      toast.error("Failed to open pipeline run", getErrorMessage(error));
     }
   }
 
@@ -176,24 +151,15 @@ export default function AutoPipelinePage() {
       }
       // project_id is optional — the backend will resolve or create a
       // default project when it is omitted or null.
-      const body: Record<string, unknown> = {
-        website_url: url,
-      };
-      if (selectedProjectId) {
-        body.project_id = selectedProjectId;
-      }
-      const run = await apiRequest<PipelineRun>(
-        "/v1/auto-pipeline/run",
-        {
-          method: "POST",
-          body: JSON.stringify(body),
-        },
-        token
-      );
+      const run = await startPipelineRun(token, url, selectedProjectId);
       setActiveRun(run);
       setUrlInput("");
     } catch (error: unknown) {
-      toast.error("Failed to launch pipeline", getErrorMessage(error) || "Unknown error");
+      const message = getErrorMessage(error) || "Unknown error";
+      toast.error(
+        isLlmSetupError(message) ? "Backend LLM is not configured" : "Failed to launch pipeline",
+        message,
+      );
     }
     setLaunching(false);
   }
@@ -202,14 +168,10 @@ export default function AutoPipelinePage() {
     if (!activeRun || activeRun.status !== "ready" || !token) return;
 
     try {
-      await apiRequest(
-        `/v1/auto-pipeline/${activeRun.id}/execute`,
-        { method: "POST" },
-        token
-      );
+      await executePipelineRun(token, activeRun.id);
       toast.success("Drafts marked as ready! Copy each draft and post to Reddit manually.");
       setActiveRun(null);
-      loadPreviousRuns();
+      void loadPreviousRuns();
     } catch (error: unknown) {
       toast.error("Failed to execute", getErrorMessage(error));
     }
@@ -271,7 +233,7 @@ export default function AutoPipelinePage() {
               {previousRuns.map((run) => (
                 <div
                   key={run.id}
-                  onClick={() => setActiveRun(run)}
+                  onClick={() => void openRun(run.id)}
                   className="p-4 border rounded-xl bg-card cursor-pointer transition-all grid grid-cols-[1fr_auto_auto] items-center gap-4 hover:bg-muted hover:border-primary/30"
                 >
                   <div>
@@ -289,9 +251,9 @@ export default function AutoPipelinePage() {
                   </div>
                   <Badge
                     variant={
-                      run.status === "ready"
+                      isResultStatus(run.status)
                         ? "default"
-                        : run.status === "error"
+                        : isFailureStatus(run.status)
                           ? "destructive"
                           : "secondary"
                     }
@@ -309,7 +271,7 @@ export default function AutoPipelinePage() {
   }
 
   // State 2: Running State
-  if (activeRun && activeRun.status !== "ready" && activeRun.status !== "error") {
+  if (activeRun && !isTerminalStatus(activeRun.status)) {
     const progressPercent = activeRun.progress || 0;
     const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.key === activeRun.status);
     const completedSteps = currentStepIndex >= 0 ? currentStepIndex : 0;
@@ -395,7 +357,19 @@ export default function AutoPipelinePage() {
   }
 
   // State 3: Results State
-  if (activeRun && activeRun.status === "ready" && activeRun.results) {
+  if (activeRun && isResultStatus(activeRun.status) && !activeRun.results) {
+    return (
+      <div className="max-w-[600px] mx-auto py-10 px-5 text-center">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+        <h2 className="text-xl font-semibold mb-2">Loading Pipeline Results</h2>
+        <p className="text-sm text-muted-foreground">
+          Fetching the completed run details now.
+        </p>
+      </div>
+    );
+  }
+
+  if (activeRun && isResultStatus(activeRun.status) && activeRun.results) {
     const results = activeRun.results;
 
     return (
@@ -582,17 +556,24 @@ export default function AutoPipelinePage() {
 
         {/* Action Buttons */}
         <div className="grid grid-cols-2 gap-4 p-6 border-t mt-8">
-          <Button variant="outline" onClick={() => router.push("/app/content")}>
+          <Button
+            variant="outline"
+            onClick={() => openContentStudioForProject(router, activeRun.project_id)}
+          >
             Review Individually
           </Button>
-          <Button onClick={handleExecuteAll}>Mark All as Ready</Button>
+          <Button onClick={handleExecuteAll} disabled={activeRun.status === "executed"}>
+            {activeRun.status === "executed" ? "Already Marked Ready" : "Mark All as Ready"}
+          </Button>
         </div>
       </div>
     );
   }
 
   // Error State
-  if (activeRun && activeRun.status === "error") {
+  if (activeRun && isFailureStatus(activeRun.status)) {
+    const llmSetupRequired = isLlmSetupError(activeRun.error_message);
+
     return (
       <div className="max-w-[600px] mx-auto py-10 px-5 text-center">
         <div className="text-5xl mb-4">&#x26A0;&#xFE0F;</div>
@@ -600,9 +581,23 @@ export default function AutoPipelinePage() {
         <p className="text-sm text-muted-foreground mb-4">
           {activeRun.error_message || "An error occurred while running the pipeline."}
         </p>
-        <p className="text-[13px] text-muted-foreground mb-6 opacity-70">
-          Tip: Make sure the URL is publicly accessible and includes the full address (e.g. https://example.com).
-        </p>
+        {llmSetupRequired ? (
+          <div className="mb-6 rounded-xl border bg-muted/40 p-4 text-left">
+            <p className="mb-2 text-sm font-semibold text-foreground">Backend setup required</p>
+            <p className="mb-2 text-[13px] text-muted-foreground">
+              Add <code>GEMINI_API_KEY</code> to the repo root <code>.env.local</code>, or switch{" "}
+              <code>LLM_PROVIDER</code> to <code>openai</code>, <code>perplexity</code>, or <code>claude</code> and
+              set the matching API key there instead.
+            </p>
+            <p className="m-0 text-[13px] text-muted-foreground">
+              Then restart <code>uv run uvicorn app.main:app --reload</code> and launch the pipeline again.
+            </p>
+          </div>
+        ) : (
+          <p className="text-[13px] text-muted-foreground mb-6 opacity-70">
+            Tip: Make sure the URL is publicly accessible and includes the full address (e.g. https://example.com).
+          </p>
+        )}
         <Button onClick={() => setActiveRun(null)}>Try Again</Button>
       </div>
     );

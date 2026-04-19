@@ -20,20 +20,41 @@ def register(name: str, cls: type) -> None:
     _REGISTRY[name] = cls
 
 
+def _build_provider(name: str, settings) -> LLMProvider | None:
+    cls = _REGISTRY.get(name)
+    if not cls:
+        raise ValueError(f"Unknown LLM provider: {name!r}. Available: {list(_REGISTRY.keys())}")
+
+    instance = cls.from_settings(settings)
+    if instance is None or not instance.is_configured:
+        return None
+
+    return instance
+
+
 def get_provider(name: str | None = None) -> LLMProvider:
     """Get a provider by name, or the default from LLM_PROVIDER env var."""
     settings = get_settings()
     provider_name = name or settings.llm_provider
 
-    cls = _REGISTRY.get(provider_name)
-    if not cls:
-        raise ValueError(f"Unknown LLM provider: {provider_name!r}. Available: {list(_REGISTRY.keys())}")
+    instance = _build_provider(provider_name, settings)
+    if instance is not None:
+        return instance
 
-    instance = cls.from_settings(settings)
-    if instance is None:
-        raise ValueError(f"Provider {provider_name!r} is not configured (missing API key?)")
+    if name is None:
+        for fallback_name in _REGISTRY:
+            if fallback_name == provider_name:
+                continue
+            fallback = _build_provider(fallback_name, settings)
+            if fallback is not None:
+                logger.warning(
+                    "Default LLM provider %r is unavailable; falling back to configured provider %r.",
+                    provider_name,
+                    fallback_name,
+                )
+                return fallback
 
-    return instance
+    raise ValueError(f"Provider {provider_name!r} is not configured (missing API key?)")
 
 
 def get_configured_providers() -> dict[str, LLMProvider]:
@@ -44,10 +65,10 @@ def get_configured_providers() -> dict[str, LLMProvider]:
     settings = get_settings()
     result: dict[str, LLMProvider] = {}
 
-    for name, cls in _REGISTRY.items():
+    for name, _cls in _REGISTRY.items():
         try:
-            instance = cls.from_settings(settings)
-            if instance is not None and instance.is_configured:
+            instance = _build_provider(name, settings)
+            if instance is not None:
                 result[name] = instance
         except Exception:
             logger.debug("Provider %r failed to initialize, skipping", name)

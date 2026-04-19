@@ -242,6 +242,8 @@ export {
   getProjects,
   getProject,
   createProject,
+  updateProject,
+  deleteProject,
   getDashboard,
 } from "./api/projects";
 
@@ -294,3 +296,16 @@ export {
   getActivity,
   type ActivityItem,
 } from "./api/analytics";
+
+export {
+  getWorkspace,
+  updateWorkspace,
+  getProfile,
+  updateProfile,
+  getUsage,
+  downloadWorkspaceExport,
+  type Workspace,
+  type NotificationPreferences,
+  type UserProfile,
+  type UsageResponse,
+} from "./api/workspace";

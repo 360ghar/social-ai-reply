@@ -128,9 +128,40 @@ def _rerank_by_keyword_relevance(posts: list[RedditPost], keywords: list[str]) -
 
 
 class RedditClient:
+    """Reddit HTTP client with optional OAuth support.
+
+    Behaviour:
+        * If ``REDDIT_CLIENT_ID`` and ``REDDIT_CLIENT_SECRET`` are both set,
+          the client fetches an application-only bearer token via the
+          client_credentials grant and routes all subsequent calls through
+          ``https://oauth.reddit.com``. Tokens are refreshed on 401.
+        * Otherwise the client falls back to the public JSON endpoint
+          (``https://www.reddit.com``). This path is increasingly blocked by
+          Reddit for cloud IPs — a prominent warning is logged once.
+    """
+
+    _OAUTH_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+    _OAUTH_BASE_URL = "https://oauth.reddit.com"
+    # Refresh slightly before the advertised expiry to avoid edge-case 401s.
+    _TOKEN_REFRESH_MARGIN_SECONDS = 60
+
     def __init__(self) -> None:
         settings = get_settings()
-        self.base_url = settings.reddit_base_url.rstrip("/")
+        self._client_id = (settings.reddit_client_id or "").strip() or None
+        self._client_secret = (settings.reddit_client_secret or "").strip() or None
+        self._oauth_enabled = bool(self._client_id and self._client_secret)
+
+        if self._oauth_enabled:
+            self.base_url = self._OAUTH_BASE_URL
+        else:
+            self.base_url = settings.reddit_base_url.rstrip("/")
+            logger.warning(
+                "Reddit OAuth credentials not configured. Falling back to the "
+                "public www.reddit.com endpoint, which is rate-limited and often "
+                "returns 403 from cloud hosts. Set REDDIT_CLIENT_ID and "
+                "REDDIT_CLIENT_SECRET for reliable access."
+            )
+
         self.headers = {"User-Agent": settings.reddit_user_agent}
         self.timeout = 12.0
         self._client = httpx.Client(
@@ -142,10 +173,50 @@ class RedditClient:
         self._cache: dict[str, dict[str, Any]] = {}
         self._last_request_time: float = 0.0
         self._min_interval: float = 0.75
+        self._access_token: str | None = None
+        self._token_expires_at: float = 0.0
 
     def __del__(self) -> None:
         with suppress(Exception):
             self._client.close()
+
+    # ── OAuth helpers ───────────────────────────────────────────────
+    def _ensure_access_token(self, *, force_refresh: bool = False) -> str | None:
+        """Return a valid bearer token, refreshing if needed. Returns
+        ``None`` when OAuth is not configured (public mode)."""
+        if not self._oauth_enabled:
+            return None
+        if not force_refresh and self._access_token and time.time() < self._token_expires_at:
+            return self._access_token
+        try:
+            response = httpx.post(
+                self._OAUTH_TOKEN_URL,
+                data={"grant_type": "client_credentials"},
+                auth=(self._client_id or "", self._client_secret or ""),
+                headers={"User-Agent": self.headers["User-Agent"]},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Failed to fetch Reddit OAuth token: %s", exc)
+            # Don't keep retrying on every call — wait before next attempt.
+            self._access_token = None
+            self._token_expires_at = time.time() + 30
+            raise
+        token = payload.get("access_token")
+        expires_in = int(payload.get("expires_in") or 3600)
+        if not token:
+            raise RuntimeError("Reddit OAuth token response did not include access_token.")
+        self._access_token = token
+        self._token_expires_at = time.time() + max(expires_in - self._TOKEN_REFRESH_MARGIN_SECONDS, 60)
+        return token
+
+    def _auth_headers(self) -> dict[str, str]:
+        token = self._ensure_access_token()
+        if token:
+            return {"Authorization": f"Bearer {token}"}
+        return {}
 
     def _cache_key(self, path: str, params: dict[str, Any] | None = None) -> str:
         if not params:
@@ -166,7 +237,7 @@ class RedditClient:
         response: httpx.Response | None = None
         for attempt in range(3):
             try:
-                response = self._client.get(path, params=params)
+                response = self._client.get(path, params=params, headers=self._auth_headers())
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 logger.warning("Reddit connection error on %s (attempt %d/3): %s", path, attempt + 1, exc)
                 if attempt < 2:
@@ -174,6 +245,14 @@ class RedditClient:
                     continue
                 raise
             self._last_request_time = time.monotonic()
+            if response.status_code == 401 and self._oauth_enabled:
+                # Token may have been revoked/expired — force a refresh and retry.
+                logger.info("Reddit 401 on %s; refreshing OAuth token and retrying", path)
+                try:
+                    self._ensure_access_token(force_refresh=True)
+                except httpx.HTTPError:
+                    response.raise_for_status()
+                continue
             if response.status_code == 429:
                 wait = min(2 ** attempt * 2, 10)
                 logger.warning(

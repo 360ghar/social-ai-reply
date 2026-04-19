@@ -708,7 +708,7 @@ export default function DashboardPage() {
                         size="sm"
                         onClick={() =>
                           router.push(
-                            `/app/content?opportunity=${opp.id}`,
+                            withProjectId(`/app/content?opportunity=${opp.id}`, focusProject?.id ?? selectedProjectId),
                           )
                         }
                       >

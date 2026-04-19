@@ -22,6 +22,26 @@ export async function createProject(token: string, data: { name: string; descrip
   );
 }
 
+export async function updateProject(
+  token: string,
+  projectId: number,
+  data: { name?: string; description?: string | null; status?: string },
+) {
+  return apiRequest<Project>(
+    `/v1/projects/${projectId}`,
+    { method: "PUT", body: JSON.stringify(data) },
+    token,
+  );
+}
+
+export async function deleteProject(token: string, projectId: number) {
+  return apiRequest<{ ok: boolean }>(
+    `/v1/projects/${projectId}`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
 export async function getDashboard(token: string) {
   return apiRequest<Dashboard>(
     `/v1/dashboard`, { headers: { Authorization: `Bearer ${token}` } }

@@ -5,6 +5,7 @@ for use throughout the application.
 """
 
 import contextlib
+import logging
 from collections.abc import Generator
 from functools import lru_cache
 
@@ -12,6 +13,8 @@ import httpx
 from supabase import Client, create_client
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -28,10 +31,19 @@ def get_supabase_client() -> Client:
 
     if not settings.supabase_url:
         raise ValueError("SUPABASE_URL is not configured")
-    if not settings.supabase_secret_key:
+
+    access_key = settings.supabase_secret_key
+    if not access_key and settings.environment == "development" and settings.supabase_publishable_key:
+        access_key = settings.supabase_publishable_key
+        logger.warning(
+            "SUPABASE_SECRET_KEY is not configured; using SUPABASE_PUBLISHABLE_KEY for development DB access. "
+            "Sign-in can work locally, but admin-only auth flows such as /v1/auth/register still require the service role key."
+        )
+
+    if not access_key:
         raise ValueError("SUPABASE_SECRET_KEY is not configured")
 
-    client = create_client(settings.supabase_url, settings.supabase_secret_key)
+    client = create_client(settings.supabase_url, access_key)
 
     # Force HTTP/1.1 on the PostgREST session to avoid stale-connection
     # errors. supabase-py v2 defaults to HTTP/2 for the postgrest client,

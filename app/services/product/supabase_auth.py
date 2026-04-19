@@ -42,11 +42,16 @@ class SupabaseUser:
 def _fetch_jwks() -> dict[str, PyJWK]:
     """Fetch the JSON Web Key Set from Supabase and return a kid→PyJWK map."""
     settings = get_settings()
-    resp = httpx.get(
-        f"{settings.supabase_url}/auth/v1/.well-known/jwks.json",
-        headers={"apikey": settings.supabase_publishable_key},
-        timeout=10,
-    )
+    if not settings.supabase_url or not settings.supabase_publishable_key:
+        raise ValueError("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required for JWT verification.")
+    try:
+        resp = httpx.get(
+            f"{settings.supabase_url}/auth/v1/.well-known/jwks.json",
+            headers={"apikey": settings.supabase_publishable_key},
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        raise ValueError("Could not fetch Supabase JWKS. Check SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.") from exc
     resp.raise_for_status()
     keys = {}
     for key_data in resp.json().get("keys", []):
@@ -121,6 +126,11 @@ def verify_supabase_jwt(token: str) -> dict:
 
 def _admin_headers() -> dict[str, str]:
     settings = get_settings()
+    if not settings.supabase_secret_key:
+        raise SupabaseAuthError(
+            503,
+            "SUPABASE_SECRET_KEY is not configured. Email/password registration requires the service role key.",
+        )
     return {
         "apikey": settings.supabase_secret_key,
         "Authorization": f"Bearer {settings.supabase_secret_key}",
@@ -139,15 +149,18 @@ def _sign_in_with_password(email: str, password: str) -> dict:
     Used internally during sign_up to get session tokens after admin user creation.
     """
     settings = get_settings()
-    resp = httpx.post(
-        _auth_url("/token?grant_type=password"),
-        headers={
-            "apikey": settings.supabase_publishable_key,
-            "Content-Type": "application/json",
-        },
-        json={"email": email, "password": password},
-        timeout=15,
-    )
+    try:
+        resp = httpx.post(
+            _auth_url("/token?grant_type=password"),
+            headers={
+                "apikey": settings.supabase_publishable_key,
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password},
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        raise SupabaseAuthError(502, "Could not reach Supabase Auth.") from exc
     content_type = resp.headers.get("content-type", "")
     data = resp.json() if content_type.startswith("application/json") else {}
     if resp.status_code >= 400:
@@ -166,17 +179,20 @@ def sign_up(email: str, password: str, full_name: str) -> dict:
     This avoids the email-confirmation-required issue with the public signup.
     """
     # Step 1: Create confirmed user via admin API
-    resp = httpx.post(
-        _auth_url("/admin/users"),
-        headers=_admin_headers(),
-        json={
-            "email": email,
-            "password": password,
-            "email_confirm": True,
-            "user_metadata": {"full_name": full_name},
-        },
-        timeout=15,
-    )
+    try:
+        resp = httpx.post(
+            _auth_url("/admin/users"),
+            headers=_admin_headers(),
+            json={
+                "email": email,
+                "password": password,
+                "email_confirm": True,
+                "user_metadata": {"full_name": full_name},
+            },
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        raise SupabaseAuthError(502, "Could not reach Supabase Auth.") from exc
     data = resp.json()
     if resp.status_code >= 400:
         msg = data.get("msg") or data.get("message") or data.get("error_description") or str(data)
@@ -203,15 +219,18 @@ def sign_out(access_token: str) -> None:
     so callers can decide whether to treat sign-out failure as critical.
     """
     settings = get_settings()
-    resp = httpx.post(
-        _auth_url("/logout"),
-        headers={
-            "apikey": settings.supabase_publishable_key,
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        },
-        timeout=10,
-    )
+    try:
+        resp = httpx.post(
+            _auth_url("/logout"),
+            headers={
+                "apikey": settings.supabase_publishable_key,
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        raise SupabaseAuthError(502, "Could not reach Supabase Auth.") from exc
     if resp.status_code >= 400:
         data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
         msg = data.get("error_description") or data.get("msg") or data.get("message") or f"Logout failed ({resp.status_code})"
@@ -221,11 +240,14 @@ def sign_out(access_token: str) -> None:
 
 def admin_get_user(supabase_user_id: str) -> dict:
     """Fetch a user by ID using the admin/service-role API."""
-    resp = httpx.get(
-        _auth_url(f"/admin/users/{supabase_user_id}"),
-        headers=_admin_headers(),
-        timeout=10,
-    )
+    try:
+        resp = httpx.get(
+            _auth_url(f"/admin/users/{supabase_user_id}"),
+            headers=_admin_headers(),
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        raise SupabaseAuthError(502, "Could not reach Supabase Auth.") from exc
     data = resp.json()
     if resp.status_code >= 400:
         msg = data.get("msg") or data.get("message") or str(data)
@@ -235,11 +257,15 @@ def admin_get_user(supabase_user_id: str) -> dict:
 
 def admin_delete_user(supabase_user_id: str) -> None:
     """Delete a user via the admin API (used for workspace deletion cleanup)."""
-    resp = httpx.delete(
-        _auth_url(f"/admin/users/{supabase_user_id}"),
-        headers=_admin_headers(),
-        timeout=10,
-    )
+    try:
+        resp = httpx.delete(
+            _auth_url(f"/admin/users/{supabase_user_id}"),
+            headers=_admin_headers(),
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        logger.warning("Failed to delete Supabase user %s due to network error", supabase_user_id, exc_info=True)
+        return
     if resp.status_code >= 400:
         logger.warning("Failed to delete Supabase user %s: %s", supabase_user_id, resp.text)
 

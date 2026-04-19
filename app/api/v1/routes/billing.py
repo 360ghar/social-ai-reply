@@ -18,7 +18,12 @@ from app.schemas.v1.billing import (
     RedemptionResponse,
     SubscriptionResponse,
 )
-from app.services.product.entitlements import PLAN_CATALOG, get_or_create_subscription, serialize_plan_catalog, update_subscription
+from app.services.product.entitlements import (
+    PLAN_CATALOG,
+    get_or_create_subscription,
+    serialize_plan_catalog,
+    update_subscription,
+)
 
 logger = logging.getLogger(__name__)
 

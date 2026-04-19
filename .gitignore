@@ -10,6 +10,7 @@ __pycache__/
 /package-lock.json
 
 .env
+.env.local
 web/.env.local
 
 *.db
@@ -29,3 +30,11 @@ instagram_poacher.egg-info/
 exports/
 sessions/
 session-aaltufaltu126
+
+# Local scratch / dev process artifacts
+.codex-dev/
+test_write
+*.bak
+web/tmp/
+web/sessions/
+

@@ -3,7 +3,16 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useToast } from "@/stores/toast";
 import { useAuth } from "@/components/auth/auth-provider";
-import { apiRequest, type SecretRecord, type WebhookEndpoint } from "@/lib/api";
+import { apiRequest, type Project, type SecretRecord, type WebhookEndpoint } from "@/lib/api";
+import { deleteProject, getProjects, updateProject } from "@/lib/api/projects";
+import {
+  downloadWorkspaceExport,
+  getProfile,
+  getWorkspace,
+  updateProfile,
+  updateWorkspace,
+  type NotificationPreferences,
+} from "@/lib/api/workspace";
 import { getRedditAccounts, connectReddit as apiConnectReddit, disconnectRedditAccount, type RedditAccount } from "@/lib/api/reddit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,7 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Trash2, Link2, Key, Webhook } from "lucide-react";
+import { Loader2, Trash2, Link2, Key, Webhook, FolderKanban, Save } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
@@ -40,14 +49,16 @@ export default function SettingsPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("general");
   const [loading, setLoading] = useState(false);
+  const [savingGeneral, setSavingGeneral] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // General tab state
-  const [workspaceName, setWorkspaceName] = useState("My Workspace");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [userProfile, setUserProfile] = useState({ name: user?.full_name || "", email: user?.email || "" });
-  const [notifications, setNotifications] = useState({
-    emailNotifications: true,
-    digestEmail: false,
-    slackNotifications: false,
+  const [notifications, setNotifications] = useState<NotificationPreferences>({
+    email_notifications: true,
+    digest_email: false,
+    slack_notifications: false,
   });
 
   // API Keys tab state
@@ -72,6 +83,14 @@ export default function SettingsPage() {
   const [connectingReddit, setConnectingReddit] = useState(false);
   const [disconnectingReddit, setDisconnectingReddit] = useState<number | null>(null);
 
+  // Projects tab state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [renamingProject, setRenamingProject] = useState<number | null>(null);
+  const [projectDraftName, setProjectDraftName] = useState<Record<number, string>>({});
+  const [deletingProjectId, setDeletingProjectId] = useState<number | null>(null);
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<Project | null>(null);
+  const [deleteProjectConfirm, setDeleteProjectConfirm] = useState("");
+
   useEffect(() => {
     if (!token) return;
     loadData();
@@ -84,14 +103,34 @@ export default function SettingsPage() {
   async function loadData() {
     if (!token) return;
     try {
-      const [webhookRows, secretRows, redditRows] = await Promise.all([
+      const [webhookRows, secretRows, redditRows, workspaceRow, profileRow, projectRows] = await Promise.all([
         apiRequest<WebhookEndpoint[]>("/v1/webhooks", {}, token),
         apiRequest<SecretRecord[]>("/v1/secrets", {}, token),
         getRedditAccounts(token).catch(() => [] as RedditAccount[]),
+        getWorkspace(token).catch(() => null),
+        getProfile(token).catch(() => null),
+        getProjects(token).catch(() => [] as Project[]),
       ]);
       setWebhooks(webhookRows);
       setSecrets(secretRows);
       setRedditAccounts(redditRows);
+      setProjects(projectRows);
+      setProjectDraftName(
+        Object.fromEntries(projectRows.map((p) => [p.id, p.name])),
+      );
+      if (workspaceRow) {
+        setWorkspaceName(workspaceRow.name || "");
+      }
+      if (profileRow) {
+        setUserProfile({ name: profileRow.full_name || "", email: profileRow.email || "" });
+        if (profileRow.notification_preferences) {
+          setNotifications({
+            email_notifications: Boolean(profileRow.notification_preferences.email_notifications),
+            digest_email: Boolean(profileRow.notification_preferences.digest_email),
+            slack_notifications: Boolean(profileRow.notification_preferences.slack_notifications),
+          });
+        }
+      }
     } catch (err) {
       toast.error("Failed to load settings", err instanceof Error ? err.message : undefined);
     }
@@ -126,8 +165,36 @@ export default function SettingsPage() {
   }
 
   async function saveGeneralSettings() {
-    // Not yet implemented — show a "coming soon" notice instead of a fake success.
-    toast.info("Coming soon", "Workspace settings persistence is not yet available.");
+    if (!token) return;
+    const trimmedWorkspace = workspaceName.trim();
+    const trimmedName = userProfile.name.trim();
+    if (trimmedWorkspace.length < 2) {
+      toast.warning("Invalid workspace name", "Workspace name must be at least 2 characters.");
+      return;
+    }
+    setSavingGeneral(true);
+    try {
+      // Run both updates in parallel. If either one fails we still surface a single error.
+      const results = await Promise.allSettled([
+        updateWorkspace(token, { name: trimmedWorkspace }),
+        updateProfile(token, {
+          full_name: trimmedName,
+          notification_preferences: notifications,
+        }),
+      ]);
+      const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failures.length > 0) {
+        const message = failures
+          .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
+          .join(" · ");
+        throw new Error(message);
+      }
+      toast.success("Settings saved", "Workspace and profile updated.");
+    } catch (err) {
+      toast.error("Failed to save settings", err instanceof Error ? err.message : undefined);
+    } finally {
+      setSavingGeneral(false);
+    }
   }
 
   async function createSecret(e: FormEvent) {
@@ -242,8 +309,16 @@ export default function SettingsPage() {
   }
 
   async function exportData() {
-    // Not yet implemented — show a "coming soon" notice instead of a fake success.
-    toast.info("Coming soon", "Data export is not yet available.");
+    if (!token) return;
+    setExporting(true);
+    try {
+      await downloadWorkspaceExport(token);
+      toast.success("Export ready", "Your data export has been downloaded.");
+    } catch (err) {
+      toast.error("Export failed", err instanceof Error ? err.message : undefined);
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function deleteWorkspace() {
@@ -257,6 +332,48 @@ export default function SettingsPage() {
       toast.error("Failed to delete workspace", err instanceof Error ? err.message : undefined);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRenameProject(projectId: number) {
+    if (!token) return;
+    const nextName = (projectDraftName[projectId] ?? "").trim();
+    if (nextName.length < 2) {
+      toast.warning("Invalid name", "Project name must be at least 2 characters.");
+      return;
+    }
+    setRenamingProject(projectId);
+    try {
+      const updated = await updateProject(token, projectId, { name: nextName });
+      setProjects((rows) => rows.map((p) => (p.id === projectId ? updated : p)));
+      toast.success("Project renamed", `Now called "${updated.name}".`);
+    } catch (err) {
+      toast.error("Failed to rename project", err instanceof Error ? err.message : undefined);
+    } finally {
+      setRenamingProject(null);
+    }
+  }
+
+  async function handleDeleteProject() {
+    if (!token || !deleteProjectTarget) return;
+    if (deleteProjectConfirm !== deleteProjectTarget.name) return;
+    setDeletingProjectId(deleteProjectTarget.id);
+    try {
+      await deleteProject(token, deleteProjectTarget.id);
+      const removedId = deleteProjectTarget.id;
+      setProjects((rows) => rows.filter((p) => p.id !== removedId));
+      setProjectDraftName((drafts) => {
+        const next = { ...drafts };
+        delete next[removedId];
+        return next;
+      });
+      toast.success("Project deleted", `"${deleteProjectTarget.name}" was removed.`);
+      setDeleteProjectTarget(null);
+      setDeleteProjectConfirm("");
+    } catch (err) {
+      toast.error("Failed to delete project", err instanceof Error ? err.message : undefined);
+    } finally {
+      setDeletingProjectId(null);
     }
   }
 
@@ -288,6 +405,12 @@ export default function SettingsPage() {
             Integrations
             {webhooks.length > 0 && (
               <Badge variant="secondary" className="ml-1.5 text-xs">{webhooks.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="projects">
+            Projects
+            {projects.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">{projects.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="danger">Danger Zone</TabsTrigger>
@@ -346,9 +469,9 @@ export default function SettingsPage() {
                   <input
                     type="checkbox"
                     className="size-4 rounded border-input"
-                    checked={notifications.emailNotifications}
+                    checked={notifications.email_notifications}
                     onChange={(e) =>
-                      setNotifications({ ...notifications, emailNotifications: e.target.checked })
+                      setNotifications({ ...notifications, email_notifications: e.target.checked })
                     }
                   />
                   <span>Email notifications</span>
@@ -357,9 +480,9 @@ export default function SettingsPage() {
                   <input
                     type="checkbox"
                     className="size-4 rounded border-input"
-                    checked={notifications.digestEmail}
+                    checked={notifications.digest_email}
                     onChange={(e) =>
-                      setNotifications({ ...notifications, digestEmail: e.target.checked })
+                      setNotifications({ ...notifications, digest_email: e.target.checked })
                     }
                   />
                   <span>Weekly digest email</span>
@@ -368,9 +491,9 @@ export default function SettingsPage() {
                   <input
                     type="checkbox"
                     className="size-4 rounded border-input"
-                    checked={notifications.slackNotifications}
+                    checked={notifications.slack_notifications}
                     onChange={(e) =>
-                      setNotifications({ ...notifications, slackNotifications: e.target.checked })
+                      setNotifications({ ...notifications, slack_notifications: e.target.checked })
                     }
                   />
                   <span>Slack notifications</span>
@@ -379,8 +502,8 @@ export default function SettingsPage() {
             </section>
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={saveGeneralSettings} disabled={loading}>
-                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Button onClick={saveGeneralSettings} disabled={savingGeneral}>
+                {savingGeneral && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save changes
               </Button>
             </div>
@@ -691,6 +814,104 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
 
+        {/* PROJECTS TAB */}
+        <TabsContent value="projects">
+          <div className="mt-6 grid gap-8">
+            <section>
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Projects</h3>
+              {projects.length === 0 ? (
+                <Card className="p-8">
+                  <div className="flex flex-col items-center justify-center text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+                      <FolderKanban className="h-8 w-8 text-muted-foreground/50" />
+                    </div>
+                    <h3 className="mb-1 text-sm font-semibold text-foreground">No projects yet</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Create a project from the dashboard to get started.
+                    </p>
+                  </div>
+                </Card>
+              ) : (
+                <div className="grid gap-3">
+                  {projects.map((project) => {
+                    const draft = projectDraftName[project.id] ?? project.name;
+                    const dirty = draft.trim() !== project.name;
+                    const isRenaming = renamingProject === project.id;
+                    const isDeleting = deletingProjectId === project.id;
+                    return (
+                      <Card key={project.id} className="p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted shrink-0">
+                              <FolderKanban className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor={`project-name-${project.id}`} className="sr-only">
+                                Project name
+                              </Label>
+                              <Input
+                                id={`project-name-${project.id}`}
+                                value={draft}
+                                onChange={(e) =>
+                                  setProjectDraftName((map) => ({
+                                    ...map,
+                                    [project.id]: e.target.value,
+                                  }))
+                                }
+                                className="min-w-[18rem]"
+                                disabled={isRenaming || isDeleting}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Slug: <span className="font-mono">{project.slug}</span>
+                                {project.description ? ` · ${project.description}` : ""}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRenameProject(project.id)}
+                              disabled={!dirty || isRenaming || isDeleting}
+                            >
+                              {isRenaming ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4" />
+                              )}
+                              Save
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                setDeleteProjectTarget(project);
+                                setDeleteProjectConfirm("");
+                              }}
+                              disabled={isDeleting}
+                              aria-label={`Delete project ${project.name}`}
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="mt-4 text-xs text-muted-foreground">
+                Deleting a project permanently removes its brand profile, personas, keywords, subreddits, opportunities, and drafts. This cannot be undone.
+              </p>
+            </section>
+          </div>
+        </TabsContent>
+
         {/* DANGER ZONE TAB */}
         <TabsContent value="danger">
           <div className="mt-6 grid gap-8">
@@ -700,8 +921,8 @@ export default function SettingsPage() {
                 Download a copy of all your data in JSON format. This includes your workspace configuration,
                 settings, and history.
               </p>
-              <Button variant="outline" onClick={exportData} disabled={loading}>
-                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Button variant="outline" onClick={exportData} disabled={exporting}>
+                {exporting && <Loader2 className="h-4 w-4 animate-spin" />}
                 Download data export
               </Button>
             </section>
@@ -775,6 +996,54 @@ export default function SettingsPage() {
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteProjectTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteProjectTarget(null);
+            setDeleteProjectConfirm("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteProjectTarget?.name}</strong> along with its
+              brand profile, personas, keywords, subreddits, opportunities, and drafts. This action
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-2 py-2">
+            <Label htmlFor="delete-project-confirm">
+              Type the project name (<span className="font-mono">{deleteProjectTarget?.name}</span>) to confirm
+            </Label>
+            <Input
+              id="delete-project-confirm"
+              value={deleteProjectConfirm}
+              onChange={(e) => setDeleteProjectConfirm(e.target.value)}
+              placeholder={deleteProjectTarget?.name ?? ""}
+              autoComplete="off"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => handleDeleteProject()}
+              disabled={
+                deletingProjectId !== null ||
+                !deleteProjectTarget ||
+                deleteProjectConfirm !== deleteProjectTarget.name
+              }
+            >
+              {deletingProjectId !== null && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete project
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

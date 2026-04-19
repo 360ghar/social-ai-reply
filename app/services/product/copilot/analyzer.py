@@ -69,28 +69,35 @@ class WebsiteAnalyzer:
             "Accept-Language": "en-US,en;q=0.9",
         }
         last_err: Exception | None = None
+        candidate_urls = [url]
+        if url.startswith("https://"):
+            candidate_urls.append(f"http://{url.removeprefix('https://')}")
 
-        for verify_ssl in (True, False):
-            try:
-                with httpx.Client(
-                    timeout=25.0,
-                    follow_redirects=True,
-                    verify=verify_ssl,
-                ) as client:
-                    resp = client.get(url, headers=headers)
-                    resp.raise_for_status()
-                    return resp.text
-            except httpx.HTTPStatusError as exc:
-                logger.warning("HTTP %s for %s (ssl_verify=%s)", exc.response.status_code, url, verify_ssl)
-                last_err = exc
-                break
-            except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
-                logger.warning("Fetch failed for %s (ssl_verify=%s): %s", url, verify_ssl, exc)
-                last_err = exc
-                if verify_ssl:
-                    logger.info("Retrying %s with SSL verification disabled...", url)
-                    continue
-                break
+        for candidate_url in candidate_urls:
+            for verify_ssl in (True, False):
+                try:
+                    with httpx.Client(
+                        timeout=25.0,
+                        follow_redirects=True,
+                        verify=verify_ssl,
+                    ) as client:
+                        resp = client.get(candidate_url, headers=headers)
+                        resp.raise_for_status()
+                        return resp.text
+                except httpx.HTTPStatusError as exc:
+                    logger.warning("HTTP %s for %s (ssl_verify=%s)", exc.response.status_code, candidate_url, verify_ssl)
+                    last_err = exc
+                    break
+                except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+                    logger.warning("Fetch failed for %s (ssl_verify=%s): %s", candidate_url, verify_ssl, exc)
+                    last_err = exc
+                    if verify_ssl:
+                        logger.info("Retrying %s with SSL verification disabled...", candidate_url)
+                        continue
+                    break
+
+            if candidate_url == url and candidate_url.startswith("https://"):
+                logger.info("Retrying %s over plain HTTP...", url)
 
         raise RuntimeError(f"Could not fetch {url}: {last_err}") from last_err
 

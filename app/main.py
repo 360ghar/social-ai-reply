@@ -16,6 +16,7 @@ from app.core.exceptions import AppError
 from app.core.logging import setup_logging
 from app.db.supabase_client import get_supabase_client
 from app.middleware import RateLimitMiddleware, RequestTracingMiddleware
+from app.services.infrastructure.llm.providers._registry import get_configured_providers
 
 setup_logging("INFO")
 logger = logging.getLogger(__name__)
@@ -30,6 +31,19 @@ async def lifespan(app: FastAPI):
     dashboard, migrations, or SQL scripts.
     """
     logger.info("Starting RedditFlow API...")
+    if settings.environment == "development" and not settings.supabase_secret_key:
+        logger.warning(
+            "SUPABASE_SECRET_KEY is not configured. Falling back to SUPABASE_PUBLISHABLE_KEY for local DB access; "
+            "email/password registration and other admin-only auth flows will remain unavailable until the service role key is set."
+        )
+    configured_providers = get_configured_providers()
+    if configured_providers:
+        logger.info("Configured LLM providers: %s", ", ".join(sorted(configured_providers)))
+    else:
+        logger.warning(
+            "No LLM provider is configured. Set GEMINI_API_KEY in the repo root .env.local, "
+            "or configure another provider and restart the backend."
+        )
     # Note: Table creation is now managed via Supabase dashboard/migrations
     # Base.metadata.create_all(bind=engine) is no longer used
     logger.info("RedditFlow API started successfully.")
