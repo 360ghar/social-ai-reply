@@ -11,6 +11,27 @@ import httpx
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+_SEARCH_VARIANT_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "every",
+    "entire",
+    "for",
+    "how",
+    "in",
+    "of",
+    "on",
+    "or",
+    "our",
+    "physical",
+    "physically",
+    "simplifies",
+    "the",
+    "to",
+    "while",
+    "with",
+}
 
 
 @dataclass
@@ -32,6 +53,26 @@ class RedditPost:
     created_at: datetime
     num_comments: int
     score: int
+
+    @property
+    def url(self) -> str:
+        return self.permalink
+
+    @property
+    def created_utc(self) -> int:
+        created_at = self.created_at if self.created_at.tzinfo else self.created_at.replace(tzinfo=UTC)
+        return int(created_at.timestamp())
+
+    def as_discovery_record(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "body": self.body,
+            "subreddit": self.subreddit,
+            "url": self.url,
+            "score": self.score,
+            "num_comments": self.num_comments,
+            "created_utc": self.created_utc,
+        }
 
 
 def _chunk_keywords(keywords: list[str], size: int) -> list[list[str]]:
@@ -88,6 +129,35 @@ def _build_search_query(subreddit: str, keywords: list[str]) -> str:
     return f"subreddit:{subreddit} ({' OR '.join(quoted)})"
 
 
+def _search_keyword_variants(keyword: str) -> list[str]:
+    cleaned = keyword.strip().replace('"', "")
+    if not cleaned:
+        return []
+
+    variants = [cleaned]
+    lowered_tokens = [token for token in cleaned.lower().split() if token]
+    meaningful_tokens = [
+        token for token in lowered_tokens
+        if len(token) >= 3 and token not in _SEARCH_VARIANT_STOP_WORDS
+    ]
+
+    if len(meaningful_tokens) >= 2:
+        variants.append(" ".join(meaningful_tokens[:3]))
+        variants.append(" ".join(meaningful_tokens[-2:]))
+        if len(meaningful_tokens) >= 3:
+            variants.append(" ".join(meaningful_tokens[-3:]))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for variant in variants:
+        normalized = " ".join(variant.split())
+        if len(normalized) < 3 or normalized in seen:
+            continue
+        deduped.append(normalized)
+        seen.add(normalized)
+    return deduped
+
+
 def _rerank_by_keyword_relevance(posts: list[RedditPost], keywords: list[str]) -> list[RedditPost]:
     """Sort *posts* by keyword relevance first, then by recency.
 
@@ -128,16 +198,11 @@ def _rerank_by_keyword_relevance(posts: list[RedditPost], keywords: list[str]) -
 
 
 class RedditClient:
-    """Reddit HTTP client with optional OAuth support.
+    """Legacy Reddit client wrapper.
 
-    Behaviour:
-        * If ``REDDIT_CLIENT_ID`` and ``REDDIT_CLIENT_SECRET`` are both set,
-          the client fetches an application-only bearer token via the
-          client_credentials grant and routes all subsequent calls through
-          ``https://oauth.reddit.com``. Tokens are refreshed on 401.
-        * Otherwise the client falls back to the public JSON endpoint
-          (``https://www.reddit.com``). This path is increasingly blocked by
-          Reddit for cloud IPs — a prominent warning is logged once.
+    Read-only discovery calls delegate to `RedditDiscoveryService`, which works
+    without Reddit OAuth. The lower-level `_get()` path is retained for the
+    remaining posting/status functionality and for future provider swaps.
     """
 
     _OAUTH_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
@@ -150,17 +215,12 @@ class RedditClient:
         self._client_id = (settings.reddit_client_id or "").strip() or None
         self._client_secret = (settings.reddit_client_secret or "").strip() or None
         self._oauth_enabled = bool(self._client_id and self._client_secret)
+        self._discovery_service: Any | None = None
 
         if self._oauth_enabled:
             self.base_url = self._OAUTH_BASE_URL
         else:
             self.base_url = settings.reddit_base_url.rstrip("/")
-            logger.warning(
-                "Reddit OAuth credentials not configured. Falling back to the "
-                "public www.reddit.com endpoint, which is rate-limited and often "
-                "returns 403 from cloud hosts. Set REDDIT_CLIENT_ID and "
-                "REDDIT_CLIENT_SECRET for reliable access."
-            )
 
         self.headers = {"User-Agent": settings.reddit_user_agent}
         self.timeout = 12.0
@@ -223,6 +283,13 @@ class RedditClient:
             return path
         return f"{path}?{urlencode(sorted(params.items()), doseq=True)}"
 
+    def _get_discovery_service(self):
+        if self._discovery_service is None:
+            from app.services.product.reddit_discovery import RedditDiscoveryService
+
+            self._discovery_service = RedditDiscoveryService()
+        return self._discovery_service
+
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         cache_key = self._cache_key(path, params)
         cached = self._cache.get(cache_key)
@@ -276,50 +343,20 @@ class RedditClient:
         return response.json()
 
     def search_subreddits(self, keyword: str, limit: int = 10) -> list[RedditSubredditMatch]:
-        data = self._get("/subreddits/search.json", params={"q": keyword, "limit": limit, "sort": "relevance"})
-        matches: list[RedditSubredditMatch] = []
-        for child in data.get("data", {}).get("children", []):
-            payload = child.get("data", {})
-            matches.append(
-                RedditSubredditMatch(
-                    name=payload.get("display_name", ""),
-                    title=payload.get("title", ""),
-                    description=payload.get("public_description", "") or payload.get("description", ""),
-                    subscribers=int(payload.get("subscribers") or 0),
-                )
-            )
-        return [match for match in matches if match.name]
+        return self._get_discovery_service().search_subreddits(keyword, limit=limit)
 
     def list_subreddit_posts(self, subreddit: str, sort: str = "hot", limit: int = 10) -> list[RedditPost]:
-        data = self._get(f"/r/{subreddit}/{sort}.json", params={"limit": limit})
-        posts: list[RedditPost] = []
-        for child in data.get("data", {}).get("children", []):
-            payload = child.get("data", {})
-            post = self._parse_post_payload(payload, subreddit)
-            if post and post.subreddit.lower() == subreddit.lower():
-                posts.append(post)
-        return posts[:limit]
+        return self._get_discovery_service().list_subreddit_posts(subreddit, sort=sort, limit=limit)
 
     def subreddit_about(self, name: str) -> dict[str, Any]:
-        data = self._get(f"/r/{name}/about.json")
-        return data.get("data", {})
+        return self._get_discovery_service().subreddit_about(name)
 
     def subreddit_rules(self, name: str) -> list[str]:
-        try:
-            data = self._get(f"/r/{name}/about/rules.json")
-        except httpx.HTTPError:
-            return []
-        rules = []
-        for rule in data.get("rules", []):
-            short_name = rule.get("short_name")
-            description = rule.get("description")
-            if short_name and description:
-                rules.append(f"{short_name}: {description}")
-            elif short_name:
-                rules.append(short_name)
-        return rules
+        return self._get_discovery_service().subreddit_rules(name)
 
     def search_posts(self, subreddit: str, keywords: list[str], limit: int = 20, sort: str = "new") -> list[RedditPost]:
+        return self._get_discovery_service().search_posts(keywords, subreddits=[subreddit], limit=limit)[:limit]
+
         if not keywords:
             return []
 
@@ -349,6 +386,23 @@ class RedditClient:
                 except httpx.HTTPError:
                     continue
                 self._merge_posts(posts_by_id, data, subreddit)
+
+        # Phase 2b: if exact phrases only yielded a handful of posts,
+        # broaden the search with compressed phrase variants such as
+        # "transaction process" instead of "entire transaction process".
+        low_yield_threshold = max(2, min(limit // 3, 4))
+        if len(posts_by_id) <= low_yield_threshold:
+            for keyword in ordered_keywords[:8]:
+                variants = _search_keyword_variants(keyword)[1:]
+                for variant in variants[:2]:
+                    query = _build_search_query(subreddit, [variant])
+                    try:
+                        data = self._get("/search.json", params={"q": query, "sort": sort, "limit": per_query_limit})
+                    except httpx.HTTPError:
+                        continue
+                    self._merge_posts(posts_by_id, data, subreddit)
+                if len(posts_by_id) >= limit:
+                    break
 
         # ── Phase 3: rerank by keyword relevance ────────────────────
         # Instead of sorting purely by recency, score each post by how

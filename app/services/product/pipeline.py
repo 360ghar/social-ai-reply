@@ -252,6 +252,8 @@ def run_auto_pipeline_background(
                 min_score=MIN_RELEVANT_OPPORTUNITY_SCORE,
             )
             scan_run = run_scan(db, proj, scan_req)
+            if scan_run.get("fatal_error"):
+                raise RuntimeError(scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
             opp_found = scan_run["opportunities_found"]
             # Fallback scan: when the narrow 72-hour window yields nothing,
             # widen the time horizon to 30 days AND drop the score floor so
@@ -260,14 +262,18 @@ def run_auto_pipeline_background(
             # above MIN (35 → 45), which made the fallback stricter than the
             # primary scan. We now use a sensible lower floor (15) so the
             # fallback is genuinely looser.
-            if opp_found <= 1:
+            # Low-yield runs should trigger the broader fallback too.
+            # Stopping at 2 or 3 opportunities still feels broken to users.
+            if opp_found <= 3:
                 fallback_scan_req = ScanRequest(
                     project_id=project_id,
                     search_window_hours=720,
-                    max_posts_per_subreddit=15,
+                    max_posts_per_subreddit=25,
                     min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 15),
                 )
                 fallback_scan_run = run_scan(db, proj, fallback_scan_req)
+                if fallback_scan_run.get("fatal_error"):
+                    raise RuntimeError(fallback_scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
                 opp_found = fallback_scan_run["opportunities_found"]
             log.info("Scan complete — %d opportunities found", opp_found)
         except Exception as e:

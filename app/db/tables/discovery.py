@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from postgrest.exceptions import APIError
+
 if TYPE_CHECKING:
     from supabase import Client
 
@@ -13,6 +15,8 @@ MONITORED_SUBREDDITS_TABLE = "monitored_subreddits"
 SCAN_RUNS_TABLE = "scan_runs"
 OPPORTUNITIES_TABLE = "opportunities"
 SUBREDDITS_ANALYSES_TABLE = "subreddits_analyses"  # note: plural "subreddits_", DB name is authoritative
+_SCAN_RUN_COLUMN_CACHE: dict[str, bool] = {}
+_OPPORTUNITY_COLUMN_CACHE: dict[str, bool] = {}
 
 
 # Persona operations
@@ -145,7 +149,7 @@ def create_subreddit_analysis(db: Client, analysis_data: dict[str, Any]) -> dict
 def get_scan_run_by_id(db: Client, scan_run_id: str) -> dict[str, Any] | None:
     """Get a scan run by ID."""
     result = db.table(SCAN_RUNS_TABLE).select("*").eq("id", scan_run_id).execute()
-    return result.data[0] if result.data else None
+    return _normalize_scan_run_record(result.data[0]) if result.data else None
 
 
 def list_scan_runs_for_project(db: Client, project_id: int, limit: int = 10) -> list[dict[str, Any]]:
@@ -158,19 +162,23 @@ def list_scan_runs_for_project(db: Client, project_id: int, limit: int = 10) -> 
         .limit(limit)
         .execute()
     )
-    return list(result.data)
+    return [_normalize_scan_run_record(row) for row in result.data]
 
 
 def create_scan_run(db: Client, scan_run_data: dict[str, Any]) -> dict[str, Any]:
     """Create a new scan run."""
-    result = db.table(SCAN_RUNS_TABLE).insert(scan_run_data).execute()
-    return result.data[0]
+    payload = _prepare_scan_run_payload(db, scan_run_data)
+    result = db.table(SCAN_RUNS_TABLE).insert(payload).execute()
+    return _normalize_scan_run_record(result.data[0])
 
 
 def update_scan_run(db: Client, scan_run_id: str, update_data: dict[str, Any]) -> dict[str, Any] | None:
     """Update a scan run."""
-    result = db.table(SCAN_RUNS_TABLE).update(update_data).eq("id", scan_run_id).execute()
-    return result.data[0] if result.data else None
+    payload = _prepare_scan_run_payload(db, update_data)
+    if not payload:
+        return get_scan_run_by_id(db, scan_run_id)
+    result = db.table(SCAN_RUNS_TABLE).update(payload).eq("id", scan_run_id).execute()
+    return _normalize_scan_run_record(result.data[0]) if result.data else None
 
 
 def delete_scan_run(db: Client, scan_run_id: str) -> None:
@@ -182,7 +190,7 @@ def delete_scan_run(db: Client, scan_run_id: str) -> None:
 def get_opportunity_by_id(db: Client, opportunity_id: int) -> dict[str, Any] | None:
     """Get an opportunity by ID."""
     result = db.table(OPPORTUNITIES_TABLE).select("*").eq("id", opportunity_id).execute()
-    return result.data[0] if result.data else None
+    return _normalize_opportunity_record(result.data[0]) if result.data else None
 
 
 def get_opportunity_by_project_and_reddit_post(
@@ -198,7 +206,7 @@ def get_opportunity_by_project_and_reddit_post(
         .eq("reddit_post_id", reddit_post_id)
         .execute()
     )
-    return result.data[0] if result.data else None
+    return _normalize_opportunity_record(result.data[0]) if result.data else None
 
 
 def list_opportunities_for_project(
@@ -213,19 +221,21 @@ def list_opportunities_for_project(
     if status:
         query = query.eq("status", status)
     result = query.order("score", desc=True).range(offset, offset + limit - 1).execute()
-    return list(result.data)
+    return [_normalize_opportunity_record(row) for row in result.data]
 
 
 def create_opportunity(db: Client, opportunity_data: dict[str, Any]) -> dict[str, Any]:
     """Create a new opportunity."""
-    result = db.table(OPPORTUNITIES_TABLE).insert(opportunity_data).execute()
-    return result.data[0]
+    payload = _prepare_opportunity_payload(db, opportunity_data)
+    result = db.table(OPPORTUNITIES_TABLE).insert(payload).execute()
+    return _normalize_opportunity_record(result.data[0])
 
 
 def update_opportunity(db: Client, opportunity_id: int, update_data: dict[str, Any]) -> dict[str, Any] | None:
     """Update an opportunity."""
-    result = db.table(OPPORTUNITIES_TABLE).update(update_data).eq("id", opportunity_id).execute()
-    return result.data[0] if result.data else None
+    payload = _prepare_opportunity_payload(db, update_data)
+    result = db.table(OPPORTUNITIES_TABLE).update(payload).eq("id", opportunity_id).execute()
+    return _normalize_opportunity_record(result.data[0]) if result.data else None
 
 
 def delete_opportunity(db: Client, opportunity_id: int) -> None:
@@ -237,8 +247,9 @@ def bulk_create_opportunities(db: Client, opportunities: list[dict[str, Any]]) -
     """Bulk create multiple opportunities."""
     if not opportunities:
         return []
-    result = db.table(OPPORTUNITIES_TABLE).insert(opportunities).execute()
-    return list(result.data)
+    payload = [_prepare_opportunity_payload(db, opportunity) for opportunity in opportunities]
+    result = db.table(OPPORTUNITIES_TABLE).insert(payload).execute()
+    return [_normalize_opportunity_record(row) for row in result.data]
 
 
 def count_opportunities_for_project(db: Client, project_id: int, status: str | None = None) -> int:
@@ -281,3 +292,89 @@ def list_monitored_subreddits_for_project(db: Client, project_id: int, limit: in
         .execute()
     )
     return list(result.data)
+
+
+def _scan_run_supports_column(db: Client, column: str) -> bool:
+    cached = _SCAN_RUN_COLUMN_CACHE.get(column)
+    if cached is not None:
+        return cached
+
+    try:
+        db.table(SCAN_RUNS_TABLE).select(column).limit(1).execute()
+    except APIError as exc:
+        message = str(exc)
+        if "does not exist" not in message and "PGRST204" not in message:
+            raise
+        _SCAN_RUN_COLUMN_CACHE[column] = False
+        return False
+
+    _SCAN_RUN_COLUMN_CACHE[column] = True
+    return True
+
+
+def _prepare_scan_run_payload(db: Client, payload: dict[str, Any]) -> dict[str, Any]:
+    prepared: dict[str, Any] = {}
+    for key, value in payload.items():
+        target_key = key
+        if (
+            key == "completed_at"
+            and not _scan_run_supports_column(db, "completed_at")
+            and _scan_run_supports_column(db, "finished_at")
+        ):
+            target_key = "finished_at"
+        if not _scan_run_supports_column(db, target_key):
+            continue
+        prepared[target_key] = value
+    return prepared
+
+
+def _normalize_scan_run_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(record)
+    if "completed_at" not in normalized and normalized.get("finished_at") is not None:
+        normalized["completed_at"] = normalized.get("finished_at")
+    normalized.setdefault("search_window_hours", 0)
+    normalized.setdefault("posts_scanned", 0)
+    return normalized
+
+
+def _opportunity_supports_column(db: Client, column: str) -> bool:
+    cached = _OPPORTUNITY_COLUMN_CACHE.get(column)
+    if cached is not None:
+        return cached
+
+    try:
+        db.table(OPPORTUNITIES_TABLE).select(column).limit(1).execute()
+    except APIError as exc:
+        message = str(exc)
+        if "does not exist" not in message and "PGRST204" not in message:
+            raise
+        _OPPORTUNITY_COLUMN_CACHE[column] = False
+        return False
+
+    _OPPORTUNITY_COLUMN_CACHE[column] = True
+    return True
+
+
+def _prepare_opportunity_payload(db: Client, payload: dict[str, Any]) -> dict[str, Any]:
+    prepared = dict(payload)
+    subreddit_value = prepared.get("subreddit") or prepared.get("subreddit_name")
+    if subreddit_value is not None:
+        if _opportunity_supports_column(db, "subreddit"):
+            prepared["subreddit"] = subreddit_value
+        if _opportunity_supports_column(db, "subreddit_name"):
+            prepared["subreddit_name"] = subreddit_value
+
+    return {
+        key: value
+        for key, value in prepared.items()
+        if _opportunity_supports_column(db, key)
+    }
+
+
+def _normalize_opportunity_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(record)
+    subreddit_value = normalized.get("subreddit_name") or normalized.get("subreddit")
+    if subreddit_value is not None:
+        normalized.setdefault("subreddit_name", subreddit_value)
+        normalized.setdefault("subreddit", subreddit_value)
+    return normalized

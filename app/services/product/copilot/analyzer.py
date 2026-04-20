@@ -126,13 +126,12 @@ class WebsiteAnalyzer:
         text = " ".join(part for part in [title, description, headings, paragraphs] if part).strip()
         cleaned = re.sub(r"\s+", " ", text)
         fallback_name = urlparse(website_url).netloc.replace("www.", "").split(".")[0].replace("-", " ").title()
+        heuristic_text = " ".join(part for part in [description, headings, paragraphs, title] if part).strip() or cleaned or fallback_name
 
         ai_result = _structured_brand_analysis(self.llm, cleaned or fallback_name, fallback_name)
         if not ai_result:
-            raise RuntimeError(
-                "Failed to analyze website — the LLM returned no usable response. "
-                "Check that your LLM provider API key is configured and try again."
-            )
+            logger.warning("LLM returned no usable website analysis for %s; using heuristic fallback.", website_url)
+            return _fallback_brand_analysis(heuristic_text, fallback_name)
         return ai_result
 
 
@@ -185,6 +184,22 @@ def _structured_brand_analysis(llm: LLMClient, text: str, fallback_name: str) ->
     except Exception:
         logger.exception("_structured_brand_analysis failed")
         return None
+
+
+def _fallback_brand_analysis(text: str, fallback_name: str) -> WebsiteAnalysis:
+    """Build a deterministic analysis when the LLM response is unavailable."""
+    normalized_text = re.sub(r"\s+", " ", text).strip() or fallback_name
+    summary = normalized_text[:280]
+    product_summary = normalized_text[:280]
+    return WebsiteAnalysis(
+        brand_name=fallback_name,
+        summary=summary,
+        product_summary=product_summary,
+        target_audience=infer_audience(normalized_text),
+        call_to_action=infer_cta(normalized_text),
+        voice_notes="Helpful, grounded, and specific.",
+        business_domain=infer_business_domain(summary, product_summary),
+    )
 
 
 def analyze_website(website_url: str) -> WebsiteAnalysis:

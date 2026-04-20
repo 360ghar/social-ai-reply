@@ -92,6 +92,11 @@ class Settings(BaseSettings):
 
     reddit_base_url: str = "https://www.reddit.com"
     reddit_user_agent: str = "web:redditflow:v1.2 (by /u/redditflow_bot)"
+    reddit_search_provider: str = "auto"
+    serpapi_api_key: str | None = None
+    bing_search_api_key: str | None = None
+    bing_search_url: str = "https://api.bing.microsoft.com/v7.0/search"
+    duckduckgo_search_url: str = "https://html.duckduckgo.com/html/"
 
     # Reddit OAuth (for connecting user Reddit accounts). When any of these are
     # empty, the /v1/reddit/connect endpoint returns a structured 503 instead

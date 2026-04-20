@@ -50,6 +50,15 @@ function isLlmSetupError(message?: string | null) {
   return normalized.includes("no llm provider available") || normalized.includes("backend .env.local");
 }
 
+function isRedditDiscoveryError(message?: string | null) {
+  const normalized = message?.toLowerCase() ?? "";
+  return (
+    normalized.includes("all subreddit discovery requests failed") ||
+    normalized.includes("public reddit feeds") ||
+    normalized.includes("reddit discovery methods failed")
+  );
+}
+
 function openContentStudioForProject(router: ReturnType<typeof useRouter>, projectId: number) {
   setStoredProjectId(projectId);
   router.push(`/app/content?project_id=${projectId}`);
@@ -573,6 +582,7 @@ export default function AutoPipelinePage() {
   // Error State
   if (activeRun && isFailureStatus(activeRun.status)) {
     const llmSetupRequired = isLlmSetupError(activeRun.error_message);
+    const redditDiscoveryFailed = isRedditDiscoveryError(activeRun.error_message);
 
     return (
       <div className="max-w-[600px] mx-auto py-10 px-5 text-center">
@@ -591,6 +601,20 @@ export default function AutoPipelinePage() {
             </p>
             <p className="m-0 text-[13px] text-muted-foreground">
               Then restart <code>uv run uvicorn app.main:app --reload</code> and launch the pipeline again.
+            </p>
+          </div>
+        ) : redditDiscoveryFailed ? (
+          <div className="mb-6 rounded-xl border bg-muted/40 p-4 text-left">
+            <p className="mb-2 text-sm font-semibold text-foreground">Reddit discovery is temporarily unavailable</p>
+            <p className="mb-2 text-[13px] text-muted-foreground">
+              RedditFlow now runs without <code>REDDIT_CLIENT_ID</code> or <code>REDDIT_CLIENT_SECRET</code>. This
+              failure means the public Reddit feeds and external search fallback were both unavailable from this
+              machine.
+            </p>
+            <p className="m-0 text-[13px] text-muted-foreground">
+              Retry the pipeline shortly. For a more stable external search source, you can optionally set{" "}
+              <code>SERPAPI_API_KEY</code> or <code>BING_SEARCH_API_KEY</code> in the repo root <code>.env</code> and
+              restart <code>uv run uvicorn app.main:app --reload</code>.
             </p>
           </div>
         ) : (

@@ -63,3 +63,32 @@ def test_fetch_html_falls_back_to_http_after_https_failures(monkeypatch):
         ("https://example.com", False),
         ("http://example.com", True),
     ]
+
+
+def test_analyze_website_uses_heuristics_when_llm_returns_no_structured_output(monkeypatch):
+    html = """
+    <html>
+      <head>
+        <title>360Ghar</title>
+        <meta name="description" content="Property discovery and verification platform for home buyers and investors.">
+      </head>
+      <body>
+        <h1>Find verified homes faster</h1>
+        <p>Browse listings, compare neighborhoods, and schedule visits with practical support.</p>
+      </body>
+    </html>
+    """
+
+    monkeypatch.setattr(analyzer_module.WebsiteAnalyzer, "_fetch_html", lambda self, url: html)
+    monkeypatch.setattr(analyzer_module, "_structured_brand_analysis", lambda llm, text, fallback_name: None)
+
+    analyzer = analyzer_module.WebsiteAnalyzer()
+    result = analyzer.analyze_website("https://www.360ghar.com")
+
+    assert result.brand_name == "360Ghar"
+    assert "Property discovery and verification platform" in result.summary
+    assert result.product_summary
+    assert result.target_audience
+    assert result.call_to_action
+    assert result.voice_notes == "Helpful, grounded, and specific."
+    assert result.business_domain

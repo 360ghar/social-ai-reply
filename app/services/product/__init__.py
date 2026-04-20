@@ -21,6 +21,7 @@ from app.services.product.entitlements import (
 )
 from app.services.product.pipeline import run_auto_pipeline_background
 from app.services.product.reddit import RedditClient
+from app.services.product.reddit_discovery import RedditDiscoveryService
 from app.services.product.scanner import run_scan
 from app.services.product.scoring import score_post
 from app.services.product.supabase_auth import (
@@ -62,6 +63,7 @@ __all__ = [
     "run_auto_pipeline_background",
     # Reddit
     "RedditClient",
+    "RedditDiscoveryService",
     # Scanner
     "run_scan",
     # Scoring

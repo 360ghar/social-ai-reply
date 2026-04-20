@@ -176,6 +176,26 @@ def test_v1_discovery_scan_and_draft_flow(monkeypatch, mock_supabase):
             )
         ],
     )
+    monkeypatch.setattr(
+        "app.services.product.scanner.RedditDiscoveryService.subreddit_rules",
+        lambda self, name: ["No self-promo", "Explain your reasoning"],
+    )
+    monkeypatch.setattr(
+        "app.services.product.scanner.RedditDiscoveryService.search_posts",
+        lambda self, keywords, subreddits=None, limit=20: [
+            RedditPost(
+                post_id="abc123",
+                subreddit=(subreddits or ["saas"])[0],
+                title="How do founders find non-spammy demand capture?",
+                author="maker1",
+                permalink="https://reddit.com/r/saas/comments/abc123",
+                body="Looking for a better way to find relevant threads without blasting replies.",
+                created_at=datetime.now(UTC),
+                num_comments=8,
+                score=42,
+            )
+        ],
+    )
 
     subreddits = client.post(
         f"/v1/discovery/subreddits/discover?project_id={project_id}",
