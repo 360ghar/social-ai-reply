@@ -11,12 +11,13 @@ import httpx
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+# Pure grammatical stop words only — words like "physical", "entire", or
+# "simplifies" carry real meaning in many verticals (e.g. real estate,
+# fitness) and pruning them previously blew away useful search queries.
 _SEARCH_VARIANT_STOP_WORDS = {
     "a",
     "an",
     "and",
-    "every",
-    "entire",
     "for",
     "how",
     "in",
@@ -24,9 +25,6 @@ _SEARCH_VARIANT_STOP_WORDS = {
     "on",
     "or",
     "our",
-    "physical",
-    "physically",
-    "simplifies",
     "the",
     "to",
     "while",
@@ -73,60 +71,6 @@ class RedditPost:
             "num_comments": self.num_comments,
             "created_utc": self.created_utc,
         }
-
-
-def _chunk_keywords(keywords: list[str], size: int) -> list[list[str]]:
-    return [keywords[idx:idx + size] for idx in range(0, len(keywords), size)]
-
-
-def _smart_group_keywords(keywords: list[str], size: int) -> list[list[str]]:
-    """Group keywords by token overlap so semantically related terms
-    are searched together.  Falls back to positional chunking when
-    there's no overlap.
-    """
-    if len(keywords) <= size:
-        return [keywords] if keywords else []
-
-    # Build token sets for each keyword
-    kw_tokens = [(kw, set(kw.lower().split())) for kw in keywords]
-    used: set[int] = set()
-    groups: list[list[str]] = []
-
-    for i, (kw, tokens) in enumerate(kw_tokens):
-        if i in used:
-            continue
-        group = [kw]
-        used.add(i)
-        for j, (other_kw, other_tokens) in enumerate(kw_tokens):
-            if j in used:
-                continue
-            if len(group) >= size:
-                break
-            # Group if keywords share at least one meaningful token
-            shared = tokens & other_tokens
-            # Exclude very short shared tokens (e.g. "ai", "vr")
-            meaningful_shared = {t for t in shared if len(t) >= 3}
-            if meaningful_shared:
-                group.append(other_kw)
-                used.add(j)
-        groups.append(group)
-
-    # Pick up any remaining ungrouped keywords
-    remaining = [kw for i, (kw, _) in enumerate(kw_tokens) if i not in used]
-    if remaining:
-        groups.extend(_chunk_keywords(remaining, size))
-
-    return groups
-
-
-def _build_search_query(subreddit: str, keywords: list[str]) -> str:
-    cleaned = [keyword.strip().replace('"', "") for keyword in keywords if keyword and keyword.strip()]
-    if not cleaned:
-        return f"subreddit:{subreddit}"
-    quoted = [f'"{keyword}"' for keyword in cleaned]
-    if len(quoted) == 1:
-        return f"subreddit:{subreddit} {quoted[0]}"
-    return f"subreddit:{subreddit} ({' OR '.join(quoted)})"
 
 
 def _search_keyword_variants(keyword: str) -> list[str]:
@@ -235,10 +179,18 @@ class RedditClient:
         self._min_interval: float = 0.75
         self._access_token: str | None = None
         self._token_expires_at: float = 0.0
+        # Cooldown to avoid hammering Reddit's OAuth endpoint after a failure.
+        self._token_retry_after: float = 0.0
+
+    def close(self) -> None:
+        if self._discovery_service is not None:
+            with suppress(Exception):
+                self._discovery_service.close()
+        self._client.close()
 
     def __del__(self) -> None:
         with suppress(Exception):
-            self._client.close()
+            self.close()
 
     # ── OAuth helpers ───────────────────────────────────────────────
     def _ensure_access_token(self, *, force_refresh: bool = False) -> str | None:
@@ -246,8 +198,14 @@ class RedditClient:
         ``None`` when OAuth is not configured (public mode)."""
         if not self._oauth_enabled:
             return None
-        if not force_refresh and self._access_token and time.time() < self._token_expires_at:
+        now = time.time()
+        if not force_refresh and self._access_token and now < self._token_expires_at:
             return self._access_token
+        # Honour the post-failure cooldown even when no cached token exists.
+        if not force_refresh and now < self._token_retry_after:
+            raise RuntimeError(
+                "Reddit OAuth token fetch is on cooldown after a recent failure; try again later."
+            )
         try:
             response = httpx.post(
                 self._OAUTH_TOKEN_URL,
@@ -262,7 +220,8 @@ class RedditClient:
             logger.warning("Failed to fetch Reddit OAuth token: %s", exc)
             # Don't keep retrying on every call — wait before next attempt.
             self._access_token = None
-            self._token_expires_at = time.time() + 30
+            self._token_expires_at = 0.0
+            self._token_retry_after = time.time() + 30
             raise
         token = payload.get("access_token")
         expires_in = int(payload.get("expires_in") or 3600)
@@ -270,6 +229,7 @@ class RedditClient:
             raise RuntimeError("Reddit OAuth token response did not include access_token.")
         self._access_token = token
         self._token_expires_at = time.time() + max(expires_in - self._TOKEN_REFRESH_MARGIN_SECONDS, 60)
+        self._token_retry_after = 0.0
         return token
 
     def _auth_headers(self) -> dict[str, str]:
@@ -354,103 +314,22 @@ class RedditClient:
     def subreddit_rules(self, name: str) -> list[str]:
         return self._get_discovery_service().subreddit_rules(name)
 
-    def search_posts(self, subreddit: str, keywords: list[str], limit: int = 20, sort: str = "new") -> list[RedditPost]:
-        return self._get_discovery_service().search_posts(keywords, subreddits=[subreddit], limit=limit)[:limit]
+    def search_posts(
+        self,
+        subreddit: str,
+        keywords: list[str],
+        limit: int = 20,
+        sort: str = "new",  # noqa: ARG002 - retained for backward compatibility; discovery service handles ordering
+    ) -> list[RedditPost]:
+        """Delegate to the discovery service.
 
-        if not keywords:
-            return []
-
-        per_query_limit = max(3, min(limit, 10))
-        posts_by_id: dict[str, RedditPost] = {}
-
-        # ── Phase 1: grouped keyword search ─────────────────────────
-        # Group keywords by token overlap so semantically related terms
-        # are searched together, producing more focused results.
-        ordered_keywords = keywords[:12]
-        keyword_groups = _smart_group_keywords(ordered_keywords, size=4)
-
-        for group in keyword_groups:
-            query = _build_search_query(subreddit, group)
-            try:
-                data = self._get("/search.json", params={"q": query, "sort": sort, "limit": per_query_limit})
-            except httpx.HTTPError:
-                continue
-            self._merge_posts(posts_by_id, data, subreddit)
-
-        # ── Phase 2: single-keyword fallback ────────────────────────
-        if not posts_by_id and len(keyword_groups) > 1:
-            for keyword in ordered_keywords[:6]:
-                query = _build_search_query(subreddit, [keyword])
-                try:
-                    data = self._get("/search.json", params={"q": query, "sort": sort, "limit": per_query_limit})
-                except httpx.HTTPError:
-                    continue
-                self._merge_posts(posts_by_id, data, subreddit)
-
-        # Phase 2b: if exact phrases only yielded a handful of posts,
-        # broaden the search with compressed phrase variants such as
-        # "transaction process" instead of "entire transaction process".
-        low_yield_threshold = max(2, min(limit // 3, 4))
-        if len(posts_by_id) <= low_yield_threshold:
-            for keyword in ordered_keywords[:8]:
-                variants = _search_keyword_variants(keyword)[1:]
-                for variant in variants[:2]:
-                    query = _build_search_query(subreddit, [variant])
-                    try:
-                        data = self._get("/search.json", params={"q": query, "sort": sort, "limit": per_query_limit})
-                    except httpx.HTTPError:
-                        continue
-                    self._merge_posts(posts_by_id, data, subreddit)
-                if len(posts_by_id) >= limit:
-                    break
-
-        # ── Phase 3: rerank by keyword relevance ────────────────────
-        # Instead of sorting purely by recency, score each post by how
-        # many search keywords it actually contains, weighted by whether
-        # the match is an exact phrase or just token overlap.
-        posts = _rerank_by_keyword_relevance(list(posts_by_id.values()), ordered_keywords)
-        return posts[:limit]
-
-    def _merge_posts(self, posts_by_id: dict[str, RedditPost], data: dict[str, Any], subreddit: str) -> None:
-        for child in data.get("data", {}).get("children", []):
-            payload = child.get("data", {})
-            post = self._parse_post_payload(payload, subreddit)
-            if post.post_id and post.title and post.subreddit.lower() == subreddit.lower():
-                posts_by_id[post.post_id] = post
-
-    def _parse_post_payload(self, payload: dict[str, Any], subreddit: str) -> RedditPost:
-        created_ts = float(payload.get("created_utc") or 0.0)
-        return RedditPost(
-            post_id=payload.get("id", ""),
-            subreddit=payload.get("subreddit", subreddit),
-            title=payload.get("title", ""),
-            author=payload.get("author", "[deleted]"),
-            permalink=f"https://www.reddit.com{payload.get('permalink', '')}",
-            body=payload.get("selftext", "") or "",
-            created_at=datetime.fromtimestamp(created_ts, tz=UTC) if created_ts else datetime.now(UTC),
-            num_comments=int(payload.get("num_comments") or 0),
-            score=int(payload.get("score") or 0),
-        )
-
-    @staticmethod
-    def _keyword_relevance_score(post: RedditPost, keywords: list[str]) -> int:
-        """Score how many *keywords* are present in the post text.
-
-        Exact-phrase matches contribute 3 points, partial token overlap
-        contributes 1 point.  The result is used purely for ordering — the
-        real opportunity score is computed separately by ``score_post``.
+        The ``sort`` argument is retained for backward compatibility but is not
+        forwarded: ``RedditDiscoveryService`` reranks results by keyword
+        relevance internally rather than by Reddit's sort order.
         """
-        text = f"{post.title} {post.body}".lower()
-        tokens = set(text.split())
-        relevance = 0
-        for kw in keywords:
-            if kw in text:
-                relevance += 3
-            elif " " in kw:
-                kw_tokens = kw.split()
-                if sum(1 for t in kw_tokens if t in tokens) >= len(kw_tokens) - 1:
-                    relevance += 1
-        return relevance
+        return self._get_discovery_service().search_posts(
+            keywords, subreddits=[subreddit], limit=limit
+        )[:limit]
 
     def post_comment(self, subreddit: str, parent_id: str, text: str) -> str:
         raise NotImplementedError

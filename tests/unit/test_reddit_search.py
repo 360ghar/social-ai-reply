@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.core.exceptions import BusinessRuleError
 from app.services.product.reddit import RedditPost
 from app.services.product.reddit_discovery import RedditDiscoveryService, SearchResult
 
@@ -132,5 +133,5 @@ def test_search_posts_raises_when_every_discovery_mode_fails(monkeypatch):
     monkeypatch.setattr(service, "_search_web", raise_external)
     monkeypatch.setattr(service, "_search_posts_in_subreddit_feed", raise_feed)
 
-    with pytest.raises(RuntimeError, match="All Reddit discovery methods failed"):
+    with pytest.raises(BusinessRuleError, match="All Reddit discovery methods failed"):
         service.search_posts(["home buyers"], subreddits=["RealEstate"], limit=5)

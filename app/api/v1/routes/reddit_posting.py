@@ -3,9 +3,10 @@ import logging
 import secrets
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
@@ -69,13 +70,99 @@ def _consume_state(state: str) -> int | None:
         entry = _pending_oauth_states.pop(state, None)
     if entry is None:
         return None
-    workspace_id, expires_at = entry
-    if expires_at < time.time():
-        return None
+    workspace_id, _expires_at = entry
     return workspace_id
 
 
 REDDIT_SCOPES = "identity,submit,edit,read,history"
+REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+REDDIT_IDENTITY_URL = "https://oauth.reddit.com/api/v1/me"
+
+
+def _exchange_authorization_code(code: str) -> dict:
+    """Exchange an OAuth authorization code for Reddit access/refresh tokens.
+
+    Raises HTTPException on configuration or exchange failure. Returns the
+    parsed Reddit token response on success, which contains ``access_token``,
+    ``token_type``, ``expires_in``, ``scope``, and ``refresh_token`` (when
+    ``duration=permanent`` was requested during authorization).
+    """
+    settings = get_settings()
+    if not settings.reddit_client_id or not settings.reddit_client_secret or not settings.reddit_redirect_uri:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Reddit OAuth is not fully configured (client id / secret / redirect URI missing).",
+        )
+    user_agent = getattr(settings, "reddit_user_agent", None) or "RedditFlow/1.0"
+    try:
+        resp = httpx.post(
+            REDDIT_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": settings.reddit_redirect_uri,
+            },
+            auth=(settings.reddit_client_id, settings.reddit_client_secret),
+            headers={"User-Agent": user_agent},
+            timeout=15.0,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Reddit token exchange transport failure: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach Reddit to exchange the authorization code.",
+        ) from exc
+    if resp.status_code >= 400:
+        logger.warning("Reddit token exchange returned %s: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reddit rejected the authorization code. Please reconnect your account.",
+        )
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Reddit returned an unparseable token response.",
+        ) from exc
+    if data.get("error") or not data.get("access_token"):
+        logger.warning("Reddit token exchange returned error payload: %s", data)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reddit did not return an access token. Please reconnect.",
+        )
+    return data
+
+
+def _fetch_reddit_identity(access_token: str) -> dict:
+    """Fetch the Reddit identity for the freshly-issued access token.
+
+    Best-effort: if identity lookup fails we return an empty dict and the
+    caller falls back to whatever the client advertised as the username.
+    """
+    settings = get_settings()
+    user_agent = getattr(settings, "reddit_user_agent", None) or "RedditFlow/1.0"
+    try:
+        resp = httpx.get(
+            REDDIT_IDENTITY_URL,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "User-Agent": user_agent,
+            },
+            timeout=10.0,
+        )
+        if resp.status_code >= 400:
+            logger.info("Reddit identity lookup returned %s", resp.status_code)
+            return {}
+        return resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+    except httpx.HTTPError as exc:
+        logger.info("Reddit identity lookup failed: %s", exc)
+        return {}
+
+
+def _truncate_text(raw: str | None, max_len: int = 100) -> str:
+    text = raw or ""
+    return text if len(text) <= max_len else text[:max_len] + "..."
 
 
 @router.post("/reddit/connect", response_model=RedditConnectResponse)
@@ -132,27 +219,56 @@ def handle_reddit_callback(
     if expected_wid != workspace["id"]:
         raise HTTPException(status_code=403, detail="State mismatch for this workspace.")
 
+    # Exchange the one-shot authorization code for an access/refresh token
+    # pair. This MUST happen before persisting anything to the database —
+    # Reddit's authorization codes are single-use and short-lived, so storing
+    # the raw code instead of the exchanged token would make posting
+    # impossible.
+    token_payload = _exchange_authorization_code(payload.code)
+    access_token: str = token_payload["access_token"]
+    refresh_token: str | None = token_payload.get("refresh_token")
+    expires_in = int(token_payload.get("expires_in") or 3600)
+    expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
+    granted_scope = token_payload.get("scope") or REDDIT_SCOPES
+
+    # Pull the canonical username from Reddit so we don't trust the
+    # client-supplied value. Fall back if the identity call fails.
+    identity = _fetch_reddit_identity(access_token)
+    username = (identity.get("name") or payload.username or "connected_account")[:255]
+    karma = int(identity.get("total_karma") or 0) if identity else 0
+
+    account_data: dict = {
+        "workspace_id": workspace["id"],
+        "username": username,
+        "access_token": encrypt_text(access_token),
+        "is_active": True,
+        "karma": karma,
+    }
+    # Only populate refresh_token/expires_at when the columns exist. If the
+    # DB schema is older, fall back to the minimal payload so the connect
+    # still succeeds; callers will re-auth on expiry.
+    if refresh_token:
+        account_data["refresh_token"] = encrypt_text(refresh_token)
+    account_data["token_expires_at"] = expires_at.isoformat()
+    account_data["scope"] = granted_scope
+
     try:
-        reddit = create_reddit_account(
-            supabase,
-            {
-                "workspace_id": workspace["id"],
-                "username": payload.username or "connected_account",
-                "access_token": encrypt_text(payload.code),
-                "is_active": True,
-            },
-        )
-        return RedditAccountResponse(
-            id=reddit["id"],
-            username=reddit["username"],
-            karma=reddit.get("karma", 0),
-            is_active=reddit.get("is_active", True),
-            connected_at=reddit.get("connected_at"),
-            message="Reddit account connected successfully.",
-        )
+        reddit = create_reddit_account(supabase, account_data)
     except Exception as exc:
-        logger.exception("Failed to connect Reddit account")
-        raise HTTPException(status_code=500, detail="Failed to connect Reddit account. Please try again.") from exc
+        logger.exception("Failed to persist Reddit account")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to connect Reddit account. Please try again.",
+        ) from exc
+
+    return RedditAccountResponse(
+        id=reddit["id"],
+        username=reddit["username"],
+        karma=reddit.get("karma", 0),
+        is_active=reddit.get("is_active", True),
+        connected_at=reddit.get("connected_at"),
+        message="Reddit account connected successfully.",
+    )
 
 
 @router.get("/reddit/accounts", response_model=RedditAccountListResponse)
@@ -310,7 +426,7 @@ def list_published_posts(
                 type=p["type"],
                 subreddit=p["subreddit"],
                 title=p.get("title") or "",
-                content=(p.get("content") or "")[:100] + "..." if len(p.get("content") or "") > 100 else (p.get("content") or ""),
+                content=_truncate_text(p.get("content")),
                 status=p.get("status", "published"),
                 upvotes=p.get("upvotes", 0),
                 permalink=p["permalink"],

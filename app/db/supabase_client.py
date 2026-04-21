@@ -66,6 +66,13 @@ def _force_http11_on_postgrest(client: Client) -> None:
     Preserves the original session's base_url, headers, and timeout so
     auth and query routing keep working. The old session is closed so we
     don't leak its connection pool.
+
+    This intentionally reaches into postgrest-py's internal ``.session``
+    attribute because supabase-py does not expose a public transport hook for
+    the DB client. We only patch PostgREST here: the stale-connection failures
+    in this app were isolated to database traffic, while the other Supabase
+    sub-clients were not exhibiting the same issue. The replacement session is
+    stored on the process-wide singleton for the server lifetime.
     """
     existing = client.postgrest.session
     new_session = httpx.Client(

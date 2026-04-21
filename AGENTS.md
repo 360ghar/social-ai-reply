@@ -4,6 +4,12 @@
 
 RedditFlow is a hosted SaaS for finding relevant Reddit posts, scoring opportunities, and drafting helpful replies. All posting is manual — nothing is auto-posted to Reddit.
 
+## Product Policy
+
+- **Initial-phase usage policy:** RedditFlow does **not** enforce customer-facing query limits, scan quotas, generation caps, seat caps, or plan-based usage ceilings in the initial product phase.
+- This is an explicit product and system-design decision by the team so early users can use the platform without artificial usage restrictions.
+- Any technical rate limiting in middleware exists only for platform stability and abuse protection. It must not be treated as a commercial, entitlement, or pricing limit.
+
 ## Commands
 
 ### Backend
@@ -42,7 +48,7 @@ FastAPI + Supabase Postgres + Supabase Auth. Entry point: `app/main.py` — crea
   - `product/copilot.py` — LLM-driven reply/post generation
   - `product/scanner.py` — Reddit scraping and opportunity detection
   - `product/scoring.py` — opportunity fit scoring
-  - `product/entitlements.py` — plan-based feature gating
+  - `product/entitlements.py` — subscription and entitlement scaffolding for billing/workspace state; do not assume active customer-facing usage caps in the initial phase
   - `product/visibility.py` — AI visibility prompt sets and citation tracking
   - `product/reddit.py` — Reddit API interaction
   - `product/security.py` — JWT encode/decode, password hashing
@@ -84,7 +90,8 @@ Next.js 16 + React 19 + Tailwind CSS v4 + shadcn/ui (on `@base-ui/react`) + Zust
       return opps
   ```
 - **LLM:** **Gemini is the default provider** (`LLM_PROVIDER=gemini`, set in `DEFAULT_LLM_PROVIDER`). Only `GEMINI_API_KEY` is required; `OPENAI_API_KEY` and other provider keys can be left unset. Switch to `openai` / `perplexity` / `claude` via `LLM_PROVIDER` if you need an alternative (OpenAI supports `OPENAI_BASE_URL` for Azure/Ollama/LM Studio/Together AI). Always use a real LLM with a valid API key — never use mock or simulated data.
-- **Rate limiting:** In-memory in `app/middleware.py` — scan: 5/60s, generate: 10/60s, auth: 10/300s, default: 60/60s.
+- **Usage limits policy:** There are currently no customer-facing product usage limits. Do not describe the platform as quota-based or capped in the initial phase unless the product policy changes.
+- **Rate limiting:** In-memory in `app/middleware.py` — scan: 5/60s, generate: 10/60s, auth: 10/300s, default: 60/60s. These are operational safeguards, not plan limits.
 - **Testing:** Supabase local dev or test Supabase project. `conftest.py` fixtures: `client`, `authed_client`, `authed_headers`.
 - **Linting:** Ruff, `target-version = "py311"`, `line-length = 120`. Rules: E, F, W, I, N, UP, B, SIM, TCH. E501 ignored.
 

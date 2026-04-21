@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ChevronDown, ChevronRight, Check, Zap } from "lucide-react";
 
@@ -34,7 +34,7 @@ const PIPELINE_STEPS = [
 ];
 
 function isFailureStatus(status: PipelineRun["status"]) {
-  return status === "failed" || status === "error";
+  return status === "failed";
 }
 
 function isResultStatus(status: PipelineRun["status"]) {
@@ -78,6 +78,7 @@ export default function AutoPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [expanding, setExpanding] = useState<Record<string, boolean>>({});
+  const resultHydrationRetryRef = useRef<string | null>(null);
 
   // Pre-populate URL from query string if present
   useEffect(() => {
@@ -103,6 +104,21 @@ export default function AutoPipelinePage() {
     }, 2000);
 
     return () => clearInterval(interval);
+  }, [activeRun, token]);
+
+  useEffect(() => {
+    if (!activeRun || !token || !isResultStatus(activeRun.status) || activeRun.results) {
+      resultHydrationRetryRef.current = null;
+      return;
+    }
+    if (resultHydrationRetryRef.current === activeRun.id) {
+      return;
+    }
+    resultHydrationRetryRef.current = activeRun.id;
+    const timeout = window.setTimeout(() => {
+      void openRun(activeRun.id);
+    }, 2000);
+    return () => window.clearTimeout(timeout);
   }, [activeRun, token]);
 
   async function loadPreviousRuns() {
@@ -374,6 +390,9 @@ export default function AutoPipelinePage() {
         <p className="text-sm text-muted-foreground">
           Fetching the completed run details now.
         </p>
+        <Button className="mt-4" variant="outline" onClick={() => void openRun(activeRun.id)}>
+          Retry
+        </Button>
       </div>
     );
   }

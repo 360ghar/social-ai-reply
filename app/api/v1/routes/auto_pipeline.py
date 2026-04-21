@@ -31,6 +31,17 @@ router = APIRouter(prefix="/v1", tags=["auto-pipeline"])
 RESULT_STATUSES = {"ready", "executed"}
 
 
+def _slice_run_results(items: list[dict], limit: int) -> list[dict]:
+    """Trim results to the count persisted for the specific pipeline run.
+
+    Older project rows can contain accumulated personas/opportunities/drafts
+    from multiple runs. A zero persisted count means we have no items to show
+    for this run snapshot, so we intentionally return an empty list instead of
+    leaking prior project data into the run results view.
+    """
+    return items[:limit] if limit > 0 else []
+
+
 def _ensure_llm_ready() -> None:
     try:
         LLMService()
@@ -158,17 +169,11 @@ def get_auto_pipeline(
             opportunity_limit = max(int(pipeline.get("opportunities_found") or 0), 0)
             draft_limit = max(int(pipeline.get("drafts_generated") or 0), 0)
 
-            # Consistent semantics: 0 means "no cap", positive means slice to that count.
-            if persona_limit:
-                personas = personas[:persona_limit]
-            if keyword_limit:
-                keywords = keywords[:keyword_limit]
-            if subreddit_limit:
-                subreddits = subreddits[:subreddit_limit]
-            if opportunity_limit:
-                visible_opportunities = visible_opportunities[:opportunity_limit]
-            if draft_limit:
-                drafts = drafts[:draft_limit]
+            personas = _slice_run_results(personas, persona_limit)
+            keywords = _slice_run_results(keywords, keyword_limit)
+            subreddits = _slice_run_results(subreddits, subreddit_limit)
+            visible_opportunities = _slice_run_results(visible_opportunities, opportunity_limit)
+            drafts = _slice_run_results(drafts, draft_limit)
 
             response["results"] = {
                 "brand_summary": pipeline["brand_summary"] or "",

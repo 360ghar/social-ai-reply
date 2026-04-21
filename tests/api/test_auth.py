@@ -15,6 +15,7 @@ from tests.conftest import _create_test_user, _make_test_token
 from app.db.supabase_client import get_supabase
 from app.db.tables.users import get_user_by_email
 from app.main import app
+from app.services.product.supabase_auth import SupabaseAuthError
 
 
 @pytest.fixture
@@ -99,6 +100,24 @@ class TestRegister:
         })
 
         assert resp.status_code == 409
+
+    @patch(
+        "app.api.v1.routes.auth.sign_up",
+        side_effect=SupabaseAuthError(
+            503,
+            "SUPABASE_SECRET_KEY is not configured. Email/password registration requires the service role key.",
+        ),
+    )
+    def test_register_preserves_service_unavailable_errors(self, _mock_signup, client):
+        resp = client.post("/v1/auth/register", json={
+            "email": "new@example.com",
+            "password": "strongpass123",
+            "full_name": "New User",
+            "workspace_name": "New WS",
+        })
+
+        assert resp.status_code == 503
+        assert "SUPABASE_SECRET_KEY is not configured" in resp.json()["detail"]
 
 
 class TestMe:

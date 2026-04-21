@@ -177,7 +177,7 @@ def test_run_auto_pipeline_background_retries_low_yield_scans_with_broader_fallb
     refreshed = get_auto_pipeline_by_id(mock_supabase, pipeline["id"])
     assert refreshed is not None
     assert refreshed["status"] == "ready"
-    assert refreshed["opportunities_found"] == 5
+    assert refreshed["opportunities_found"] == 7
     assert run_scan_mock.call_count == 2
 
 

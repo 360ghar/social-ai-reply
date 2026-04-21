@@ -180,6 +180,8 @@ def register(payload: AuthRegisterRequest, supabase: Client = Depends(get_supaba
         if exc.status_code == 422 or "already registered" in exc.message.lower():
             raise HTTPException(status_code=409, detail="Email already registered.") from exc
         logger.error("Supabase sign_up failed: %s", exc)
+        if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         raise HTTPException(status_code=502, detail="Authentication service error.") from exc
 
     sb_user = extract_user_from_response(supabase_data)

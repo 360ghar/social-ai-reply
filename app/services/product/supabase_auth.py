@@ -277,6 +277,13 @@ def admin_delete_user(supabase_user_id: str) -> None:
             headers=_admin_headers(),
             timeout=10,
         )
+    except SupabaseAuthError:
+        logger.warning(
+            "Skipping Supabase user cleanup for %s because admin auth is unavailable",
+            supabase_user_id,
+            exc_info=True,
+        )
+        return
     except httpx.HTTPError:
         logger.warning("Failed to delete Supabase user %s due to network error", supabase_user_id, exc_info=True)
         return

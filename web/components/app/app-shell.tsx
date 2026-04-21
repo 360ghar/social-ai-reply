@@ -490,18 +490,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <DropdownMenuTrigger
                   className="w-full rounded-lg border border-sidebar-border/50 bg-sidebar-accent/50 p-3 text-left cursor-pointer transition-colors hover:bg-sidebar-accent focus:outline-none focus:ring-2 focus:ring-sidebar-ring"
                 >
-                  <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {dash?.workspace_name || "Workspace"}
-                  </div>
-                  <div className="flex items-center justify-between mt-1">
+                  </span>
+                  <span className="flex items-center justify-between mt-1">
                     <span className="text-sm font-semibold text-sidebar-foreground truncate">
                       {selectedProject?.name || "No project"}
                     </span>
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0 ml-2" />
-                  </div>
-                  <div className="text-[10px] text-muted-foreground/70 mt-0.5">
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground/70 mt-0.5">
                     {(dash?.projects || []).length} project{(dash?.projects || []).length !== 1 ? "s" : ""}
-                  </div>
+                  </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64 p-1" side="right">
                   <DropdownMenuGroup>

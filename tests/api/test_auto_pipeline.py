@@ -172,6 +172,90 @@ class TestAutoPipeline:
         assert payload["results"]["drafts"][0]["opportunity_title"] == opportunity["title"]
         assert payload["results"]["drafts"][0]["content"]
 
+    def test_get_auto_pipeline_hides_project_history_when_run_counts_are_zero(self, authed_client, mock_supabase):
+        client, user_data = authed_client
+        project = _create_project(mock_supabase, user_data["workspace"]["id"])
+
+        create_persona(
+            mock_supabase,
+            {
+                "project_id": project["id"],
+                "name": "Founder",
+                "role": "Buyer",
+                "summary": "Historical persona",
+                "pain_points": ["Noise"],
+                "source": "generated",
+                "is_active": True,
+            },
+        )
+        create_discovery_keyword(
+            mock_supabase,
+            {
+                "project_id": project["id"],
+                "keyword": "historical keyword",
+                "priority_score": 75,
+                "source": "generated",
+            },
+        )
+        create_monitored_subreddit(
+            mock_supabase,
+            {
+                "project_id": project["id"],
+                "name": "saas",
+                "fit_score": 88,
+                "subscribers": 120000,
+                "description": "SaaS growth conversations",
+            },
+        )
+        opportunity = create_opportunity(
+            mock_supabase,
+            {
+                "project_id": project["id"],
+                "reddit_post_id": "hist123",
+                "subreddit_name": "saas",
+                "author": "founder42",
+                "title": "Historical opportunity",
+                "permalink": "https://reddit.com/r/saas/comments/hist123/test",
+                "score": 80,
+                "status": "drafting",
+            },
+        )
+        create_reply_draft(
+            mock_supabase,
+            {
+                "project_id": project["id"],
+                "opportunity_id": opportunity["id"],
+                "content": "Historical draft",
+            },
+        )
+        pipeline = create_auto_pipeline(
+            mock_supabase,
+            {
+                "id": "pipe_zero_counts",
+                "project_id": project["id"],
+                "website_url": "https://example.com",
+                "status": "ready",
+                "progress": 100,
+                "current_step": "Complete!",
+                "brand_summary": "B2B SaaS",
+                "personas_generated": 0,
+                "keywords_generated": 0,
+                "subreddits_found": 0,
+                "opportunities_found": 0,
+                "drafts_generated": 0,
+            },
+        )
+
+        resp = client.get(f"/v1/auto-pipeline/{pipeline['id']}")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["results"]["personas"] == []
+        assert payload["results"]["keywords"] == []
+        assert payload["results"]["subreddits"] == []
+        assert payload["results"]["opportunities"] == []
+        assert payload["results"]["drafts"] == []
+
     def test_list_auto_pipelines_includes_failure_fields(self, authed_client, mock_supabase):
         client, user_data = authed_client
         project = _create_project(mock_supabase, user_data["workspace"]["id"])

@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -23,6 +22,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.core.config import get_settings
+from app.core.exceptions import BusinessRuleError
 from app.services.product.reddit import (
     RedditPost,
     RedditSubredditMatch,
@@ -33,7 +33,10 @@ from app.services.product.relevance import has_meaningful_phrase_overlap, tokeni
 
 log = logging.getLogger("redditflow.reddit_discovery")
 
+# Process-wide cache shared across discovery service instances so repeated
+# subreddit/search hydration in a worker can reuse responses.
 _CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE_MAX_ENTRIES = 2048
 _VALID_REDDIT_POST_PATH = re.compile(r"^/r/([^/]+)/comments/([^/?#]+)/?", re.IGNORECASE)
 _REDDIT_HOSTS = {
     "reddit.com",
@@ -82,9 +85,14 @@ class RedditDiscoveryService:
             follow_redirects=True,
         )
 
-    def __del__(self) -> None:
-        with suppress(Exception):
-            self._client.close()
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> RedditDiscoveryService:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
 
     def search_posts(
         self,
@@ -143,7 +151,9 @@ class RedditDiscoveryService:
 
         if successful_modes == 0 and mode_errors:
             sample = "; ".join(mode_errors[:3])
-            raise RuntimeError(f"All Reddit discovery methods failed. Sample errors: {sample[:400]}")
+            raise BusinessRuleError(
+                f"All Reddit discovery methods failed. Sample errors: {sample[:400]}"
+            )
 
         overall_limit = limit * max(len(allowed_subreddits), 1)
         return _rerank_by_keyword_relevance(list(posts_by_id.values()), ordered_keywords)[:overall_limit]
@@ -691,6 +701,14 @@ class RedditDiscoveryService:
         return value
 
     def _set_cached(self, key: str, value: Any, *, ttl: float) -> None:
+        if len(_CACHE) >= _CACHE_MAX_ENTRIES:
+            now = time.monotonic()
+            expired_keys = [cached_key for cached_key, (expires_at, _) in _CACHE.items() if expires_at < now]
+            for cached_key in expired_keys:
+                _CACHE.pop(cached_key, None)
+            if len(_CACHE) >= _CACHE_MAX_ENTRIES and _CACHE:
+                oldest_key = min(_CACHE.items(), key=lambda item: item[1][0])[0]
+                _CACHE.pop(oldest_key, None)
         _CACHE[key] = (time.monotonic() + ttl, value)
 
 

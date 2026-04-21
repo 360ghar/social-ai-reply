@@ -84,7 +84,15 @@ def run_auto_pipeline_background(
                 "voice_notes": website_analysis.voice_notes,
                 "business_domain": website_analysis.business_domain,
             })
-            brand = updated_brand or brand
+            if updated_brand is None:
+                log.warning(
+                    "BrandProfile update returned no row for project %s; refetching persisted record",
+                    project_id,
+                )
+                updated_brand = get_brand_profile_by_project(db, project_id)
+                if updated_brand is None:
+                    raise RuntimeError(f"Brand profile update did not persist for project {project_id}.")
+            brand = updated_brand
             log.info("Updated existing BrandProfile id=%s", brand["id"])
         else:
             brand = create_brand_profile(db, {
@@ -254,7 +262,8 @@ def run_auto_pipeline_background(
             scan_run = run_scan(db, proj, scan_req)
             if scan_run.get("fatal_error"):
                 raise RuntimeError(scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
-            opp_found = scan_run["opportunities_found"]
+            primary_opp_found = scan_run["opportunities_found"]
+            opp_found = primary_opp_found
             # Fallback scan: when the narrow 72-hour window yields nothing,
             # widen the time horizon to 30 days AND drop the score floor so
             # the user gets *something* to review. The previous
@@ -274,7 +283,7 @@ def run_auto_pipeline_background(
                 fallback_scan_run = run_scan(db, proj, fallback_scan_req)
                 if fallback_scan_run.get("fatal_error"):
                     raise RuntimeError(fallback_scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
-                opp_found = fallback_scan_run["opportunities_found"]
+                opp_found = primary_opp_found + fallback_scan_run["opportunities_found"]
             log.info("Scan complete — %d opportunities found", opp_found)
         except Exception as e:
             log.error("Scan step failed: %s\n%s", e, traceback.format_exc())

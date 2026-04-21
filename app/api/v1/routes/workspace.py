@@ -1,8 +1,10 @@
 """Workspace and user profile management endpoints."""
 import json
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from postgrest.exceptions import APIError
 from supabase import Client
 
 from app.api.v1.deps import (
@@ -32,6 +34,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["workspace"])
 
 _ALLOWED_NOTIF_KEYS = {"email_notifications", "digest_email", "slack_notifications"}
+
+
+def _is_missing_column_error(exc: APIError, column: str) -> bool:
+    code = (exc.code or "").upper()
+    if code == "PGRST204":
+        return True
+    context = " ".join(part for part in [exc.message, exc.details, exc.hint] if part).lower()
+    return "does not exist" in context and column.lower() in context
 
 
 def _build_notification_prefs(raw: dict | None) -> NotificationPreferences:
@@ -126,10 +136,13 @@ def update_profile(
     if updates:
         try:
             updated = update_user(supabase, current_user["id"], updates) or current_user
-        except Exception as exc:
-            # If the notification_preferences column doesn't exist yet, fall back to
-            # updating just the name so the user's primary change still persists.
-            if prefs_update is not None and "notification_preferences" in str(exc):
+        except APIError as exc:
+            # If the notification_preferences column doesn't exist yet (old DB
+            # schema), fall back to updating just the name so the user's
+            # primary change still persists. PostgREST signals an unknown
+            # column with error code PGRST204 / "column ... does not exist".
+            is_missing_column = prefs_update is not None and _is_missing_column_error(exc, "notification_preferences")
+            if is_missing_column:
                 logger.warning("notification_preferences column missing; storing name only")
                 fallback = {k: v for k, v in updates.items() if k != "notification_preferences"}
                 updated = update_user(supabase, current_user["id"], fallback) if fallback else current_user
@@ -251,7 +264,13 @@ def export_workspace_data(
     }
 
     body = json.dumps(bundle, default=str, indent=2)
-    filename = f"redditflow-export-{workspace.get('slug') or workspace['id']}.json"
+    raw_identifier = str(workspace.get("slug") or workspace["id"])
+    # Restrict to a safe filename-token alphabet to avoid header / path
+    # injection via a malicious workspace slug. Anything outside
+    # [a-zA-Z0-9._-] is collapsed to a hyphen; strip leading/trailing
+    # dots to block "..".
+    sanitized_identifier = re.sub(r"[^A-Za-z0-9._-]", "-", raw_identifier).strip("-.") or "workspace"
+    filename = f"redditflow-export-{sanitized_identifier}.json"
     return Response(
         content=body,
         media_type="application/json",

@@ -13,6 +13,8 @@ class RedditConnectRequest(BaseModel):
 
 
 class RedditConnectResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     auth_url: str
     state: str
     message: str = "Redirect user to this URL to authorize Reddit access."
@@ -36,6 +38,8 @@ class RedditAccountResponse(BaseModel):
 
 
 class RedditAccountListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     items: list[RedditAccountResponse]
 
 
@@ -62,22 +66,28 @@ class RedditPostResponse(BaseModel):
 
 
 class PublishedPostItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     type: str
     subreddit: str
-    title: str = ""
-    content: str = ""
-    status: str = "published"
+    title: str | None = None
+    content: str | None = None
+    status: str | None = None
     upvotes: int = 0
     permalink: str
     published_at: datetime | None = None
 
 
 class PublishedPostListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     items: list[PublishedPostItem]
 
 
 class PublishedPostStatusResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     status: str
     upvotes: int

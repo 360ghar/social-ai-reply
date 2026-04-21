@@ -113,6 +113,7 @@ export default function ContentPage() {
   const requestedOpportunityId = parsePositiveInt(searchParams.get("opportunity"));
   const pendingOpportunityIdRef = useRef<number | null>(null);
   const handledOpportunityIdRef = useRef<number | null>(null);
+  const loadDraftsRequestRef = useRef(0);
 
   const [activeTab, setActiveTab] = useState("replies");
   const [drafts, setDrafts] = useState<ReplyDraftRow[]>([]);
@@ -150,24 +151,33 @@ export default function ContentPage() {
     if (!token) {
       return;
     }
+    if (requestedProjectId && requestedProjectId !== selectedProjectId) {
+      return;
+    }
     void loadDrafts();
-  }, [token, selectedProjectId]);
+  }, [token, requestedProjectId, selectedProjectId]);
 
   async function loadDrafts() {
+    const requestId = ++loadDraftsRequestRef.current;
+    const projectId = selectedProjectId;
     setLoading(true);
     try {
       const [dashboardRes, draftingRes, postedRes, postsRes, accountsRes, publishedRes] = await Promise.allSettled([
-        apiRequest<any>(withProjectId("/v1/dashboard", selectedProjectId), {}, token),
-        apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=drafting", selectedProjectId), {}, token),
-        apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=posted", selectedProjectId), {}, token),
-        apiRequest<PostDraft[]>(withProjectId("/v1/drafts/posts", selectedProjectId), {}, token),
+        apiRequest<any>(withProjectId("/v1/dashboard", projectId), {}, token),
+        apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=drafting", projectId), {}, token),
+        apiRequest<ReplyDraftRow[]>(withProjectId("/v1/drafts/replies?status=posted", projectId), {}, token),
+        apiRequest<PostDraft[]>(withProjectId("/v1/drafts/posts", projectId), {}, token),
         apiRequest<{ items: RedditAccount[] }>(`/v1/reddit/accounts`, {}, token),
-        apiRequest<{ items: PublishedPost[] }>(withProjectId("/v1/reddit/published", selectedProjectId), {}, token),
+        apiRequest<{ items: PublishedPost[] }>(withProjectId("/v1/reddit/published", projectId), {}, token),
       ]);
+
+      if (loadDraftsRequestRef.current !== requestId) {
+        return;
+      }
 
       if (dashboardRes.status === "fulfilled") {
         const focusProject =
-          dashboardRes.value.projects?.find((item: ProjectContext) => item.id === selectedProjectId) ||
+          dashboardRes.value.projects?.find((item: ProjectContext) => item.id === projectId) ||
           dashboardRes.value.projects?.[0] ||
           null;
         setProject(focusProject ? { id: focusProject.id, name: focusProject.name } : null);
@@ -184,7 +194,9 @@ export default function ContentPage() {
       setRedditAccounts([]);
       setPublishedPosts([]);
     }
-    setLoading(false);
+    if (loadDraftsRequestRef.current === requestId) {
+      setLoading(false);
+    }
   }
 
   async function postToReddit(draftId: number) {
@@ -296,6 +308,10 @@ export default function ContentPage() {
           },
           token,
         );
+        // Mark as handled on success so we don't keep POSTing if the new
+        // draft never surfaces in the next loadDrafts() (e.g. permissions
+        // filter it out, backend returns empty list, etc.).
+        handledOpportunityIdRef.current = requestedOpportunityId;
         await loadDrafts();
       } catch (err: unknown) {
         handledOpportunityIdRef.current = requestedOpportunityId;

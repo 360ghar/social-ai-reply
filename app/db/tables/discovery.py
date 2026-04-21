@@ -19,6 +19,31 @@ _SCAN_RUN_COLUMN_CACHE: dict[str, bool] = {}
 _OPPORTUNITY_COLUMN_CACHE: dict[str, bool] = {}
 
 
+def _is_missing_column_error(exc: APIError, column: str) -> bool:
+    code = (exc.code or "").upper()
+    if code == "PGRST204":
+        return True
+    context = " ".join(part for part in [exc.message, exc.details, exc.hint] if part).lower()
+    return "does not exist" in context and column.lower() in context
+
+
+def _supports_column(db: Client, table_name: str, cache: dict[str, bool], column: str) -> bool:
+    cached = cache.get(column)
+    if cached is not None:
+        return cached
+
+    try:
+        db.table(table_name).select(column).limit(1).execute()
+    except APIError as exc:
+        if not _is_missing_column_error(exc, column):
+            raise
+        cache[column] = False
+        return False
+
+    cache[column] = True
+    return True
+
+
 # Persona operations
 def get_persona_by_id(db: Client, persona_id: int) -> dict[str, Any] | None:
     """Get a persona by ID."""
@@ -295,21 +320,7 @@ def list_monitored_subreddits_for_project(db: Client, project_id: int, limit: in
 
 
 def _scan_run_supports_column(db: Client, column: str) -> bool:
-    cached = _SCAN_RUN_COLUMN_CACHE.get(column)
-    if cached is not None:
-        return cached
-
-    try:
-        db.table(SCAN_RUNS_TABLE).select(column).limit(1).execute()
-    except APIError as exc:
-        message = str(exc)
-        if "does not exist" not in message and "PGRST204" not in message:
-            raise
-        _SCAN_RUN_COLUMN_CACHE[column] = False
-        return False
-
-    _SCAN_RUN_COLUMN_CACHE[column] = True
-    return True
+    return _supports_column(db, SCAN_RUNS_TABLE, _SCAN_RUN_COLUMN_CACHE, column)
 
 
 def _prepare_scan_run_payload(db: Client, payload: dict[str, Any]) -> dict[str, Any]:
@@ -338,21 +349,7 @@ def _normalize_scan_run_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _opportunity_supports_column(db: Client, column: str) -> bool:
-    cached = _OPPORTUNITY_COLUMN_CACHE.get(column)
-    if cached is not None:
-        return cached
-
-    try:
-        db.table(OPPORTUNITIES_TABLE).select(column).limit(1).execute()
-    except APIError as exc:
-        message = str(exc)
-        if "does not exist" not in message and "PGRST204" not in message:
-            raise
-        _OPPORTUNITY_COLUMN_CACHE[column] = False
-        return False
-
-    _OPPORTUNITY_COLUMN_CACHE[column] = True
-    return True
+    return _supports_column(db, OPPORTUNITIES_TABLE, _OPPORTUNITY_COLUMN_CACHE, column)
 
 
 def _prepare_opportunity_payload(db: Client, payload: dict[str, Any]) -> dict[str, Any]:

@@ -58,6 +58,37 @@ export async function getUsage(token: string, projectId?: number): Promise<Usage
   return apiRequest<UsageResponse>(`/v1/usage${query}`, {}, token);
 }
 
+function sanitizeDownloadFilename(raw: string | null | undefined): string {
+  const fallback = "redditflow-export.json";
+  if (!raw) {
+    return fallback;
+  }
+  const cleaned = raw
+    .replace(/[\u0000-\u001F\u007F]+/g, "")
+    .split(/[\\/]+/)
+    .pop()
+    ?.trim()
+    .replace(/^\.+/, "");
+  return cleaned || fallback;
+}
+
+function filenameFromDisposition(disposition: string): string {
+  const encodedMatch = disposition.match(/filename\*\s*=\s*([^;]+)/i);
+  if (encodedMatch) {
+    const encodedValue = encodedMatch[1].trim().replace(/^"(.*)"$/, "$1");
+    const parts = encodedValue.split("'");
+    const encodedName = parts.length >= 3 ? parts.slice(2).join("'") : encodedValue;
+    try {
+      return sanitizeDownloadFilename(decodeURIComponent(encodedName));
+    } catch {
+      // Fall back to legacy filename parsing below.
+    }
+  }
+
+  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return sanitizeDownloadFilename(filenameMatch?.[1]);
+}
+
 /**
  * Triggers a browser download of the workspace JSON export. Streams the response
  * through a blob so the download dialog works even with Bearer auth.
@@ -79,8 +110,7 @@ export async function downloadWorkspaceExport(token: string): Promise<void> {
   }
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") ?? "";
-  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
-  const filename = filenameMatch?.[1] ?? "redditflow-export.json";
+  const filename = filenameFromDisposition(disposition);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -88,5 +118,8 @@ export async function downloadWorkspaceExport(token: string): Promise<void> {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  // Safari can interrupt an in-flight download if the blob URL is revoked
+  // synchronously after click(). Defer so the browser has a chance to pick
+  // up the file before the underlying blob is freed.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -159,8 +159,8 @@ def score_post(
     # tracked here but applied as score penalties *after* `score` is
     # initialized below. Thin-context already has a dedicated penalty
     # further down in this function.
-    missing_intent_penalty = not intent_hits and not direct_brand_match
-    weak_fit_penalty = (
+    has_missing_intent = not intent_hits and not direct_brand_match
+    has_weak_fit = bool(
         subreddit
         and subreddit.get("fit_score", 0) < MIN_SUBREDDIT_FIT_FOR_AUTOMATION
         and not direct_brand_match
@@ -182,10 +182,10 @@ def score_post(
     # Apply the soft-quality penalties tracked above. These used to be
     # hard rejections — now they just push the score down so the post
     # can still surface if everything else about it is strong.
-    if missing_intent_penalty:
+    if has_missing_intent:
         score -= 8
         reasons.append("No explicit help-seeking language — reply will need to offer value unprompted.")
-    if weak_fit_penalty:
+    if has_weak_fit:
         score -= 10
         reasons.append("Subreddit fit is weak — proceed carefully.")
 

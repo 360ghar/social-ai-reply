@@ -7,6 +7,7 @@ import pytest
 
 from app.services.product.supabase_auth import (
     SupabaseAuthError,
+    admin_delete_user,
     extract_user_from_response,
     verify_supabase_jwt,
 )
@@ -67,3 +68,14 @@ class TestSupabaseAuthError:
         assert err.message == "Bad request"
         assert "400" in str(err)
         assert "Bad request" in str(err)
+
+
+class TestAdminDeleteUser:
+    @patch("app.services.product.supabase_auth.httpx.delete")
+    @patch(
+        "app.services.product.supabase_auth._admin_headers",
+        side_effect=SupabaseAuthError(503, "Missing service role key"),
+    )
+    def test_admin_delete_user_treats_missing_admin_auth_as_best_effort(self, _mock_headers, mock_delete):
+        admin_delete_user("user-123")
+        mock_delete.assert_not_called()

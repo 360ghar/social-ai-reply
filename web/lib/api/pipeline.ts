@@ -14,8 +14,7 @@ export interface PipelineRun {
     | "generating_drafts"
     | "ready"
     | "executed"
-    | "failed"
-    | "error";
+    | "failed";
   progress: number;
   personas_count: number;
   keywords_count: number;
