@@ -40,10 +40,17 @@ class SupabaseUser:
 
 
 def _fetch_jwks() -> dict[str, PyJWK]:
-    """Fetch the JSON Web Key Set from Supabase and return a kid→PyJWK map."""
+    """Fetch the JSON Web Key Set from Supabase and return a kid→PyJWK map.
+
+    Raises ``JWKSUnavailableError`` for configuration / network / upstream
+    failures so that callers can distinguish service-unavailable (503) from
+    invalid-token (401).
+    """
     settings = get_settings()
     if not settings.supabase_url or not settings.supabase_publishable_key:
-        raise ValueError("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required for JWT verification.")
+        raise JWKSUnavailableError(
+            "SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required for JWT verification."
+        )
     try:
         resp = httpx.get(
             f"{settings.supabase_url}/auth/v1/.well-known/jwks.json",
@@ -51,8 +58,15 @@ def _fetch_jwks() -> dict[str, PyJWK]:
             timeout=10,
         )
     except httpx.HTTPError as exc:
-        raise ValueError("Could not fetch Supabase JWKS. Check SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.") from exc
-    resp.raise_for_status()
+        raise JWKSUnavailableError(
+            "Could not fetch Supabase JWKS. Check SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY."
+        ) from exc
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise JWKSUnavailableError(
+            f"Supabase JWKS endpoint returned {resp.status_code}."
+        ) from exc
     keys = {}
     for key_data in resp.json().get("keys", []):
         kid = key_data.get("kid")
@@ -295,3 +309,12 @@ class SupabaseAuthError(Exception):
         self.status_code = status_code
         self.message = message
         super().__init__(f"Supabase Auth error ({status_code}): {message}")
+
+
+class JWKSUnavailableError(Exception):
+    """Raised when the Supabase JWKS endpoint cannot be reached or is misconfigured.
+
+    Distinct from token-validation errors: this indicates a service-level
+    problem (network / config / upstream) that should surface as HTTP 503,
+    not 401.
+    """

@@ -24,6 +24,7 @@ import {
   type Subscription,
 } from "@/lib/api/billing";
 import { getUsage, type UsageResponse } from "@/lib/api/workspace";
+import { getErrorMessage } from "@/types/errors";
 
 const UNLIMITED_SENTINEL = 999999;
 
@@ -66,8 +67,8 @@ export default function SubscriptionPage() {
       setPlans(plansRes);
       setSubscription(subRes);
       setUsage(usageRes);
-    } catch (err) {
-      toast.error("Failed to load subscription", err instanceof Error ? err.message : undefined);
+    } catch (err: unknown) {
+      toast.error("Failed to load subscription", getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -92,8 +93,8 @@ export default function SubscriptionPage() {
       const updated = await upgradePlan(token, planCode);
       setSubscription(updated);
       toast.success("Plan updated", `You're now on the ${planCode} plan.`);
-    } catch (err) {
-      toast.error("Upgrade failed", err instanceof Error ? err.message : undefined);
+    } catch (err: unknown) {
+      toast.error("Upgrade failed", getErrorMessage(err));
     } finally {
       setUpgrading(null);
     }
@@ -113,8 +114,8 @@ export default function SubscriptionPage() {
       toast.success("Code redeemed", result.message ?? `Plan: ${result.plan_code}`);
       setRedeemCodeValue("");
       await loadBilling();
-    } catch (err) {
-      toast.error("Redemption failed", err instanceof Error ? err.message : undefined);
+    } catch (err: unknown) {
+      toast.error("Redemption failed", getErrorMessage(err));
     } finally {
       setRedeemLoading(false);
     }

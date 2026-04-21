@@ -31,7 +31,7 @@ from app.db.tables.workspaces import (
 from app.schemas.v1.auth import WorkspaceSummary
 from app.schemas.v1.billing import SubscriptionResponse
 from app.services.product.entitlements import PLAN_CATALOG, feature_set
-from app.services.product.supabase_auth import verify_supabase_jwt
+from app.services.product.supabase_auth import JWKSUnavailableError, verify_supabase_jwt
 from app.utils.slug import unique_slug as _unique_slug
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,12 @@ def get_current_user(
     try:
         payload = verify_supabase_jwt(credentials.credentials)
         supabase_uid = payload["sub"]
+    except JWKSUnavailableError as exc:
+        logger.error("JWKS unavailable while verifying JWT: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable.",
+        ) from exc
     except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
     except Exception as exc:
