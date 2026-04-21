@@ -117,4 +117,4 @@ class OpportunityResponse(BaseModel):
 
 
 class OpportunityStatusRequest(BaseModel):
-    status: str = Field(pattern="^(new|saved|drafting|posted|ignored)$")
+    status: str = Field(pattern="^(new|saved|drafting|posted|ignored|rejected)$")

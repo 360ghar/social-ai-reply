@@ -75,7 +75,7 @@ def run_auto_pipeline_background(
 
         brand = get_brand_profile_by_project(db, project_id)
         if brand:
-            update_brand_profile(db, brand["id"], {
+            updated_brand = update_brand_profile(db, brand["id"], {
                 "brand_name": website_analysis.brand_name,
                 "summary": website_analysis.summary,
                 "product_summary": website_analysis.product_summary,
@@ -84,9 +84,18 @@ def run_auto_pipeline_background(
                 "voice_notes": website_analysis.voice_notes,
                 "business_domain": website_analysis.business_domain,
             })
+            if updated_brand is None:
+                log.warning(
+                    "BrandProfile update returned no row for project %s; refetching persisted record",
+                    project_id,
+                )
+                updated_brand = get_brand_profile_by_project(db, project_id)
+                if updated_brand is None:
+                    raise RuntimeError(f"Brand profile update did not persist for project {project_id}.")
+            brand = updated_brand
             log.info("Updated existing BrandProfile id=%s", brand["id"])
         else:
-            create_brand_profile(db, {
+            brand = create_brand_profile(db, {
                 "project_id": project_id,
                 "brand_name": website_analysis.brand_name,
                 "website_url": website_url,
@@ -98,6 +107,13 @@ def run_auto_pipeline_background(
                 "business_domain": website_analysis.business_domain,
             })
             log.info("Created new BrandProfile for project %s", project_id)
+
+        # Attach brand profile to proj so downstream discovery steps have
+        # domain context. discover_and_store_subreddits and the helpers it
+        # calls (get_project_search_keywords, assess_subreddit_candidate)
+        # all read project["brand_profile"] — without this, business_domain
+        # is empty and discovery filters out nearly every candidate.
+        proj["brand_profile"] = brand
 
         # ── Step 2: Generate Personas (15→30%) ──────────────────
         log.info("Step 2/7: Generating personas")
@@ -165,18 +181,21 @@ def run_auto_pipeline_background(
         from app.db.tables.discovery import create_discovery_keyword, list_discovery_keywords_for_project
         existing_kw = {row["keyword"] for row in list_discovery_keywords_for_project(db, project_id)}
         new_kw_count = 0
+        # copilot.generate_keywords returns list[GeneratedKeyword] (a @dataclass),
+        # NOT list[dict] — use attribute access, not subscript. suggest_personas
+        # returns list[dict] so the pattern is different for personas above.
         for k_data in keywords_data:
-            if k_data["keyword"] in existing_kw:
-                log.info("Keyword '%s' already exists — skipping", k_data["keyword"])
+            if k_data.keyword in existing_kw:
+                log.info("Keyword '%s' already exists — skipping", k_data.keyword)
                 continue
             create_discovery_keyword(db, {
                 "project_id": project_id,
-                "keyword": k_data["keyword"],
-                "rationale": k_data["rationale"],
-                "priority_score": k_data["priority_score"],
+                "keyword": k_data.keyword,
+                "rationale": k_data.rationale,
+                "priority_score": k_data.priority_score,
                 "source": "generated",
             })
-            existing_kw.add(k_data["keyword"])
+            existing_kw.add(k_data.keyword)
             new_kw_count += 1
         update_auto_pipeline(db, pipeline_id, {"keywords_generated": len(keywords_data), "progress": 45})
         log.info("Inserted %d new keywords (%d already existed)", new_kw_count, len(keywords_data) - new_kw_count)
@@ -237,24 +256,43 @@ def run_auto_pipeline_background(
             scan_req = ScanRequest(
                 project_id=project_id,
                 search_window_hours=72,
-                max_posts_per_subreddit=10,
+                max_posts_per_subreddit=15,
                 min_score=MIN_RELEVANT_OPPORTUNITY_SCORE,
             )
             scan_run = run_scan(db, proj, scan_req)
-            opp_found = scan_run["opportunities_found"]
-            if opp_found == 0:
+            if scan_run.get("fatal_error"):
+                raise RuntimeError(scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
+            primary_opp_found = scan_run["opportunities_found"]
+            opp_found = primary_opp_found
+            # Fallback scan: when the narrow 72-hour window yields nothing,
+            # widen the time horizon to 30 days AND drop the score floor so
+            # the user gets *something* to review. The previous
+            # `max(MIN - 10, 45)` expression was a bug — it RAISED the floor
+            # above MIN (35 → 45), which made the fallback stricter than the
+            # primary scan. We now use a sensible lower floor (15) so the
+            # fallback is genuinely looser.
+            # Low-yield runs should trigger the broader fallback too.
+            # Stopping at 2 or 3 opportunities still feels broken to users.
+            if opp_found <= 3:
                 fallback_scan_req = ScanRequest(
                     project_id=project_id,
                     search_window_hours=720,
-                    max_posts_per_subreddit=10,
-                    min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 45),
+                    max_posts_per_subreddit=25,
+                    min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 15),
                 )
                 fallback_scan_run = run_scan(db, proj, fallback_scan_req)
-                opp_found = fallback_scan_run["opportunities_found"]
+                if fallback_scan_run.get("fatal_error"):
+                    raise RuntimeError(fallback_scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
+                opp_found = primary_opp_found + fallback_scan_run["opportunities_found"]
             log.info("Scan complete — %d opportunities found", opp_found)
         except Exception as e:
-            log.warning("Scan step skipped or failed: %s", e)
-            opp_found = 0
+            log.error("Scan step failed: %s\n%s", e, traceback.format_exc())
+            update_auto_pipeline(db, pipeline_id, {
+                "status": "failed",
+                "error_message": f"Opportunity scan failed: {str(e)[:500]}",
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
+            return
         update_auto_pipeline(db, pipeline_id, {"opportunities_found": opp_found, "progress": 75})
 
         # ── Step 6: Generate Drafts (75→95%) ────────────────────

@@ -20,6 +20,8 @@ from app.db.tables.discovery import (
 from app.db.tables.discovery import (
     get_persona_by_id,
     list_personas_for_project,
+)
+from app.db.tables.discovery import (
     update_persona as update_persona_table,
 )
 from app.schemas.v1.personas import PersonaRequest, PersonaResponse, PersonaUpdateRequest

@@ -172,7 +172,9 @@ export default function DiscoveryPage() {
       const [kwRes, subRes, oppRes, campRes] = await Promise.allSettled([
         apiRequest<Keyword[]>(`/v1/discovery/keywords?project_id=${projectId}`, {}, token),
         apiRequest<Subreddit[]>(`/v1/discovery/subreddits?project_id=${projectId}`, {}, token),
-        apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${projectId}`, {}, token),
+        // Load all statuses so the Rejected / Saved / Posted tabs can
+        // filter client-side without a re-fetch.
+        apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${projectId}&status=all&limit=200`, {}, token),
         apiRequest<Campaign[]>(`/v1/campaigns?project_id=${projectId}`, {}, token),
       ]);
 
@@ -272,7 +274,12 @@ export default function DiscoveryPage() {
     }
     setScanning(true);
     try {
-      await apiRequest(
+      const run = await apiRequest<{
+        posts_scanned: number;
+        opportunities_found: number;
+        error_message: string | null;
+        status: string;
+      }>(
         "/v1/scans",
         {
           method: "POST",
@@ -284,7 +291,28 @@ export default function DiscoveryPage() {
         },
         token
       );
-      success("Scan complete", "Check the conversation queue below.");
+
+      // Surface the actual scan result so the user can distinguish
+      // "nothing matched" from "Reddit refused the request".
+      if (run.error_message) {
+        warning("Scan finished with issues", run.error_message);
+      } else if (run.opportunities_found > 0) {
+        success(
+          "Scan complete",
+          `Scanned ${run.posts_scanned} post(s) — found ${run.opportunities_found} opportunity(ies). Check the queue below.`
+        );
+      } else if (run.posts_scanned > 0) {
+        warning(
+          "Scan complete — no matches above the threshold",
+          `Scanned ${run.posts_scanned} post(s), none cleared the relevance gate. Check the Rejected tab to see what Reddit returned, or broaden your keywords / subreddits.`
+        );
+      } else {
+        warning(
+          "Scan returned no posts",
+          "Reddit returned zero posts for your keywords in the last 72 hours. Try broader keywords, higher-traffic subreddits, or a wider time window."
+        );
+      }
+
       await loadAll();
     } catch (err: unknown) {
       error("Scan failed", getErrorMessage(err));
@@ -405,16 +433,22 @@ export default function DiscoveryPage() {
   ];
   const currentStep = workflowSteps.findIndex((step) => !step.done);
 
-  // Filtered opportunities
+  // Filtered opportunities. "All" means the active funnel — new / saved /
+  // drafting / posted / ignored — and excludes "rejected" so the default
+  // view isn't polluted by low-fit posts the scoring pipeline filtered out.
   let filteredOpps = [...opportunities];
   if (statusFilter) {
     filteredOpps = filteredOpps.filter((opp) => opp.status === statusFilter);
+  } else {
+    filteredOpps = filteredOpps.filter((opp) => opp.status !== "rejected");
   }
   // Note: campaignFilter is UI-ready but opportunities don't have campaign_id yet
   // Future enhancement: add campaign association to opportunities table
   filteredOpps.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-  // Status filter tabs
+  // Status filter tabs. "Rejected" is a secondary bucket for posts the
+  // scoring pipeline found but didn't think were a good fit — users can
+  // still review them and promote back to "New" if the judgement seems off.
   const statusTabs = [
     { label: "All", value: "" },
     { label: "New", value: "new" },
@@ -422,6 +456,7 @@ export default function DiscoveryPage() {
     { label: "Drafting", value: "drafting" },
     { label: "Posted", value: "posted" },
     { label: "Ignored", value: "ignored" },
+    { label: "Rejected", value: "rejected" },
   ];
 
   if (loading) {

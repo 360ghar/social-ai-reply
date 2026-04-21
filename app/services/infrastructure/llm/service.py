@@ -1,17 +1,25 @@
-"""LLM service facades — unified entry points for all LLM operations."""
+"""LLM service facades - unified entry points for all LLM operations."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-import app.services.infrastructure.llm.providers  # noqa: F401 — trigger provider registration
+import app.services.infrastructure.llm.providers  # noqa: F401 - trigger provider registration
+from app.core.config import get_settings
 from app.services.infrastructure.llm.providers._registry import (
     get_configured_providers,
     get_provider,
 )
 
 logger = logging.getLogger(__name__)
+
+_PROVIDER_API_KEY_ENV: dict[str, str] = {
+    "gemini": "GEMINI_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "perplexity": "PERPLEXITY_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+}
 
 # Canonical model-name mapping for visibility
 _MODEL_ALIASES: dict[str, str] = {
@@ -28,6 +36,17 @@ _DEFAULT_VISIBILITY_SYSTEM = (
 )
 
 
+def _llm_setup_message(provider_name: str | None, error: Exception) -> str:
+    effective_provider_name = provider_name or get_settings().llm_provider
+    expected_key = _PROVIDER_API_KEY_ENV.get(effective_provider_name, "the matching provider API key")
+    return (
+        "No LLM provider available - cannot make LLM calls. "
+        f"Configure {expected_key} for LLM_PROVIDER={effective_provider_name} in the backend .env.local "
+        "or switch LLM_PROVIDER to a provider whose API key is set, then restart the backend. "
+        f"Details: {error}"
+    )
+
+
 class LLMService:
     """Unified facade for single-provider LLM operations.
 
@@ -38,12 +57,8 @@ class LLMService:
     def __init__(self, provider_name: str | None = None) -> None:
         try:
             self._provider = get_provider(provider_name)
-        except ValueError as e:
-            raise RuntimeError(
-                f"No LLM provider available — cannot make LLM calls. "
-                f"Ensure a valid LLM_PROVIDER is configured and the required API key is set. "
-                f"Details: {e}"
-            ) from e
+        except ValueError as error:
+            raise RuntimeError(_llm_setup_message(provider_name, error)) from error
 
     @property
     def provider_name(self) -> str:
@@ -120,11 +135,11 @@ class VisibilityRunner:
             return provider.chat_text(
                 messages, temperature=0.7, max_tokens=2048
             )
-        except Exception as e:
-            logger.error("Provider %s error: %s", provider_key, e)
+        except Exception as error:
+            logger.error("Provider %s error: %s", provider_key, error)
             raise RuntimeError(
-                f"Failed to run prompt on {model_name!r} via provider {provider_key!r}: {e}"
-            ) from e
+                f"Failed to run prompt on {model_name!r} via provider {provider_key!r}: {error}"
+            ) from error
 
     def run_all(self, prompt: str, model_names: list[str]) -> dict[str, str | None]:
         """Run a prompt on all specified models. Returns {model_name: response}."""

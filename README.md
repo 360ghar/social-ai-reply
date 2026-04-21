@@ -4,9 +4,15 @@ Hosted Reddit opportunity intelligence built on `FastAPI + Postgres/SQLite + Nex
 
 RedditFlow is a hosted web app for finding relevant Reddit posts, reviewing good-fit communities, and drafting helpful replies without auto-posting.
 
+## Product Policy
+
+RedditFlow currently does **not** enforce customer-facing query limits, scan quotas, generation caps, seat caps, or plan-based usage ceilings. In the initial phase, unrestricted product usage is an intentional product and system-design decision by the team.
+
+Any backend rate limiting that exists is there only for infrastructure protection and abuse control. It should not be interpreted as a commercial product limit.
+
 This repo now contains two product layers:
 
-- `app/`: production-oriented backend APIs, auth, discovery, scan orchestration, drafting, billing limits, secrets, webhooks, and legacy Instagram services.
+- `app/`: production-oriented backend APIs, auth, discovery, scan orchestration, drafting, billing/subscription scaffolding, secrets, webhooks, and legacy Instagram services.
 - `web/`: hosted browser frontend for marketing, auth, the step-by-step app flow, optional advanced settings, and plan management.
 
 ## What Is Implemented
@@ -68,4 +74,5 @@ cd web && npm run build
 
 - The new SaaS routes live under `/v1`.
 - Posting is intentionally manual. The product generates research and drafts; it does not auto-post to Reddit.
+- The initial product rollout intentionally has no customer-facing usage caps or quotas.
 - The legacy Instagram endpoints are still available for existing local workflows, but they are not part of the new hosted v1 product surface.

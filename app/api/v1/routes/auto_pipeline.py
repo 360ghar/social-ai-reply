@@ -2,7 +2,7 @@
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.v1.deps import (
@@ -22,11 +22,34 @@ from app.db.tables.discovery import (
     list_personas_for_project,
 )
 from app.db.tables.projects import get_project_by_id
+from app.services.infrastructure.llm.service import LLMService
 from app.services.product.entitlements import FEATURE_AUTO_PIPELINE, has_feature
 from app.services.product.pipeline import run_auto_pipeline_background
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["auto-pipeline"])
+RESULT_STATUSES = {"ready", "executed"}
+
+
+def _slice_run_results(items: list[dict], limit: int) -> list[dict]:
+    """Trim results to the count persisted for the specific pipeline run.
+
+    Older project rows can contain accumulated personas/opportunities/drafts
+    from multiple runs. A zero persisted count means we have no items to show
+    for this run snapshot, so we intentionally return an empty list instead of
+    leaking prior project data into the run results view.
+    """
+    return items[:limit] if limit > 0 else []
+
+
+def _ensure_llm_ready() -> None:
+    try:
+        LLMService()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/auto-pipeline/run")
@@ -48,6 +71,8 @@ def start_auto_pipeline(
 
     if not website_url:
         raise HTTPException(400, "website_url is required.")
+
+    _ensure_llm_ready()
 
     proj = get_active_project(supabase, workspace["id"], project_id) or ensure_default_project(supabase, workspace)
 
@@ -78,13 +103,13 @@ def start_auto_pipeline(
         "website_url": pipeline["website_url"],
         "status": pipeline["status"],
         "progress": pipeline["progress"],
-        "current_step": pipeline["current_step"],
-        "personas_count": pipeline["personas_generated"],
-        "keywords_count": pipeline["keywords_generated"],
-        "subreddits_count": pipeline["subreddits_found"],
-        "opportunities_count": pipeline["opportunities_found"],
-        "drafts_count": pipeline["drafts_generated"],
-        "brand_summary": pipeline["brand_summary"],
+        "current_step": pipeline.get("current_step"),
+        "personas_count": pipeline.get("personas_generated", 0),
+        "keywords_count": pipeline.get("keywords_generated", 0),
+        "subreddits_count": pipeline.get("subreddits_found", 0),
+        "opportunities_count": pipeline.get("opportunities_found", 0),
+        "drafts_count": pipeline.get("drafts_generated", 0),
+        "brand_summary": pipeline.get("brand_summary"),
         "created_at": pipeline.get("created_at"),
     }
 
@@ -115,27 +140,40 @@ def get_auto_pipeline(
         "website_url": pipeline["website_url"],
         "status": pipeline["status"],
         "progress": pipeline["progress"],
-        "current_step": pipeline["current_step"],
-        "brand_summary": pipeline["brand_summary"],
-        "personas_count": pipeline["personas_generated"],
-        "keywords_count": pipeline["keywords_generated"],
-        "subreddits_count": pipeline["subreddits_found"],
-        "opportunities_count": pipeline["opportunities_found"],
-        "drafts_count": pipeline["drafts_generated"],
+        "current_step": pipeline.get("current_step"),
+        "brand_summary": pipeline.get("brand_summary"),
+        "personas_count": pipeline.get("personas_generated", 0),
+        "keywords_count": pipeline.get("keywords_generated", 0),
+        "subreddits_count": pipeline.get("subreddits_found", 0),
+        "opportunities_count": pipeline.get("opportunities_found", 0),
+        "drafts_count": pipeline.get("drafts_generated", 0),
         "started_at": pipeline.get("started_at"),
         "completed_at": pipeline.get("completed_at"),
         "error_message": pipeline.get("error_message"),
     }
 
-    if pipeline["status"] == "ready":
+    if pipeline["status"] in RESULT_STATUSES:
         proj = get_project_by_id(supabase, pipeline["project_id"])
         if proj:
             # N+1 FIX: Batch load all related data instead of querying per-entity
             personas = list_personas_for_project(supabase, proj["id"], source="generated")
             keywords = list_discovery_keywords_for_project(supabase, proj["id"], source="generated")
             subreddits = list_monitored_subreddits_for_project(supabase, proj["id"])
-            opportunities = list_opportunities_for_project(supabase, proj["id"], status="new", limit=20)
+            all_opportunities = list_opportunities_for_project(supabase, proj["id"], limit=100)
+            visible_opportunities = [o for o in all_opportunities if o.get("status") in {"new", "drafting"}]
             drafts = list_reply_drafts_for_project(supabase, proj["id"])
+            opportunity_titles = {o["id"]: o["title"] for o in all_opportunities}
+            persona_limit = max(int(pipeline.get("personas_generated") or 0), 0)
+            keyword_limit = max(int(pipeline.get("keywords_generated") or 0), 0)
+            subreddit_limit = max(int(pipeline.get("subreddits_found") or 0), 0)
+            opportunity_limit = max(int(pipeline.get("opportunities_found") or 0), 0)
+            draft_limit = max(int(pipeline.get("drafts_generated") or 0), 0)
+
+            personas = _slice_run_results(personas, persona_limit)
+            keywords = _slice_run_results(keywords, keyword_limit)
+            subreddits = _slice_run_results(subreddits, subreddit_limit)
+            visible_opportunities = _slice_run_results(visible_opportunities, opportunity_limit)
+            drafts = _slice_run_results(drafts, draft_limit)
 
             response["results"] = {
                 "brand_summary": pipeline["brand_summary"] or "",
@@ -153,11 +191,15 @@ def get_auto_pipeline(
                 ],
                 "opportunities": [
                     {"title": o["title"], "subreddit": o["subreddit_name"], "score": o.get("score", 0), "author": o.get("author", "")}
-                    for o in opportunities
+                    for o in visible_opportunities
                 ],
                 "drafts": [
-                    {"title": d.get("opportunity_title", "Reply Draft") or "Reply Draft", "content": d["content"]}
-                    for d in drafts[:10]
+                    {
+                        "title": opportunity_titles.get(d["opportunity_id"], "Reply Draft"),
+                        "opportunity_title": opportunity_titles.get(d["opportunity_id"], "Reply Draft"),
+                        "content": d["content"],
+                    }
+                    for d in drafts
                 ],
             }
 
@@ -187,12 +229,15 @@ def list_auto_pipelines(
                 "website_url": p["website_url"],
                 "status": p["status"],
                 "progress": p["progress"],
-                "personas_count": p["personas_generated"],
-                "keywords_count": p["keywords_generated"],
-                "subreddits_count": p["subreddits_found"],
-                "opportunities_count": p["opportunities_found"],
-                "drafts_count": p["drafts_generated"],
+                "current_step": p.get("current_step"),
+                "personas_count": p.get("personas_generated", 0),
+                "keywords_count": p.get("keywords_generated", 0),
+                "subreddits_count": p.get("subreddits_found", 0),
+                "opportunities_count": p.get("opportunities_found", 0),
+                "drafts_count": p.get("drafts_generated", 0),
+                "error_message": p.get("error_message"),
                 "created_at": p.get("created_at"),
+                "completed_at": p.get("completed_at"),
             }
             for p in pipelines
         ]

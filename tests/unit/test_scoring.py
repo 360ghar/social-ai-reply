@@ -86,7 +86,14 @@ class TestScorePost:
         assert result.total < MIN_RELEVANT_OPPORTUNITY_SCORE
         assert any("topical overlap" in reason.lower() for reason in result.reasons)
 
-    def test_topic_match_without_explicit_ask_fails(self):
+    def test_topic_match_without_explicit_ask_stays_eligible_but_flagged(self):
+        """A topic-matched post without explicit help-seeking intent is now
+        a soft signal (score penalty + warning reason), not a hard rejection.
+
+        Rationale: the previous all-AND gate silently dropped most posts
+        Reddit returned, leaving Opportunity feeds empty. Moving intent
+        from a hard gate to a soft penalty lets such posts surface so a
+        human can decide whether to engage."""
         result = score_post(
             _make_post(
                 title="Reddit thread discovery workflow for SaaS teams",
@@ -98,10 +105,11 @@ class TestScorePost:
             [],
         )
 
-        assert result.eligible is False
-        assert result.total < MIN_RELEVANT_OPPORTUNITY_SCORE
+        # Post is eligible (topic + domain pass), but flagged for the
+        # missing intent signal so the reviewer knows what to expect.
+        assert result.eligible is True
         assert any(
-            "help-seeking" in reason.lower() or "recommendation intent" in reason.lower()
+            "help-seeking" in reason.lower() or "no explicit help-seeking" in reason.lower()
             for reason in result.reasons
         )
 

@@ -4,17 +4,27 @@ export interface PipelineRun {
   id: string;
   project_id: number;
   website_url: string;
-  status: "pending" | "analyzing" | "generating_personas" | "discovering_keywords" | "finding_subreddits" | "scanning_opportunities" | "generating_drafts" | "ready" | "executed" | "error";
+  status:
+    | "pending"
+    | "analyzing"
+    | "generating_personas"
+    | "discovering_keywords"
+    | "finding_subreddits"
+    | "scanning_opportunities"
+    | "generating_drafts"
+    | "ready"
+    | "executed"
+    | "failed";
   progress: number;
   personas_count: number;
   keywords_count: number;
   subreddits_count: number;
   opportunities_count: number;
   drafts_count: number;
-  current_step: string;
-  error_message?: string;
+  current_step: string | null;
+  error_message?: string | null;
   created_at: string;
-  completed_at?: string;
+  completed_at?: string | null;
   results?: PipelineResults;
 }
 

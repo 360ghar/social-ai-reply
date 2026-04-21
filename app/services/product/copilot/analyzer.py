@@ -69,28 +69,37 @@ class WebsiteAnalyzer:
             "Accept-Language": "en-US,en;q=0.9",
         }
         last_err: Exception | None = None
+        allow_http_fallback = getattr(self, "_allow_http_fallback", True)
+        candidate_urls = [url]
+        if allow_http_fallback and url.startswith("https://"):
+            candidate_urls.append(f"http://{url.removeprefix('https://')}")
 
-        for verify_ssl in (True, False):
-            try:
-                with httpx.Client(
-                    timeout=25.0,
-                    follow_redirects=True,
-                    verify=verify_ssl,
-                ) as client:
-                    resp = client.get(url, headers=headers)
-                    resp.raise_for_status()
-                    return resp.text
-            except httpx.HTTPStatusError as exc:
-                logger.warning("HTTP %s for %s (ssl_verify=%s)", exc.response.status_code, url, verify_ssl)
-                last_err = exc
-                break
-            except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
-                logger.warning("Fetch failed for %s (ssl_verify=%s): %s", url, verify_ssl, exc)
-                last_err = exc
-                if verify_ssl:
-                    logger.info("Retrying %s with SSL verification disabled...", url)
-                    continue
-                break
+        for candidate_url in candidate_urls:
+            if candidate_url != url and candidate_url.startswith("http://"):
+                logger.warning("Retrying %s over plain HTTP after HTTPS fetch attempts failed", url)
+            for verify_ssl in (True, False):
+                try:
+                    with httpx.Client(
+                        timeout=25.0,
+                        follow_redirects=True,
+                        verify=verify_ssl,
+                    ) as client:
+                        resp = client.get(candidate_url, headers=headers)
+                        resp.raise_for_status()
+                        return resp.text
+                except httpx.HTTPStatusError as exc:
+                    logger.warning("HTTP %s for %s (ssl_verify=%s)", exc.response.status_code, candidate_url, verify_ssl)
+                    last_err = exc
+                    break
+                except httpx.HTTPError as exc:
+                    # Covers ConnectError, TimeoutException, and other httpx-level
+                    # transport failures. Keep the retry-on-SSL loop intact.
+                    logger.warning("Fetch failed for %s (ssl_verify=%s): %s", candidate_url, verify_ssl, exc)
+                    last_err = exc
+                    if verify_ssl:
+                        logger.info("Retrying %s with SSL verification disabled...", candidate_url)
+                        continue
+                    break
 
         raise RuntimeError(f"Could not fetch {url}: {last_err}") from last_err
 
@@ -107,8 +116,14 @@ class WebsiteAnalyzer:
             ValueError: If the URL is empty.
             RuntimeError: If the website cannot be fetched.
         """
-        website_url = self._normalize_url(website_url)
-        html = self._fetch_html(website_url)
+        raw_url = website_url.strip()
+        explicit_https = raw_url.lower().startswith("https://")
+        website_url = self._normalize_url(raw_url)
+        self._allow_http_fallback = not explicit_https
+        try:
+            html = self._fetch_html(website_url)
+        finally:
+            self._allow_http_fallback = True
 
         soup = BeautifulSoup(html, "html.parser")
         title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
@@ -119,13 +134,12 @@ class WebsiteAnalyzer:
         text = " ".join(part for part in [title, description, headings, paragraphs] if part).strip()
         cleaned = re.sub(r"\s+", " ", text)
         fallback_name = urlparse(website_url).netloc.replace("www.", "").split(".")[0].replace("-", " ").title()
+        heuristic_text = " ".join(part for part in [description, headings, paragraphs, title] if part).strip() or cleaned or fallback_name
 
         ai_result = _structured_brand_analysis(self.llm, cleaned or fallback_name, fallback_name)
         if not ai_result:
-            raise RuntimeError(
-                "Failed to analyze website — the LLM returned no usable response. "
-                "Check that your LLM provider API key is configured and try again."
-            )
+            logger.warning("LLM returned no usable website analysis for %s; using heuristic fallback.", website_url)
+            return _fallback_brand_analysis(heuristic_text, fallback_name)
         return ai_result
 
 
@@ -178,6 +192,22 @@ def _structured_brand_analysis(llm: LLMClient, text: str, fallback_name: str) ->
     except Exception:
         logger.exception("_structured_brand_analysis failed")
         return None
+
+
+def _fallback_brand_analysis(text: str, fallback_name: str) -> WebsiteAnalysis:
+    """Build a deterministic analysis when the LLM response is unavailable."""
+    normalized_text = re.sub(r"\s+", " ", text).strip() or fallback_name
+    summary = normalized_text[:280]
+    product_summary = normalized_text[:280]
+    return WebsiteAnalysis(
+        brand_name=fallback_name,
+        summary=summary,
+        product_summary=product_summary,
+        target_audience=infer_audience(normalized_text),
+        call_to_action=infer_cta(normalized_text),
+        voice_notes="Helpful, grounded, and specific.",
+        business_domain=infer_business_domain(summary, product_summary),
+    )
 
 
 def analyze_website(website_url: str) -> WebsiteAnalysis:

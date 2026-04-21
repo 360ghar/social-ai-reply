@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +12,41 @@ from app.core.constants.app import (
     DEFAULT_OPENAI_MODEL,
     DEFAULT_PERPLEXITY_MODEL,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_WEB_ENV_PATH = _REPO_ROOT / "web" / ".env.local"
+_PLACEHOLDER_VALUES = {
+    "",
+    "https://your-project.supabase.co",
+    "your-publishable-key",
+    "your-secret-key",
+    "your-jwt-secret",
+}
+
+
+def _strip_optional_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = _strip_optional_quotes(value.strip())
+    return values
+
+
+def _normalize_placeholder(value: str) -> str:
+    normalized = value.strip()
+    return "" if normalized in _PLACEHOLDER_VALUES else normalized
 
 
 class Settings(BaseSettings):
@@ -30,29 +66,44 @@ class Settings(BaseSettings):
 
     encryption_key: str | None = None
 
-    # LLM Provider selection
+    # LLM Provider selection — Gemini is the default for RedditFlow.
+    # See app/core/constants/app.py::DEFAULT_LLM_PROVIDER. Only the active
+    # provider's credentials are required; the registry silently skips any
+    # provider whose API key is missing.
     llm_provider: str = DEFAULT_LLM_PROVIDER
 
-    # OpenAI (primary)
-    openai_api_key: str | None = None
-    openai_model: str = DEFAULT_OPENAI_MODEL
-    openai_base_url: str | None = None
-
-    # Gemini
+    # Gemini (primary — default provider, normally the only one configured)
     gemini_api_key: str | None = None
     gemini_model: str = DEFAULT_GEMINI_MODEL
     gemini_api_url: str = DEFAULT_GEMINI_API_URL
 
-    # Perplexity
+    # OpenAI (optional alternative — leave unset unless llm_provider="openai")
+    openai_api_key: str | None = None
+    openai_model: str = DEFAULT_OPENAI_MODEL
+    openai_base_url: str | None = None
+
+    # Perplexity (optional alternative)
     perplexity_api_key: str | None = None
     perplexity_model: str = DEFAULT_PERPLEXITY_MODEL
 
-    # Anthropic (Claude)
+    # Anthropic / Claude (optional alternative)
     anthropic_api_key: str | None = None
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
 
     reddit_base_url: str = "https://www.reddit.com"
     reddit_user_agent: str = "web:redditflow:v1.2 (by /u/redditflow_bot)"
+    reddit_search_provider: str = "auto"
+    serpapi_api_key: str | None = None
+    bing_search_api_key: str | None = None
+    bing_search_url: str = "https://api.bing.microsoft.com/v7.0/search"
+    duckduckgo_search_url: str = "https://html.duckduckgo.com/html/"
+
+    # Reddit OAuth (for connecting user Reddit accounts). When any of these are
+    # empty, the /v1/reddit/connect endpoint returns a structured 503 instead
+    # of handing out a placeholder authorize URL.
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_redirect_uri: str | None = None
 
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
@@ -65,7 +116,23 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_use_tls: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore")
+
+    @model_validator(mode="after")
+    def hydrate_local_supabase_settings(self) -> "Settings":
+        self.supabase_url = _normalize_placeholder(self.supabase_url)
+        self.supabase_publishable_key = _normalize_placeholder(self.supabase_publishable_key)
+        self.supabase_secret_key = _normalize_placeholder(self.supabase_secret_key)
+        self.supabase_jwt_secret = _normalize_placeholder(self.supabase_jwt_secret)
+
+        if self.environment == "development":
+            web_env = _read_env_file(_WEB_ENV_PATH)
+            if not self.supabase_url:
+                self.supabase_url = web_env.get("NEXT_PUBLIC_SUPABASE_URL", "").strip()
+            if not self.supabase_publishable_key:
+                self.supabase_publishable_key = web_env.get("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "").strip()
+
+        return self
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":

@@ -181,6 +181,16 @@ def test_manual_discovery_filters_offtopic_subreddits_and_posts(authed_client, m
     monkeypatch.setattr("app.services.product.reddit.RedditClient.subreddit_rules", _mock_subreddit_rules)
     monkeypatch.setattr("app.services.product.reddit.RedditClient.list_subreddit_posts", _mock_subreddit_posts)
     monkeypatch.setattr("app.services.product.reddit.RedditClient.search_posts", _mock_search_posts)
+    monkeypatch.setattr("app.services.product.scanner.RedditDiscoveryService.subreddit_rules", _mock_subreddit_rules)
+    monkeypatch.setattr(
+        "app.services.product.scanner.RedditDiscoveryService.search_posts",
+        lambda self, keywords, subreddits=None, limit=20: _mock_search_posts(
+            self,
+            (subreddits or ["saas"])[0],
+            keywords,
+            limit=limit,
+        ),
+    )
 
     subreddits = client.post(
         f"/v1/discovery/subreddits/discover?project_id={project_id}",
@@ -266,6 +276,16 @@ def test_scan_uses_domain_filtered_keywords_for_real_estate_projects(authed_clie
 
     monkeypatch.setattr("app.services.product.reddit.RedditClient.search_posts", _capture_real_estate_search)
     monkeypatch.setattr("app.services.product.reddit.RedditClient.subreddit_rules", lambda self, name: [])
+    monkeypatch.setattr(
+        "app.services.product.scanner.RedditDiscoveryService.search_posts",
+        lambda self, keywords, subreddits=None, limit=20: _capture_real_estate_search(
+            self,
+            (subreddits or ["realestate"])[0],
+            keywords,
+            limit=limit,
+        ),
+    )
+    monkeypatch.setattr("app.services.product.scanner.RedditDiscoveryService.subreddit_rules", lambda self, name: [])
 
     scan = client.post(
         "/v1/scans",
