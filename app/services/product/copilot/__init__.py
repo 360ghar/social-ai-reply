@@ -5,6 +5,7 @@ from app.services.product.copilot.analyzer import (
     WebsiteAnalysis,
     WebsiteAnalyzer,
     analyze_website,
+    analyze_website_async,
 )
 from app.services.product.copilot.inference import (
     infer_audience,
@@ -14,8 +15,8 @@ from app.services.product.copilot.inference import (
 from app.services.product.copilot.keyword import GeneratedKeyword, generate_keywords
 from app.services.product.copilot.llm_client import LLMClient
 from app.services.product.copilot.persona import suggest_personas
-from app.services.product.copilot.post import generate_post
-from app.services.product.copilot.reply import generate_reply
+from app.services.product.copilot.post import generate_post, generate_post_async
+from app.services.product.copilot.reply import generate_reply, generate_reply_async
 
 __all__ = [
     # Facade (backward compatibility)
@@ -24,6 +25,7 @@ __all__ = [
     "WebsiteAnalysis",
     "WebsiteAnalyzer",
     "analyze_website",
+    "analyze_website_async",
     # Persona
     "suggest_personas",
     # Keyword
@@ -31,8 +33,10 @@ __all__ = [
     "generate_keywords",
     # Reply
     "generate_reply",
+    "generate_reply_async",
     # Post
     "generate_post",
+    "generate_post_async",
     # Inference
     "infer_audience",
     "infer_cta",
