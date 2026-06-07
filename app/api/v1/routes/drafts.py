@@ -19,6 +19,7 @@ from app.db.tables.content import (
     get_post_draft_by_id,
     get_reply_draft_by_id,
     list_post_drafts_for_project,
+    list_reply_drafts_for_opportunities,
 )
 from app.db.tables.content import (
     update_post_draft as update_post_draft_db,
@@ -26,7 +27,9 @@ from app.db.tables.content import (
 from app.db.tables.content import (
     update_reply_draft as update_reply_draft_db,
 )
+from app.db.tables.content import count_reply_drafts_for_project
 from app.db.tables.discovery import (
+    count_opportunities_for_project,
     get_opportunity_by_id,
     list_opportunities_for_project,
     update_opportunity,
@@ -121,10 +124,7 @@ def list_reply_drafts(
 
     # Get all reply drafts for these opportunities in a single batch query
     # Then select the latest draft for each opportunity
-    all_drafts = []
-    for opp_id in opportunity_ids:
-        drafts = list_reply_drafts_for_opportunity(supabase, opp_id)
-        all_drafts.extend(drafts)
+    all_drafts = list_reply_drafts_for_opportunities(supabase, opportunity_ids)
 
     # Group by opportunity and get latest
     latest_drafts = {}
@@ -153,6 +153,28 @@ def list_reply_drafts(
     # Sort by created_at descending
     results.sort(key=lambda x: x["created_at"] or "", reverse=True)
     return results
+
+
+@router.get("/drafts/count")
+def get_draft_counts(
+    project_id: int | None = Query(default=None, ge=1),
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+):
+    """Count drafting and published reply drafts for a project.
+
+    Returns accurate counts from the database rather than deriving them
+    from a limited opportunity list.
+    """
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    proj = get_active_project(supabase, workspace["id"], project_id)
+    if not proj:
+        return {"drafting": 0, "published": 0, "total": 0}
+
+    drafting = count_reply_drafts_for_project(supabase, proj["id"])
+    published = count_opportunities_for_project(supabase, proj["id"], status="posted")
+    return {"drafting": drafting, "published": published, "total": drafting + published}
 
 
 @router.put("/drafts/replies/{draft_id}", response_model=ReplyDraftResponse)
@@ -262,6 +284,7 @@ def update_post_draft(
         },
     )
     return PostDraftResponse.model_validate(updated)
+
 
 
 def list_reply_drafts_for_opportunity(supabase: Client, opportunity_id: int) -> list:

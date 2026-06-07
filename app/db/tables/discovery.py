@@ -237,6 +237,31 @@ def get_opportunity_by_project_and_reddit_post(
     return _normalize_opportunity_record(result.data[0]) if result.data else None
 
 
+def batch_get_opportunities_by_reddit_posts(
+    db: Client,
+    project_id: int,
+    reddit_post_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Batch-fetch opportunities for multiple Reddit post IDs in one query.
+
+    Returns a dict mapping reddit_post_id -> opportunity record (or missing
+    if that post has no opportunity yet).
+    """
+    if not reddit_post_ids:
+        return {}
+    result = (
+        db.table(OPPORTUNITIES_TABLE)
+        .select("*")
+        .eq("project_id", project_id)
+        .in_("reddit_post_id", reddit_post_ids)
+        .execute()
+    )
+    return {
+        row["reddit_post_id"]: _normalize_opportunity_record(row)
+        for row in result.data
+    }
+
+
 def list_opportunities_for_project(
     db: Client,
     project_id: int,

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any
 from fastapi import HTTPException
 
 from app.db.tables.discovery import (
+    batch_get_opportunities_by_reddit_posts,
     create_opportunity,
-    get_opportunity_by_project_and_reddit_post,
     get_scan_run_by_id,
     list_score_feedback_for_workspace,
     update_opportunity,
@@ -131,14 +131,19 @@ def run_scan(db: Client, project: dict, payload: ScanRequest) -> dict:
                 continue
 
             rules = result.rules
+
+            # Batch-fetch existing opportunities for all posts in this result set
+            post_ids = [post.post_id for post in result.posts]
+            existing_opps = batch_get_opportunities_by_reddit_posts(db, project["id"], post_ids)
+
             for post in result.posts:
                 if post.created_at and post.created_at < cutoff.replace(tzinfo=None if post.created_at.tzinfo is None else UTC):
                     continue
                 posts_scanned += 1
                 score = score_post(post, brand, subreddit, search_keywords, rules, feedback_records=feedback_records)
 
-                # Check if this Reddit post already exists as an opportunity.
-                existing = get_opportunity_by_project_and_reddit_post(db, project["id"], post.post_id)
+                # Dict lookup instead of per-post DB query
+                existing = existing_opps.get(post.post_id)
 
                 if score.eligible and score.total >= effective_min_score:
                     new_status = existing.get("status", "new") if existing else "new"
@@ -259,6 +264,11 @@ def revalidate_opportunity(db: Client, project: dict, opportunity: dict) -> tupl
 
     # Create a RedditPost from stored opportunity data
     from datetime import datetime
+    post_created = opportunity.get("post_created_at")
+    if post_created is None:
+        post_created = opportunity.get("created_utc", datetime.now(UTC))
+    elif isinstance(post_created, str):
+        post_created = datetime.fromisoformat(post_created.replace("Z", "+00:00"))
     post = RedditPost(
         post_id=opportunity.get("reddit_post_id", ""),
         subreddit=opportunity.get("subreddit_name", ""),
@@ -266,8 +276,8 @@ def revalidate_opportunity(db: Client, project: dict, opportunity: dict) -> tupl
         author=opportunity.get("author", ""),
         permalink=opportunity.get("permalink", ""),
         body=opportunity.get("body_excerpt", ""),
-        created_at=datetime.now(UTC),
-        num_comments=0,
+        created_at=post_created,
+        num_comments=opportunity.get("comments_count", 0) or 0,
         score=opportunity.get("score", 0),
     )
 

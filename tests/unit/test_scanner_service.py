@@ -40,7 +40,7 @@ def test_run_scan_preserves_original_insert_error_when_opportunity_write_fails(m
         ),
         patch("app.services.product.scanner.get_project_search_keywords", return_value=["buyers"]),
         patch("app.services.product.scanner.score_post", return_value=scored_post),
-        patch("app.services.product.scanner.get_opportunity_by_project_and_reddit_post", return_value=None),
+        patch("app.db.tables.discovery.batch_get_opportunities_by_reddit_posts", return_value={}),
         patch("app.services.product.scanner.create_opportunity", side_effect=RuntimeError("insert failed")),
         pytest.raises(RuntimeError, match="insert failed"),
     ):

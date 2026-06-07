@@ -17,7 +17,6 @@ from app.db.tables.discovery import (
     delete_discovery_keyword,
     delete_monitored_subreddit,
     get_discovery_keyword_by_id,
-    get_keyword_by_project_and_keyword,
     get_monitored_subreddit_by_id,
     list_keywords_for_project,
     list_subreddits_for_project,
@@ -100,15 +99,20 @@ def generate_keywords(
     generated = ProductCopilot().generate_keywords(project.get("brand_profile"), personas, payload.count)
     created = []
 
-    for item in generated:
-        # Check for duplicates
-        existing = get_keyword_by_project_and_keyword(supabase, project_id, item.keyword)
-        if existing:
-            continue
+    # Batch-fetch all existing keywords for duplicate detection
+    existing_keywords = list_keywords_for_project(supabase, project_id)
+    existing_keyword_set = {k["keyword"] for k in existing_keywords}
 
-        # Check limit
-        if count_active_keywords(supabase, project_id) >= get_limit(supabase, workspace, "keywords"):
+    # Resolve limit once, outside the loop
+    current_count = count_active_keywords(supabase, project_id)
+    max_keywords = get_limit(supabase, workspace, "keywords")
+    available_slots = max_keywords - current_count
+
+    for item in generated:
+        if len(created) >= available_slots:
             break
+        if item.keyword in existing_keyword_set:
+            continue
 
         keyword_data = {
             "project_id": project_id,
