@@ -20,11 +20,13 @@ from app.schemas.v1.discovery import OpportunityResponse, OpportunityStatusReque
 logger = logging.getLogger(__name__)
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
-    "new": {"saved", "drafting", "ignored", "rejected"},
-    "saved": {"drafting", "ignored", "rejected"},
+    "new": {"saved", "drafting", "ignored", "rejected", "approved"},
+    "saved": {"drafting", "ignored", "rejected", "approved"},
     "drafting": {"posted", "saved", "ignored"},
     "posted": set(),
     "ignored": {"new"},
+    "approved": {"rejected", "copied"},
+    "copied": set(),
     # "rejected" was filtered by the scoring pipeline — the user can
     # always manually promote it back to "new" for review.
     "rejected": {"new", "ignored"},
@@ -130,7 +132,11 @@ def approve_opportunity(
     proj = get_project_by_id(supabase, opportunity["project_id"])
     if not proj or proj["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    updated = update_opportunity(supabase, opportunity_id, {"status": "approved"})
+    current = opportunity.get("status", "new")
+    target = "approved"
+    if target not in _VALID_TRANSITIONS.get(current, set()):
+        raise HTTPException(status_code=422, detail=f"Cannot transition from '{current}' to '{target}'.")
+    updated = update_opportunity(supabase, opportunity_id, {"status": target})
     return OpportunityResponse.model_validate(updated)
 
 
@@ -148,7 +154,11 @@ def reject_opportunity(
     proj = get_project_by_id(supabase, opportunity["project_id"])
     if not proj or proj["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    updated = update_opportunity(supabase, opportunity_id, {"status": "rejected"})
+    current = opportunity.get("status", "new")
+    target = "rejected"
+    if target not in _VALID_TRANSITIONS.get(current, set()):
+        raise HTTPException(status_code=422, detail=f"Cannot transition from '{current}' to '{target}'.")
+    updated = update_opportunity(supabase, opportunity_id, {"status": target})
     return OpportunityResponse.model_validate(updated)
 
 
@@ -166,7 +176,11 @@ def copy_opportunity(
     proj = get_project_by_id(supabase, opportunity["project_id"])
     if not proj or proj["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    updated = update_opportunity(supabase, opportunity_id, {"status": "copied"})
+    current = opportunity.get("status", "new")
+    target = "copied"
+    if target not in _VALID_TRANSITIONS.get(current, set()):
+        raise HTTPException(status_code=422, detail=f"Cannot transition from '{current}' to '{target}'.")
+    updated = update_opportunity(supabase, opportunity_id, {"status": target})
     return OpportunityResponse.model_validate(updated)
 
 
@@ -184,7 +198,11 @@ def mark_irrelevant(
     proj = get_project_by_id(supabase, opportunity["project_id"])
     if not proj or proj["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Opportunity not found.")
-    update_opportunity(supabase, opportunity_id, {"status": "ignored"})
+    current = opportunity.get("status", "new")
+    target = "ignored"
+    if target not in _VALID_TRANSITIONS.get(current, set()):
+        raise HTTPException(status_code=422, detail=f"Cannot transition from '{current}' to '{target}'.")
+    update_opportunity(supabase, opportunity_id, {"status": target})
     create_feedback(
         supabase,
         {
