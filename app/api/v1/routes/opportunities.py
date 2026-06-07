@@ -8,6 +8,7 @@ from supabase import Client
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
 from app.db.supabase_client import get_supabase
 from app.db.tables.discovery import (
+    create_score_feedback,
     get_opportunity_by_id,
     list_opportunities_for_project,
     update_opportunity,
@@ -81,4 +82,20 @@ def update_opportunity_status(
         update_data["posted_at"] = datetime.now(UTC).isoformat()
 
     updated = update_opportunity(supabase, opportunity_id, update_data)
+
+    try:
+        feedback_action = target
+        if target == "drafting":
+            feedback_action = "saved"
+        elif target == "posted":
+            feedback_action = "replied"
+        create_score_feedback(supabase, {
+            "opportunity_id": opportunity_id,
+            "workspace_id": workspace["id"],
+            "action": feedback_action,
+            "original_score": opportunity.get("score", 0),
+        })
+    except Exception as exc:
+        logger.warning("Failed to record score feedback (non-fatal): %s", exc)
+
     return OpportunityResponse.model_validate(updated)

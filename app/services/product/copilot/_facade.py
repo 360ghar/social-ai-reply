@@ -6,13 +6,18 @@ New code should import directly from app.services.product.copilot.* submodules.
 
 from __future__ import annotations
 
-from app.services.product.copilot.analyzer import WebsiteAnalysis, WebsiteAnalyzer, analyze_website
+from app.services.product.copilot.analyzer import (
+    WebsiteAnalysis,
+    WebsiteAnalyzer,
+    analyze_website,
+    analyze_website_async,
+)
 from app.services.product.copilot.inference import infer_audience, infer_business_domain, infer_cta
 from app.services.product.copilot.keyword import GeneratedKeyword, generate_keywords
 from app.services.product.copilot.llm_client import LLMClient
 from app.services.product.copilot.persona import suggest_personas
-from app.services.product.copilot.post import generate_post
-from app.services.product.copilot.reply import generate_reply
+from app.services.product.copilot.post import generate_post, generate_post_async
+from app.services.product.copilot.reply import generate_reply, generate_reply_async
 
 
 class ProductCopilot:
@@ -59,6 +64,32 @@ class ProductCopilot:
     def generate_post(self, brand: dict | None, prompts: list[dict]) -> tuple[str, str, str]:
         """Generate a Reddit post draft from brand context."""
         return generate_post(brand, prompts)
+
+    async def analyze_website_async(self, website_url: str) -> WebsiteAnalysis:
+        """Async version of :meth:`analyze_website`.
+
+        Use from async contexts to avoid the :func:`_run_async` deadlock risk.
+        """
+        return await analyze_website_async(website_url)
+
+    async def generate_reply_async(
+        self,
+        opportunity: dict,
+        brand: dict | None,
+        prompts: list[dict],
+    ) -> tuple[str, str, str]:
+        """Async version of :meth:`generate_reply`.
+
+        Use from async contexts to avoid the :func:`_run_async` deadlock risk.
+        """
+        return await generate_reply_async(opportunity, brand, prompts)
+
+    async def generate_post_async(self, brand: dict | None, prompts: list[dict]) -> tuple[str, str, str]:
+        """Async version of :meth:`generate_post`.
+
+        Use from async contexts to avoid the :func:`_run_async` deadlock risk.
+        """
+        return await generate_post_async(brand, prompts)
 
     # Keep original private methods for backward compatibility
     def _meaningful_terms(self, text: str) -> list[str]:

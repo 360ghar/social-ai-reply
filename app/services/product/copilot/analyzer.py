@@ -190,7 +190,74 @@ def _structured_brand_analysis(llm: LLMClient, text: str, fallback_name: str) ->
             business_domain=inferred_domain,
         )
     except Exception:
-        logger.exception("_structured_brand_analysis failed")
+        logger.exception("_structured_brand_analysis legacy fallback also failed")
+        return None
+
+
+async def _structured_brand_analysis_async(llm: LLMClient, text: str, fallback_name: str) -> WebsiteAnalysis | None:
+    """Async version of :func:`_structured_brand_analysis`.
+
+    Uses the Pydantic AI agent's async path directly, avoiding the
+    :func:`_run_async` deadlock risk when called from an async context.
+    """
+    try:
+        from app.services.infrastructure.llm.service import analyze_brand_async
+
+        result = await analyze_brand_async(text, fallback_name=fallback_name, cache_ttl=300.0)
+        if result is not None:
+            inferred_domain = result.business_domain or infer_business_domain(
+                result.summary or text[:500],
+                result.product_summary or "",
+            )
+            return WebsiteAnalysis(
+                brand_name=result.brand_name or fallback_name,
+                summary=result.summary or text[:280],
+                product_summary=result.product_summary or text[:280],
+                target_audience=result.target_audience or infer_audience(text),
+                call_to_action=result.call_to_action or infer_cta(text),
+                voice_notes=result.voice_notes or "Helpful, grounded, and specific.",
+                business_domain=inferred_domain,
+            )
+    except Exception as agent_error:
+        logger.warning("Pydantic AI brand analysis agent failed, falling back to legacy: %s", agent_error)
+
+    try:
+        system_prompt = (
+            "You extract go-to-market context for a Reddit engagement platform. "
+            "Return JSON with brand_name, summary, product_summary, target_audience, call_to_action, voice_notes, "
+            "and business_domain.\n\n"
+            "business_domain MUST be a short label identifying the company's core industry or vertical "
+            "(e.g. 'real estate', 'healthcare', 'fintech', 'edtech', 'ecommerce', 'saas', 'travel', "
+            "'food and restaurant', 'marketing', 'developer tools', 'legal', 'logistics', 'automotive', etc.).\n\n"
+            "product_summary should focus on the CORE business problem the company solves in its domain, "
+            "NOT generic technology features like AI, VR, or automation. For example, if a real estate platform "
+            "uses VR tours, the product_summary should emphasize real estate search and property discovery, "
+            "not VR technology.\n\n"
+            "target_audience should list the DOMAIN-SPECIFIC audience (e.g. 'home buyers, property investors, "
+            "real estate agents' for a real estate platform), NOT generic tech users."
+        )
+        payload = llm.call(system_prompt, text[:12000], temperature=0.2)
+        if not payload:
+            return None
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if not isinstance(payload, dict):
+            return None
+        inferred_domain = payload.get("business_domain") or infer_business_domain(
+            payload.get("summary") or text[:500],
+            payload.get("product_summary") or "",
+        )
+        return WebsiteAnalysis(
+            brand_name=payload.get("brand_name") or fallback_name,
+            summary=payload.get("summary") or text[:280],
+            product_summary=payload.get("product_summary") or text[:280],
+            target_audience=payload.get("target_audience") or infer_audience(text),
+            call_to_action=payload.get("call_to_action") or infer_cta(text),
+            voice_notes=payload.get("voice_notes") or "Helpful, grounded, and specific.",
+            business_domain=inferred_domain,
+        )
+    except Exception:
+        logger.exception("_structured_brand_analysis_async legacy fallback also failed")
         return None
 
 
@@ -221,3 +288,44 @@ def analyze_website(website_url: str) -> WebsiteAnalysis:
     """
     analyzer = WebsiteAnalyzer()
     return analyzer.analyze_website(website_url)
+
+
+async def analyze_website_async(website_url: str) -> WebsiteAnalysis:
+    """Async convenience function to analyze a website.
+
+    Use this from async contexts (e.g. ``async def`` FastAPI handlers) to avoid
+    the deadlock risk of the sync :func:`analyze_website`, which internally
+    calls :func:`_run_async`.
+
+    Args:
+        website_url: URL of the website to analyze.
+
+    Returns:
+        WebsiteAnalysis dataclass with extracted brand information.
+    """
+    analyzer = WebsiteAnalyzer()
+    raw_url = website_url.strip()
+    explicit_https = raw_url.lower().startswith("https://")
+    normalized_url = WebsiteAnalyzer._normalize_url(raw_url)
+    analyzer._allow_http_fallback = not explicit_https
+    try:
+        html = analyzer._fetch_html(normalized_url)
+    finally:
+        analyzer._allow_http_fallback = True
+
+    soup = BeautifulSoup(html, "html.parser")
+    title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""
+    description_tag = soup.find("meta", attrs={"name": "description"})
+    description = (description_tag.get("content") or "").strip() if description_tag else ""
+    headings = " ".join(tag.get_text(" ", strip=True) for tag in soup.find_all(["h1", "h2"])[:6])
+    paragraphs = " ".join(tag.get_text(" ", strip=True) for tag in soup.find_all("p")[:10])
+    text = " ".join(part for part in [title, description, headings, paragraphs] if part).strip()
+    cleaned = re.sub(r"\s+", " ", text)
+    fallback_name = urlparse(normalized_url).netloc.replace("www.", "").split(".")[0].replace("-", " ").title()
+    heuristic_text = " ".join(part for part in [description, headings, paragraphs, title] if part).strip() or cleaned or fallback_name
+
+    ai_result = await _structured_brand_analysis_async(analyzer.llm, cleaned or fallback_name, fallback_name)
+    if not ai_result:
+        logger.warning("LLM returned no usable website analysis for %s; using heuristic fallback.", normalized_url)
+        return _fallback_brand_analysis(heuristic_text, fallback_name)
+    return ai_result

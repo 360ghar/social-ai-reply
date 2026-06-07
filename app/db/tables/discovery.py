@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from postgrest.exceptions import APIError
 
 if TYPE_CHECKING:
     from supabase import Client
+
+logger = logging.getLogger(__name__)
 
 PERSONAS_TABLE = "personas_v1"
 DISCOVERY_KEYWORDS_TABLE = "discovery_keywords"
@@ -375,3 +378,37 @@ def _normalize_opportunity_record(record: dict[str, Any]) -> dict[str, Any]:
         normalized.setdefault("subreddit_name", subreddit_value)
         normalized.setdefault("subreddit", subreddit_value)
     return normalized
+
+
+SCORE_FEEDBACK_TABLE = "score_feedback"
+
+
+def create_score_feedback(db: Client, feedback_data: dict[str, Any]) -> dict[str, Any]:
+    """Record a user action on an opportunity for score calibration."""
+    try:
+        result = db.table(SCORE_FEEDBACK_TABLE).insert(feedback_data).execute()
+        return result.data[0]
+    except Exception as exc:
+        logger.warning("score_feedback insert failed (table may not exist): %s", exc)
+        return {}
+
+
+def list_score_feedback_for_workspace(
+    db: Client,
+    workspace_id: int,
+    *,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List recent score feedback records for a workspace.
+
+    Used by the calibration function to compute score adjustments.
+    """
+    result = (
+        db.table(SCORE_FEEDBACK_TABLE)
+        .select("*")
+        .eq("workspace_id", workspace_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return list(result.data)

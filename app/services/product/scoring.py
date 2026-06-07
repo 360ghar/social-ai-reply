@@ -55,6 +55,8 @@ def score_post(
     subreddit: dict[str, Any] | None,
     keywords: list[str],
     subreddit_rules: list[str],
+    *,
+    feedback_records: list[dict[str, Any]] | None = None,
 ) -> OpportunityScore:
     """Score a Reddit post for engagement opportunity.
 
@@ -68,6 +70,9 @@ def score_post(
         subreddit: Monitored subreddit dict with name, fit_score, rules_summary.
         keywords: List of discovery keywords to match against.
         subreddit_rules: List of subreddit rule strings.
+        feedback_records: Optional list of score_feedback dicts with ``action``
+            and ``original_score`` keys. When provided, ``calibration_adjustment``
+            is applied to the final score.
 
     Returns:
         OpportunityScore dataclass with total score, keyword hits, reasons,
@@ -306,6 +311,15 @@ def score_post(
         final_score = min(final_score, MIN_RELEVANT_OPPORTUNITY_SCORE - 15)
         reasons = eligibility_reasons + reasons
 
+    if feedback_records:
+        delta = calibration_adjustment(final_score, feedback_records)
+        if delta != 0:
+            final_score = max(min(final_score + delta, 100), 0)
+            if delta > 0:
+                reasons.append(f"Score calibration: +{delta} (based on your past feedback).")
+            else:
+                reasons.append(f"Score calibration: {delta} (based on your past feedback).")
+
     return OpportunityScore(
         total=final_score,
         keyword_hits=keyword_hits,
@@ -414,3 +428,57 @@ def _is_low_context(post: RedditPost) -> bool:
     body_tokens = tokenize(post.body)
     total_tokens = len(title_tokens) + len(body_tokens)
     return total_tokens < 8 or (len(title_tokens) < 3 and len(body_tokens) < 6)
+
+
+_CALIBRATION_MIN_SAMPLES = 20
+_CALIBRATION_MAX_ADJUSTMENT = 5
+
+
+def calibration_adjustment(score: int, feedback_records: list[dict[str, Any]]) -> int:
+    """Compute a score adjustment based on user feedback history.
+
+    When users consistently save/accept posts at a certain score level and
+    ignore others, this function shifts scores up or down accordingly.
+
+    Args:
+        score: The original (uncalibrated) score.
+        feedback_records: List of feedback dicts with ``action`` and
+            ``original_score`` keys.
+
+    Returns:
+        An integer delta (−_CALIBRATION_MAX_ADJUSTMENT to +_CALIBRATION_MAX_ADJUSTMENT)
+        to apply to the score. Returns 0 when insufficient data exists.
+    """
+    if len(feedback_records) < _CALIBRATION_MIN_SAMPLES:
+        return 0
+
+    accepted_scores: list[int] = []
+    rejected_scores: list[int] = []
+    for record in feedback_records:
+        action = record.get("action", "")
+        original = record.get("original_score", 0)
+        if not isinstance(original, (int, float)):
+            continue
+        original = int(original)
+        if action in ("saved", "replied", "drafting"):
+            accepted_scores.append(original)
+        elif action in ("ignored", "rejected"):
+            rejected_scores.append(original)
+
+    if not accepted_scores and not rejected_scores:
+        return 0
+
+    avg_accepted = sum(accepted_scores) / len(accepted_scores) if accepted_scores else 0
+    avg_rejected = sum(rejected_scores) / len(rejected_scores) if rejected_scores else 100
+
+    gap = avg_accepted - avg_rejected
+
+    if abs(gap) < 5:
+        return 0
+
+    if score >= avg_accepted:
+        return min(int(gap / 10), _CALIBRATION_MAX_ADJUSTMENT)
+    elif score <= avg_rejected:
+        return max(-int(abs(gap) / 10), -_CALIBRATION_MAX_ADJUSTMENT)
+    else:
+        return 0

@@ -8,6 +8,7 @@ dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.30.0",
   "pydantic>=2.8.0",
+  "pydantic-ai-slim[openai,google]>=1.0.0",
   "pydantic-settings>=2.4.0",
   "sqlalchemy>=2.0.31",
   "psycopg2-binary>=2.9.9",

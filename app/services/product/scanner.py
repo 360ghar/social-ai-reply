@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
@@ -11,6 +13,7 @@ from app.db.tables.discovery import (
     create_opportunity,
     get_opportunity_by_project_and_reddit_post,
     get_scan_run_by_id,
+    list_score_feedback_for_workspace,
     update_opportunity,
     update_scan_run,
 )
@@ -30,15 +33,23 @@ from app.services.product.scoring import (
 
 logger = logging.getLogger(__name__)
 
-# Cap how many rejected posts we persist per scan to keep the
-# "Rejected" bucket useful rather than overwhelming.
 _MAX_REJECTED_PER_SCAN = 25
+_MAX_PARALLEL_SUBREDDITS = 3
+
+
+@dataclass
+class _SubredditScanResult:
+    subreddit_name: str
+    posts: list[RedditPost] = field(default_factory=list)
+    error: str | None = None
+    rules: list[str] = field(default_factory=list)
 
 
 def run_scan(db: Client, project: dict, payload: ScanRequest) -> dict:
     """Run a scan for opportunities based on project keywords and subreddits."""
-    reddit = RedditDiscoveryService()
     brand = get_brand_profile_by_project(db, project["id"])
+    workspace_id = project.get("workspace_id")
+    feedback_records = list_score_feedback_for_workspace(db, workspace_id) if workspace_id else None
 
     # Get active keywords
     from app.db.tables.discovery import list_discovery_keywords_for_project
@@ -77,32 +88,54 @@ def run_scan(db: Client, project: dict, payload: ScanRequest) -> dict:
         completed_at: str | None = None
         cutoff = datetime.now(UTC) - timedelta(hours=payload.search_window_hours)
         effective_min_score = max(payload.min_score, MIN_RELEVANT_OPPORTUNITY_SCORE)
-        rules_cache: dict[str, list[str]] = {}
         per_subreddit_errors: list[str] = []
-        subreddits_queried = 0
         fatal_error = False
 
-        for subreddit in active_subreddits:
-            # Soft subreddit-fit gate: below the floor we still scan, but
-            # scoring applies a penalty. Previously this was a hard skip.
-            rules = rules_cache.setdefault(subreddit["name"].lower(), _safe_subreddit_rules(reddit, subreddit["name"]))
+        def _scan_one_subreddit(subreddit: dict[str, Any]) -> _SubredditScanResult:
+            name = subreddit["name"]
+            local_reddit = RedditDiscoveryService()
             try:
-                posts = reddit.search_posts(
+                rules = _safe_subreddit_rules(local_reddit, name)
+                posts = local_reddit.search_posts(
                     search_keywords,
-                    subreddits=[subreddit["name"]],
+                    subreddits=[name],
                     limit=payload.max_posts_per_subreddit,
                 )
-                subreddits_queried += 1
-            except Exception as exc:  # noqa: BLE001 - capture root cause in scan metadata
-                err_msg = f"{subreddit['name']}: {type(exc).__name__}: {exc}"[:200]
-                per_subreddit_errors.append(err_msg)
-                logger.warning("Scan: error querying r/%s: %s", subreddit["name"], exc)
+                return _SubredditScanResult(subreddit_name=name, posts=posts, rules=rules)
+            except Exception as exc:  # noqa: BLE001
+                return _SubredditScanResult(
+                    subreddit_name=name,
+                    error=f"{name}: {type(exc).__name__}: {exc}"[:200],
+                )
+            finally:
+                local_reddit.close()
+
+        scan_results: list[_SubredditScanResult] = []
+        with ThreadPoolExecutor(max_workers=min(len(active_subreddits), _MAX_PARALLEL_SUBREDDITS)) as pool:
+            future_to_sub = {
+                pool.submit(_scan_one_subreddit, sub): sub
+                for sub in active_subreddits
+            }
+            for future in as_completed(future_to_sub):
+                scan_results.append(future.result())
+
+        subreddit_map = {s["name"]: s for s in active_subreddits}
+        for result in scan_results:
+            subreddit = subreddit_map.get(result.subreddit_name)
+            if not subreddit:
                 continue
-            for post in posts:
+
+            if result.error:
+                per_subreddit_errors.append(result.error)
+                logger.warning("Scan: error querying r/%s: %s", result.subreddit_name, result.error)
+                continue
+
+            rules = result.rules
+            for post in result.posts:
                 if post.created_at and post.created_at < cutoff.replace(tzinfo=None if post.created_at.tzinfo is None else UTC):
                     continue
                 posts_scanned += 1
-                score = score_post(post, brand, subreddit, search_keywords, rules)
+                score = score_post(post, brand, subreddit, search_keywords, rules, feedback_records=feedback_records)
 
                 # Check if this Reddit post already exists as an opportunity.
                 existing = get_opportunity_by_project_and_reddit_post(db, project["id"], post.post_id)
@@ -151,6 +184,8 @@ def run_scan(db: Client, project: dict, payload: ScanRequest) -> dict:
                         "status": "rejected",
                     })
                     rejected_saved += 1
+
+        subreddits_queried = sum(1 for r in scan_results if not r.error)
 
         error_message: str | None = None
         if subreddits_queried == 0 and per_subreddit_errors:
@@ -212,6 +247,8 @@ def revalidate_opportunity(db: Client, project: dict, opportunity: dict) -> tupl
     Uses stored opportunity data since we don't have real-time Reddit access.
     """
     brand = get_brand_profile_by_project(db, project["id"])
+    workspace_id = project.get("workspace_id")
+    feedback_records = list_score_feedback_for_workspace(db, workspace_id) if workspace_id else None
 
     from app.db.tables.discovery import list_discovery_keywords_for_project, list_monitored_subreddits_for_project
     keywords = [k["keyword"] for k in list_discovery_keywords_for_project(db, project["id"]) if k.get("is_active", True)]
@@ -234,7 +271,7 @@ def revalidate_opportunity(db: Client, project: dict, opportunity: dict) -> tupl
         score=opportunity.get("score", 0),
     )
 
-    score = score_post(post, brand, subreddit, keywords, [])
+    score = score_post(post, brand, subreddit, keywords, [], feedback_records=feedback_records)
     return score.eligible, score.total
 
 
