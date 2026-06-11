@@ -15,11 +15,14 @@ import {
   ChevronDown,
   ArrowRight,
   LayoutTemplate,
+  Link2,
+  Megaphone,
+  AlertTriangle,
 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
-import { getErrorMessage } from "@/types/errors";
+import { getErrorMessage, isApiError } from "@/types/errors";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,6 +55,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { type PostDraft, apiRequest } from "@/lib/api";
 import { withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { useDraftOps } from "@/hooks/use-draft-ops";
 import { PlatformIcon } from "@/components/shared/platform-icon";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -60,6 +64,10 @@ import { SheetPanel } from "@/components/shared/sheet-panel";
 import { ScoreBadge } from "@/components/shared/score-badge";
 import { redditUrl, copyText } from "@/lib/reddit";
 import { setStoredProjectId } from "@/lib/project";
+import { postToReddit as apiPostToReddit } from "@/lib/api/reddit";
+import { createTrackedLink, shortLinkUrl } from "@/lib/api/links";
+import { createAmplifyDraft, type AmplifyTarget } from "@/lib/api/amplify";
+import { rememberAmplifyDraft } from "@/lib/amplify-store";
 
 interface ReplyDraftRow {
   id: number;
@@ -110,6 +118,16 @@ export default function ContentPage() {
   const { token } = useAuth();
   const { success, error } = useToast();
   const selectedProjectId = useSelectedProjectId();
+  const {
+    savingReply,
+    savingPost,
+    generateReplyDraft,
+    copyToClipboard,
+    copyAndOpenReddit,
+    markAsPosted: markOpportunityPosted,
+    saveReplyDraft: persistReplyDraft,
+    savePostDraft: persistPostDraft,
+  } = useDraftOps(token);
   const requestedProjectId = parsePositiveInt(searchParams.get("project_id"));
   const requestedOpportunityId = parsePositiveInt(searchParams.get("opportunity"));
   const pendingOpportunityIdRef = useRef<number | null>(null);
@@ -123,8 +141,6 @@ export default function ContentPage() {
   const [project, setProject] = useState<ProjectContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingPost, setGeneratingPost] = useState(false);
-  const [savingReply, setSavingReply] = useState(false);
-  const [savingPost, setSavingPost] = useState(false);
 
   const [selectedReply, setSelectedReply] = useState<ReplyDraftRow | null>(null);
   const [replyContent, setReplyContent] = useState("");
@@ -138,6 +154,16 @@ export default function ContentPage() {
   const [postingReddit, setPostingReddit] = useState(false);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [postingDraftId, setPostingDraftId] = useState<number | null>(null);
+  const [postSubreddit, setPostSubreddit] = useState("");
+  const [safetyBlock, setSafetyBlock] = useState<string | null>(null);
+
+  // Tracked-link creation (reply ROI attribution)
+  const [linkDraft, setLinkDraft] = useState<ReplyDraftRow | null>(null);
+  const [linkDestination, setLinkDestination] = useState("");
+  const [creatingLink, setCreatingLink] = useState(false);
+
+  // Amplify (X thread / LinkedIn post from a reply draft)
+  const [amplifyingId, setAmplifyingId] = useState<number | null>(null);
 
   const [threadOpen, setThreadOpen] = useState(true);
   const [rationaleOpen, setRationaleOpen] = useState(false);
@@ -200,31 +226,99 @@ export default function ContentPage() {
     }
   }
 
-  async function postToReddit(draftId: number) {
-    if (!project) return;
+  async function postToReddit(draftId: number, overrideSafety = false) {
+    if (!project || !token) return;
+    const draft = postDrafts.find((d) => d.id === draftId);
+    const account = redditAccounts[0];
+    if (!draft || !account) return;
+    const subreddit = postSubreddit.trim().replace(/^r\//i, "");
+    if (subreddit.length < 2) {
+      error("Subreddit required", "Enter the subreddit to post into (e.g. r/startups).");
+      return;
+    }
     setPostingReddit(true);
     try {
-      const draft = postDrafts.find((d) => d.id === draftId);
-      if (!draft) return;
-
-      await apiRequest("/v1/reddit/post", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "post",
-          project_id: project.id,
-          content: `${draft.title}\n\n${draft.body}`,
-          draft_id: draftId,
-        }),
-      }, token);
+      await apiPostToReddit(token, {
+        reddit_account_id: account.id,
+        project_id: project.id,
+        type: "post",
+        subreddit,
+        title: draft.title,
+        content: draft.body,
+        ...(overrideSafety ? { override_safety: true } : {}),
+      });
 
       success("Posted to Reddit", "Your post has been published");
-      setPostDrafts((rows) => rows.map((r) => (r.id === draftId ? { ...r, status: "posted" } : r)));
+      setSafetyBlock(null);
       setShowPostConfirm(false);
       await loadDrafts();
     } catch (err: unknown) {
-      error("Could not post to Reddit", getErrorMessage(err));
+      // 422 = account-safety guard (warm-up daily cap). Surface the detail and
+      // let the user explicitly retry with override_safety.
+      if (isApiError(err) && err.status === 422) {
+        setSafetyBlock(getErrorMessage(err));
+      } else {
+        error("Could not post to Reddit", getErrorMessage(err));
+      }
     }
     setPostingReddit(false);
+  }
+
+  function closePostConfirm() {
+    setShowPostConfirm(false);
+    setSafetyBlock(null);
+  }
+
+  async function handleCreateTrackedLink() {
+    if (!token || !project || !linkDraft) return;
+    const destination = linkDestination.trim();
+    if (!/^https?:\/\//i.test(destination)) {
+      error("Invalid URL", "Destination must start with http:// or https://");
+      return;
+    }
+    setCreatingLink(true);
+    try {
+      const link = await createTrackedLink(token, {
+        project_id: project.id,
+        destination_url: destination,
+        reply_draft_id: linkDraft.id,
+        opportunity_id: linkDraft.opportunity_id ?? null,
+      });
+      const url = shortLinkUrl(link);
+      let copied = true;
+      try {
+        await copyText(url);
+      } catch {
+        copied = false;
+      }
+      success(
+        copied ? "Tracked link created and copied" : "Tracked link created",
+        `${url} — using it is opt-in: Redditors distrust obvious trackers, so only paste it where a link genuinely helps.`
+      );
+      setLinkDraft(null);
+      setLinkDestination("");
+    } catch (err: unknown) {
+      error("Could not create tracked link", getErrorMessage(err));
+    }
+    setCreatingLink(false);
+  }
+
+  async function handleAmplify(draft: ReplyDraftRow, target: AmplifyTarget) {
+    if (!token) return;
+    setAmplifyingId(draft.id);
+    try {
+      const created = await createAmplifyDraft(token, { reply_draft_id: draft.id, target });
+      rememberAmplifyDraft(created);
+      success(
+        target === "x" ? "X thread drafted" : "LinkedIn post drafted",
+        "Opening the amplify editor..."
+      );
+      router.push(`/app/content-studio?amplifyDraft=${created.id}`);
+    } catch (err: unknown) {
+      error("Could not amplify draft", getErrorMessage(err));
+    } finally {
+      setAmplifyingId(null);
+    }
   }
 
   async function generatePostDraft() {
@@ -301,118 +395,57 @@ export default function ContentPage() {
     const generateMissingDraft = async () => {
       pendingOpportunityIdRef.current = requestedOpportunityId;
       try {
-        await apiRequest(
-          "/v1/drafts/replies",
-          {
-            method: "POST",
-            body: JSON.stringify({ opportunity_id: requestedOpportunityId }),
-          },
-          token,
-        );
-        // Mark as handled on success so we don't keep POSTing if the new
+        const draft = await generateReplyDraft(requestedOpportunityId);
+        // Mark as handled either way so we don't keep POSTing if the new
         // draft never surfaces in the next loadDrafts() (e.g. permissions
         // filter it out, backend returns empty list, etc.).
         handledOpportunityIdRef.current = requestedOpportunityId;
-        await loadDrafts();
-      } catch (err: unknown) {
-        handledOpportunityIdRef.current = requestedOpportunityId;
-        error("Could not create reply draft", getErrorMessage(err));
+        if (draft) {
+          await loadDrafts();
+        }
       } finally {
         pendingOpportunityIdRef.current = null;
       }
     };
 
     void generateMissingDraft();
-  }, [drafts, error, loading, requestedOpportunityId, requestedProjectId, selectedProjectId, token]);
-
-  async function copyToClipboard(text: string) {
-    try {
-      await copyText(text);
-      success("Copied to clipboard");
-    } catch {
-      error("Failed to copy", "Clipboard access was denied.");
-    }
-  }
-
-  async function copyAndOpenReddit(text: string, permalink: string) {
-    try {
-      await copyText(text);
-    } catch {
-      error("Failed to copy", "Clipboard access was denied.");
-      return;
-    }
-    window.open(redditUrl(permalink), "_blank");
-    success("Draft copied. Reddit is opening so you can review and paste.");
-  }
+  }, [drafts, generateReplyDraft, loading, requestedOpportunityId, requestedProjectId, selectedProjectId, token]);
 
   async function saveReplyDraft() {
     if (!selectedReply) {
       return;
     }
-    setSavingReply(true);
-    try {
-      const updated = await apiRequest<ReplyDraftRow>(
-        `/v1/drafts/replies/${selectedReply.id}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            content: replyContent,
-            rationale: selectedReply.rationale || null,
-          }),
-        },
-        token
-      );
-      setDrafts((rows) => rows.map((row) => (row.id === updated.id ? { ...row, content: updated.content, rationale: updated.rationale || "" } : row)));
-      setSelectedReply((current) => (current ? { ...current, content: updated.content, rationale: updated.rationale || "" } : current));
-      success("Reply draft saved");
-    } catch (err: unknown) {
-      error("Could not save reply draft", getErrorMessage(err));
+    const updated = await persistReplyDraft(selectedReply.id, {
+      content: replyContent,
+      rationale: selectedReply.rationale || null,
+    });
+    if (!updated) {
+      return;
     }
-    setSavingReply(false);
+    setDrafts((rows) => rows.map((row) => (row.id === updated.id ? { ...row, content: updated.content, rationale: updated.rationale || "" } : row)));
+    setSelectedReply((current) => (current ? { ...current, content: updated.content, rationale: updated.rationale || "" } : current));
   }
 
   async function savePostDraft() {
     if (!selectedPost) {
       return;
     }
-    setSavingPost(true);
-    try {
-      const updated = await apiRequest<PostDraft>(
-        `/v1/drafts/posts/${selectedPost.id}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            title: postTitle,
-            body: postBody,
-            rationale: selectedPost.rationale,
-          }),
-        },
-        token
-      );
-      setPostDrafts((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
-      setSelectedPost(updated);
-      success("Post draft saved");
-    } catch (err: unknown) {
-      error("Could not save post draft", getErrorMessage(err));
+    const updated = await persistPostDraft(selectedPost.id, {
+      title: postTitle,
+      body: postBody,
+      rationale: selectedPost.rationale,
+    });
+    if (!updated) {
+      return;
     }
-    setSavingPost(false);
+    setPostDrafts((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+    setSelectedPost(updated);
   }
 
   async function markAsPosted(oppId: number) {
-    try {
-      await apiRequest(
-        `/v1/opportunities/${oppId}/status`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ status: "posted" }),
-        },
-        token
-      );
-      success("Marked as posted");
+    if (await markOpportunityPosted(oppId)) {
       setSelectedReply(null);
       await loadDrafts();
-    } catch (err: unknown) {
-      error("Could not update status", getErrorMessage(err));
     }
   }
 
@@ -541,6 +574,34 @@ export default function ContentPage() {
                             }}
                           >
                             <Pencil /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              setLinkDestination("");
+                              setLinkDraft(draft);
+                            }}
+                          >
+                            <Link2 /> Create tracked link
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={amplifyingId === draft.id}
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              void handleAmplify(draft, "x");
+                            }}
+                          >
+                            <Megaphone /> Amplify to X thread
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={amplifyingId === draft.id}
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              void handleAmplify(draft, "linkedin");
+                            }}
+                          >
+                            <Megaphone /> Amplify to LinkedIn
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -930,7 +991,7 @@ export default function ContentPage() {
       </SheetPanel>
 
       {/* Post to Reddit Confirm Dialog */}
-      <Dialog open={showPostConfirm} onOpenChange={setShowPostConfirm}>
+      <Dialog open={showPostConfirm} onOpenChange={(open) => !open && closePostConfirm()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Post to Reddit</DialogTitle>
@@ -947,8 +1008,14 @@ export default function ContentPage() {
                 </p>
               </div>
               <div className="space-y-2">
-                <Label>Target Subreddit</Label>
-                <Input type="text" placeholder="e.g., r/community" disabled className="opacity-60" />
+                <Label htmlFor="post-subreddit">Target Subreddit</Label>
+                <Input
+                  id="post-subreddit"
+                  type="text"
+                  placeholder="e.g., r/community"
+                  value={postSubreddit}
+                  onChange={(event) => setPostSubreddit(event.target.value)}
+                />
               </div>
               <div className="rounded-lg bg-muted p-3">
                 <Label>Connected Reddit Account</Label>
@@ -958,18 +1025,89 @@ export default function ContentPage() {
                     : <a href="/app/settings" className="text-primary hover:underline">Connect Reddit Account</a>}
                 </p>
               </div>
+              {safetyBlock && (
+                <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <p className="text-xs leading-relaxed text-destructive">{safetyBlock}</p>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPostConfirm(false)}>
+            <Button variant="outline" onClick={closePostConfirm}>
+              Cancel
+            </Button>
+            {safetyBlock ? (
+              <Button
+                variant="destructive"
+                disabled={postingReddit}
+                onClick={() => void postToReddit(postingDraftId!, true)}
+              >
+                {postingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
+                Post anyway (override)
+              </Button>
+            ) : (
+              <Button
+                disabled={postingReddit || redditAccounts.length === 0 || postSubreddit.trim().length < 2}
+                onClick={() => void postToReddit(postingDraftId!)}
+              >
+                {postingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
+                Post Now
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Tracked Link Dialog */}
+      <Dialog
+        open={!!linkDraft}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLinkDraft(null);
+            setLinkDestination("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create tracked link</DialogTitle>
+            <DialogDescription>
+              Generates a short URL that attributes clicks back to this reply. Adding it to your reply is
+              opt-in — Redditors distrust obvious trackers, so only include it where a link genuinely helps.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="link-destination">Destination URL</Label>
+            <Input
+              id="link-destination"
+              type="url"
+              placeholder="https://yoursite.com/pricing"
+              value={linkDestination}
+              onChange={(event) => setLinkDestination(event.target.value)}
+            />
+            {linkDraft?.opportunity_title && (
+              <p className="text-xs text-muted-foreground truncate">
+                Attributed to: {linkDraft.opportunity_title}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setLinkDraft(null);
+                setLinkDestination("");
+              }}
+            >
               Cancel
             </Button>
             <Button
-              disabled={postingReddit || redditAccounts.length === 0}
-              onClick={() => void postToReddit(postingDraftId!)}
+              disabled={creatingLink || linkDestination.trim().length === 0}
+              onClick={() => void handleCreateTrackedLink()}
             >
-              {postingReddit && <Loader2 className="h-4 w-4 animate-spin" />}
-              Post Now
+              {creatingLink && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Link2 className="h-3.5 w-3.5" /> Create &amp; copy short URL
             </Button>
           </DialogFooter>
         </DialogContent>

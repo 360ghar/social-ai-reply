@@ -4,9 +4,16 @@ import type { ReplyDraft, PostDraft, PromptTemplate } from "../api";
 
 export type { ReplyDraft, PostDraft, PromptTemplate };
 
-export async function generateReply(token: string, opportunityId: number, projectId?: number | null, promptTemplateId?: number | null) {
+export async function generateReply(
+  token: string,
+  opportunityId: number,
+  projectId?: number | null,
+  promptTemplateId?: number | null,
+  options?: { voice_profile_id?: number | null }
+) {
   const body: Record<string, unknown> = { opportunity_id: opportunityId };
   if (promptTemplateId) body.prompt_template_id = promptTemplateId;
+  if (options?.voice_profile_id) body.voice_profile_id = options.voice_profile_id;
   const qs = projectId ? `?project_id=${projectId}` : "";
   return apiRequest<ReplyDraft>(
     `/v1/drafts/replies${qs}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) }
@@ -20,6 +27,26 @@ export async function getReplyDrafts(token: string, projectId?: number | null, s
   const qs = params.toString() ? `?${params.toString()}` : "";
   return apiRequest<ReplyDraft[]>(
     `/v1/drafts/replies${qs}`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function updateReplyDraft(
+  token: string,
+  draftId: number,
+  data: { content: string; rationale?: string | null }
+) {
+  return apiRequest<ReplyDraft>(
+    `/v1/drafts/replies/${draftId}`, { method: "PUT", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) }
+  );
+}
+
+export async function updatePostDraft(
+  token: string,
+  draftId: number,
+  data: { title: string; body: string; rationale?: string | null }
+) {
+  return apiRequest<PostDraft>(
+    `/v1/drafts/posts/${draftId}`, { method: "PUT", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) }
   );
 }
 

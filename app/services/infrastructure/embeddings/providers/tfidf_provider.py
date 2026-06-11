@@ -68,3 +68,28 @@ class TfidfProvider:
         """Return dense embedding vectors for a batch of texts."""
         vec = self.transform(texts)
         return vec.toarray().tolist()
+
+    def pairwise_similarity(self, text_a: str, text_b: str) -> float:
+        """Cosine similarity between two texts using a vocabulary fitted on the pair.
+
+        TF-IDF vectors are only comparable within the same fitted vocabulary.
+        Reusing a vectorizer fitted on an earlier corpus silently produces
+        zero/garbage similarities for out-of-vocabulary text, so each pair is
+        fitted fresh — cheap at this scale and always correct.
+        """
+        import numpy as np
+
+        processed = [_preprocess(text_a), _preprocess(text_b)]
+        if not all(processed):
+            return 0.0
+        vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1)
+        try:
+            matrix = vectorizer.fit_transform(processed)
+        except ValueError:  # e.g. both texts are only stop words
+            return 0.0
+        dense = matrix.toarray()
+        norm_a = np.linalg.norm(dense[0])
+        norm_b = np.linalg.norm(dense[1])
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(np.dot(dense[0], dense[1]) / (norm_a * norm_b))

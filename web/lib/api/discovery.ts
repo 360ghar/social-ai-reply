@@ -4,6 +4,20 @@ import type { Keyword, SubredditAnalysis, MonitoredSubreddit, Opportunity } from
 
 export type { Keyword, SubredditAnalysis, MonitoredSubreddit, Opportunity };
 
+/** A scan run record. POST /v1/scans returns immediately with a "running" run
+ *  that can be polled via GET /v1/scans/{id} until it reaches a terminal status. */
+export type ScanRun = {
+  id: string;
+  project_id?: number;
+  status: string;
+  posts_scanned: number;
+  opportunities_found: number;
+  subreddits_scanned?: number;
+  error_message: string | null;
+  started_at?: string;
+  finished_at?: string | null;
+};
+
 export async function getKeywords(token: string, projectId: number) {
   return apiRequest<Keyword[]>(
     `/v1/discovery/keywords?project_id=${projectId}`, { headers: { Authorization: `Bearer ${token}` } }
@@ -40,22 +54,39 @@ export async function removeSubreddit(token: string, projectId: number, subreddi
   );
 }
 
-export async function triggerScan(token: string, projectId: number) {
-  return apiRequest<{ id: string; status: string }>(
-    `/v1/scans?project_id=${projectId}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ project_id: projectId }) }
+export async function triggerScan(
+  token: string,
+  projectId: number,
+  options?: { search_window_hours?: number; max_posts_per_subreddit?: number }
+) {
+  return apiRequest<ScanRun>(
+    `/v1/scans?project_id=${projectId}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ project_id: projectId, ...options }),
+    }
   );
 }
 
 export async function getScanStatus(token: string, scanId: string) {
-  return apiRequest<{ id: string; status: string; opportunities_found: number }>(
+  return apiRequest<ScanRun>(
     `/v1/scans/${scanId}`, { headers: { Authorization: `Bearer ${token}` } }
   );
 }
 
-export async function getOpportunities(token: string, projectId: number, status?: string) {
+export async function getOpportunities(token: string, projectId: number, status?: string, limit?: number) {
   const params = new URLSearchParams({ project_id: String(projectId) });
   if (status) params.set("status", status);
+  if (limit) params.set("limit", String(limit));
   return apiRequest<Opportunity[]>(
     `/v1/opportunities?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function updateOpportunityStatus(token: string, opportunityId: number, status: string) {
+  return apiRequest<unknown>(
+    `/v1/opportunities/${opportunityId}/status`,
+    { method: "PUT", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) }
   );
 }

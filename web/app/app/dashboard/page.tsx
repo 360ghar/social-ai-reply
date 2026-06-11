@@ -41,7 +41,8 @@ import {
   CheckCircle2,
   Circle,
 } from "lucide-react";
-import { apiRequest, type Project } from "@/lib/api";
+import { apiRequest, type Opportunity, type Project } from "@/lib/api";
+import { sourceLabel } from "@/lib/opportunity";
 import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PageHeader } from "@/components/shared/page-header";
@@ -60,17 +61,6 @@ interface SetupStatus {
   subreddits_count: number;
 }
 
-interface OpportunityItem {
-  id: number;
-  title: string;
-  subreddit_name: string;
-  score: number;
-  status: string;
-  permalink: string;
-  created_at: string;
-  score_reasons?: string[];
-}
-
 interface Subscription {
   plan_code: string;
   status: string;
@@ -83,7 +73,7 @@ interface DashData {
     name: string;
     description?: string | null;
   }[];
-  top_opportunities: OpportunityItem[];
+  top_opportunities: Opportunity[];
   subscription: Subscription;
   setup_status?: SetupStatus;
   drafts_count?: number;
@@ -674,12 +664,12 @@ export default function DashboardPage() {
           },
           {
             label: "Drafts Ready",
-            value: draftCounts?.drafting ?? dash?.drafts_count ?? topOpps.filter((o: OpportunityItem) => o.status === "drafting").length,
+            value: draftCounts?.drafting ?? dash?.drafts_count ?? topOpps.filter((o: Opportunity) => o.status === "drafting").length,
             icon: FileText,
           },
           {
             label: "Published",
-            value: draftCounts?.published ?? dash?.published_count ?? topOpps.filter((o: OpportunityItem) => o.status === "posted").length,
+            value: draftCounts?.published ?? dash?.published_count ?? topOpps.filter((o: Opportunity) => o.status === "posted").length,
             icon: Send,
           },
         ]}
@@ -722,7 +712,7 @@ export default function DashboardPage() {
                           R
                         </span>
                         <Badge variant="outline" className="text-xs">
-                          r/{opp.subreddit_name}
+                          {sourceLabel(opp)}
                         </Badge>
                       </div>
                       <a

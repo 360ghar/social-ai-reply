@@ -37,6 +37,13 @@ from app.schemas.v1.reddit import (
     RedditPostRequest,
     RedditPostResponse,
 )
+from app.services.product.account_safety import (
+    assess_account_safety,
+    check_shadowban,
+    compute_posting_budget,
+    get_account_activity,
+    parse_timestamp,
+)
 from app.services.product.reddit import RedditClient
 
 logger = logging.getLogger(__name__)
@@ -314,6 +321,46 @@ def delete_reddit_account(
     _delete(supabase, account_id)
 
 
+@router.get("/reddit/accounts/{account_id}/safety")
+def get_account_safety(
+    account_id: str,
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+) -> dict:
+    """Assess posting safety for a connected Reddit account.
+
+    Returns the warm-up budget, recent activity counts, a 0-100 safety score,
+    and warnings. The shadowban probe runs at most once per hour per account
+    (tracked via ``last_safety_check_at``).
+    """
+    from app.core.constants.limits import SAFETY_SHADOWBAN_CHECK_INTERVAL_SECONDS
+    from app.db.tables.integrations import get_reddit_account_by_id, update_reddit_account
+
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    account = get_reddit_account_by_id(supabase, account_id)
+    if not account or account["workspace_id"] != workspace["id"]:
+        raise HTTPException(status_code=404, detail="Reddit account not found.")
+
+    now = datetime.now(UTC)
+    last_check = parse_timestamp(account.get("last_safety_check_at"))
+    if last_check is None or (now - last_check).total_seconds() >= SAFETY_SHADOWBAN_CHECK_INTERVAL_SECONDS:
+        suspected = check_shadowban(account)
+        update_payload: dict = {"last_safety_check_at": now.isoformat()}
+        if suspected is not None:
+            account["shadowban_suspected"] = suspected
+            update_payload["shadowban_suspected"] = suspected
+        try:
+            update_reddit_account(supabase, str(account["id"]), update_payload)
+        except Exception:
+            # Best-effort persistence: the safety columns may not exist yet if
+            # the 20260610_03 migration hasn't been applied. The assessment
+            # below still works off the in-memory account dict.
+            logger.warning("Could not persist safety-check results for Reddit account %s", account_id, exc_info=True)
+
+    return assess_account_safety(supabase, account, now=now)
+
+
 @router.post("/reddit/post", response_model=RedditPostResponse)
 def post_to_reddit(
     payload: RedditPostRequest,
@@ -339,6 +386,23 @@ def post_to_reddit(
     proj = get_project_by_id(supabase, payload.project_id)
     if not proj or proj["workspace_id"] != workspace["id"]:
         raise HTTPException(status_code=404, detail="Project not found.")
+
+    # Account-safety guard: enforce the warm-up daily cap unless the caller
+    # explicitly overrides it.
+    if not payload.override_safety:
+        budget = compute_posting_budget(account)
+        activity = get_account_activity(supabase, account["id"])
+        if activity["posted_today"] >= budget["daily_cap"]:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Account safety: u/{account['username']} has already posted "
+                    f"{activity['posted_today']} time(s) today, meeting its daily cap of "
+                    f"{budget['daily_cap']} (warm-up tier '{budget['tier']}'). Posting more today risks "
+                    'spam filters or a shadowban. Wait until tomorrow, or resend with "override_safety": true '
+                    "to post anyway."
+                ),
+            )
 
     try:
         reddit = RedditClient()

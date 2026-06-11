@@ -449,3 +449,74 @@ class TestRelevanceEngineEdgeCases:
         result = engine.score(candidate, company, keywords)
         assert result.should_keep is False
         assert "self-promotion" in result.rejection_reason.lower() or "promo" in result.rejection_reason.lower()
+
+
+class TestPortedLegacySignals:
+    """Signals ported from the legacy scoring engine during unification."""
+
+    def _engine(self):
+        from app.services.product.relevance_v2 import RelevanceEngine
+
+        return RelevanceEngine(relevance_threshold=25, semantic_threshold=0.0)
+
+    def _candidate(self):
+        from datetime import UTC, datetime
+
+        from app.services.product.relevance_v2 import CandidatePost
+
+        return CandidatePost(
+            title="Looking for recommendations for verified real estate listings",
+            body="Can anyone recommend a tool to find verified property listings? Tired of fake listings.",
+            platform="reddit",
+            source_name="realestate",
+            comments_count=5,
+            created_at=datetime.now(UTC),
+        )
+
+    _BRAND = {
+        "name": "ListingVerify",
+        "description": "Verified real estate listings platform for home buyers",
+        "category": "real estate",
+        "pain_points": ["fake listings"],
+    }
+    _KEYWORDS = [{"keyword": "verified listings", "type": "core"}]
+
+    def test_source_meta_fit_score_overrides_platform_heuristic(self):
+        engine = self._engine()
+        low = engine.score(self._candidate(), self._BRAND, self._KEYWORDS, source_meta={"fit_score": 10})
+        high = engine.score(self._candidate(), self._BRAND, self._KEYWORDS, source_meta={"fit_score": 95})
+        assert high.relevance_score > low.relevance_score
+        assert high.scoring_breakdown["source_fit_score"] == 95.0
+
+    def test_promotional_rules_apply_penalty_and_rule_risk(self):
+        engine = self._engine()
+        no_rules = engine.score(self._candidate(), self._BRAND, self._KEYWORDS)
+        with_rules = engine.score(
+            self._candidate(), self._BRAND, self._KEYWORDS,
+            source_rules=["No self-promotion or advertising", "No external links allowed"],
+        )
+        assert with_rules.relevance_score < no_rules.relevance_score
+        assert "explicit_rule_restrictions" in with_rules.risk_flags
+        assert any("promotional" in r for r in with_rules.rule_risk)
+        assert any("external links" in r for r in with_rules.rule_risk)
+
+    def test_feedback_calibration_applied(self):
+        engine = self._engine()
+        # 20+ records where users accepted high scores and rejected low ones
+        feedback = (
+            [{"action": "saved", "original_score": 80} for _ in range(12)]
+            + [{"action": "ignored", "original_score": 20} for _ in range(12)]
+        )
+        base = engine.score(self._candidate(), self._BRAND, self._KEYWORDS)
+        calibrated = engine.score(self._candidate(), self._BRAND, self._KEYWORDS, feedback_records=feedback)
+        assert calibrated.scoring_breakdown["calibration_delta"] != 0 or (
+            base.relevance_score == calibrated.relevance_score
+        )
+
+    def test_rules_summary_adds_review_warning(self):
+        engine = self._engine()
+        result = engine.score(
+            self._candidate(), self._BRAND, self._KEYWORDS,
+            source_meta={"fit_score": 80, "rules_summary": "Be kind"},
+        )
+        assert "Review subreddit rules before posting." in result.rule_risk

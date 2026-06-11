@@ -43,6 +43,10 @@ CACHE_TTL_SHORT = 300  # 5 minutes
 CACHE_TTL_MEDIUM = 3600  # 1 hour
 CACHE_TTL_LONG = 86400  # 24 hours
 
+# JWKS cache (in seconds)
+JWKS_CACHE_TTL = 900  # 15 minutes — bounds staleness after Supabase key rotation
+JWKS_REFRESH_COOLDOWN = 30  # min gap between refreshes triggered by unknown kids
+
 # Health check intervals
 HEALTH_CHECK_INTERVAL = 30
 READINESS_CHECK_INTERVAL = 10

@@ -8,10 +8,14 @@ from collections.abc import Iterable
 from fastapi import HTTPException
 from supabase import Client
 
+from app.core.config import get_settings
 from app.db.tables.workspaces import (
     create_subscription,
+    get_entitlement,
     get_subscription_by_workspace,
 )
+
+UNLIMITED = 999999
 
 # Feature flag constants used for entitlement checks in route handlers.
 FEATURE_AUTO_PIPELINE = "auto_pipeline"
@@ -94,22 +98,42 @@ def update_subscription(supabase: Client, subscription_id: int, update_data: dic
 def get_limit(supabase: Client, workspace: dict, feature_key: str) -> int:
     """Get the limit for a feature.
 
-    For the private workspace, always returns unlimited (999999).
+    Unlimited unless ENFORCE_PLAN_LIMITS is on. When enforcing, the limit comes
+    from the workspace plan's row in plan_entitlements, falling back to the
+    hardcoded PLAN_CATALOG, then to unlimited.
     """
-    return 999999
+    if not get_settings().enforce_plan_limits:
+        return UNLIMITED
+
+    subscription = get_subscription_by_workspace(supabase, workspace["id"])
+    plan_code = (subscription or {}).get("plan_code") or "free"
+
+    entitlement = get_entitlement(supabase, plan_code, feature_key)
+    if entitlement is not None:
+        try:
+            return int(entitlement.get("value"))
+        except (TypeError, ValueError):
+            pass
+
+    for plan in PLAN_CATALOG:
+        if plan["code"] == plan_code:
+            return int(plan["limits"].get(feature_key, UNLIMITED))
+    return UNLIMITED
 
 
 def enforce_limit(supabase: Client, workspace: dict, feature_key: str, current_count: int) -> None:
-    """No-op — every feature is unlimited for every workspace.
+    """Raise HTTP 402 when the workspace has reached its plan limit for a feature.
 
-    Historically this would raise HTTP 402 once current_count hit the plan
-    limit. The product is now fully free with no quotas, so this is kept as
-    a no-op for API compatibility with existing callers (projects.py,
-    discovery.py, etc.) — removing the call sites would be a large, churny
-    refactor and reintroducing paid tiers would need this contract back.
+    No-op while ENFORCE_PLAN_LIMITS is off (the product is currently free).
     """
-    _ = supabase, workspace, feature_key, current_count  # intentionally unused
-    return
+    if not get_settings().enforce_plan_limits:
+        return
+    limit = get_limit(supabase, workspace, feature_key)
+    if current_count >= limit:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Plan limit reached for {feature_key} ({limit}). Upgrade your plan to add more.",
+        )
 
 
 def count_projects(supabase: Client, workspace_id: int) -> int:

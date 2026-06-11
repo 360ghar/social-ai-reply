@@ -15,6 +15,9 @@ from app.core.config import get_settings
 from app.services.infrastructure.embeddings import EmbeddingService
 from app.services.product.intent_classifier import IntentResult, classify_intent
 from app.services.product.relevance import (
+    assess_domain_match,
+    build_domain_context,
+    check_domain_vocabulary_match,
     find_self_promo_signals,
     normalize_phrase,
     tokenize,
@@ -95,6 +98,8 @@ class RelevanceResult:
     should_keep: bool
     rejection_reason: str | None
     scoring_breakdown: dict[str, float] = field(default_factory=dict)
+    intent_confidence: float = 0.0
+    rule_risk: list[str] = field(default_factory=list)  # human-readable community-rule warnings
 
 
 class RelevanceEngine:
@@ -118,6 +123,10 @@ class RelevanceEngine:
         candidate: CandidatePost,
         brand_profile: dict[str, Any],
         keywords: list[dict[str, Any]],
+        *,
+        source_meta: dict[str, Any] | None = None,
+        source_rules: list[str] | None = None,
+        feedback_records: list[dict[str, Any]] | None = None,
     ) -> RelevanceResult:
         """Score a candidate post and decide whether it should be kept.
 
@@ -128,6 +137,12 @@ class RelevanceEngine:
                 ``competitors`` (list).
             keywords: List of keyword dicts with ``keyword``, ``type``,
                 and optionally ``weight`` keys.
+            source_meta: Optional monitored-community row (``fit_score``,
+                ``rules_summary``) — ported from the legacy scanner engine.
+            source_rules: Optional list of community rule strings; promotional
+                or link-hostile rules apply penalties and rule_risk warnings.
+            feedback_records: Optional score_feedback rows (``action``,
+                ``original_score``) used for per-workspace calibration.
 
         Returns:
             RelevanceResult with full scoring breakdown.
@@ -141,7 +156,7 @@ class RelevanceEngine:
         semantic_score = semantic_sim * 100
         intent_score = _INTENT_SCORE_MAP.get(intent_result.intent, 20)
         pain_point_score = self._pain_point_score(full_text, brand_profile)
-        source_fit_score = self._source_fit_score(candidate)
+        source_fit_score = self._source_fit_score(candidate, source_meta)
         freshness_score = self._freshness_score(candidate.created_at)
 
         # ── Penalties ─────────────────────────────────────────────────
@@ -152,6 +167,7 @@ class RelevanceEngine:
         generic_content_penalty = self._generic_content_penalty(full_text, matched_keywords)
         low_confidence_penalty = self._low_confidence_penalty(intent_result)
         negative_community_rule_penalty = self._negative_community_rule_penalty(candidate)
+        explicit_rules_penalty, rule_risk = self._explicit_rules_penalty(source_meta, source_rules)
 
         penalties = (
             spam_risk_penalty
@@ -159,6 +175,7 @@ class RelevanceEngine:
             + generic_content_penalty
             + low_confidence_penalty
             + negative_community_rule_penalty
+            + explicit_rules_penalty
         )
 
         base_score = (
@@ -172,6 +189,14 @@ class RelevanceEngine:
 
         final_score = max(0, min(100, int(round(base_score - penalties))))
 
+        # ── Feedback calibration (ported from the legacy scanner engine) ──
+        calibration_delta = 0
+        if feedback_records:
+            from app.services.product.scoring import calibration_adjustment
+
+            calibration_delta = calibration_adjustment(final_score, feedback_records)
+            final_score = max(0, min(100, final_score + calibration_delta))
+
         # ── Risk flags ────────────────────────────────────────────────
         risk_flags: list[str] = []
         if spam_risk_penalty > 0:
@@ -184,8 +209,37 @@ class RelevanceEngine:
             risk_flags.append("low_intent_confidence")
         if negative_community_rule_penalty > 0:
             risk_flags.append("restrictive_community_rules")
+        if explicit_rules_penalty > 0:
+            risk_flags.append("explicit_rule_restrictions")
         if intent_result.intent in ("spam", "unsafe"):
             risk_flags.append(f"intent_{intent_result.intent}")
+
+        # ── Topical gate (ported from the legacy engine) ──────────────
+        # When brand context exists, a post must show at least one topical
+        # signal — matched keyword, domain alignment, domain vocabulary, or a
+        # brand mention — or it is rejected outright. This is what stops a
+        # "VR headset" post matching a real-estate brand.
+        has_topical_signal = True
+        business_domain = str(brand_profile.get("category") or "").strip()
+        brand_description = str(brand_profile.get("description") or "").strip()
+        if (business_domain or brand_description) and not matched_keywords:
+            raw_text = f"{candidate.title} {candidate.body}"
+            brand_name = str(brand_profile.get("name") or brand_profile.get("brand_name") or "")
+            domain_context = build_domain_context(
+                brand_name=brand_name,
+                summary=brand_description,
+                product_summary="",
+                target_audience=str(brand_profile.get("target_audience") or ""),
+                keywords=[str(k.get("keyword", "")) for k in keywords],
+                business_domain=business_domain,
+            )
+            domain_aligned = assess_domain_match(raw_text, domain_context).aligned
+            domain_vocab_ok = False
+            if business_domain:
+                domain_vocab_ok, _, _ = check_domain_vocabulary_match(raw_text, business_domain)
+            normalized_brand = normalize_phrase(brand_name)
+            brand_mentioned = bool(normalized_brand and len(normalized_brand) >= 3 and normalized_brand in full_text)
+            has_topical_signal = domain_aligned or domain_vocab_ok or brand_mentioned
 
         # ── Hard reject evaluation ────────────────────────────────────
         should_keep, rejection_reason = self._evaluate_hard_rejects(
@@ -198,6 +252,7 @@ class RelevanceEngine:
             intent_result=intent_result,
             full_text=full_text,
             brand_profile=brand_profile,
+            has_topical_signal=has_topical_signal,
         )
 
         # ── Reason generation ───────────────────────────────────────
@@ -225,6 +280,8 @@ class RelevanceEngine:
             "generic_content_penalty": generic_content_penalty,
             "low_confidence_penalty": low_confidence_penalty,
             "negative_community_rule_penalty": negative_community_rule_penalty,
+            "explicit_rules_penalty": explicit_rules_penalty,
+            "calibration_delta": calibration_delta,
             "total_penalties": penalties,
             "final_score": final_score,
         }
@@ -239,6 +296,8 @@ class RelevanceEngine:
             should_keep=should_keep,
             rejection_reason=rejection_reason,
             scoring_breakdown=breakdown,
+            intent_confidence=round(float(intent_result.confidence), 3),
+            rule_risk=rule_risk,
         )
 
     # ── Scoring components ───────────────────────────────────────────
@@ -352,8 +411,17 @@ class RelevanceEngine:
         return min((matched / len(pain_points)) * 100, 100.0)
 
     @staticmethod
-    def _source_fit_score(candidate: CandidatePost) -> float:
-        """Score 0-100 based on platform/source fit."""
+    def _source_fit_score(candidate: CandidatePost, source_meta: dict[str, Any] | None = None) -> float:
+        """Score 0-100 based on platform/source fit.
+
+        When the caller monitors this community and has an assessed
+        ``fit_score`` (0-100), that concrete signal wins over platform
+        heuristics.
+        """
+        if source_meta is not None:
+            fit = source_meta.get("fit_score")
+            if isinstance(fit, (int, float)) and fit > 0:
+                return float(max(0, min(100, fit)))
         platform = candidate.platform.lower().strip()
         source = candidate.source_name.lower().strip()
 
@@ -443,6 +511,37 @@ class RelevanceEngine:
         return 0.0
 
     @staticmethod
+    def _explicit_rules_penalty(
+        source_meta: dict[str, Any] | None,
+        source_rules: list[str] | None,
+    ) -> tuple[float, list[str]]:
+        """Penalty + human-readable warnings from actual community rules.
+
+        Ported from the legacy scanner engine so promotional/link-hostile
+        subreddit rules keep lowering scores after unification.
+        """
+        penalty = 0.0
+        rule_risk: list[str] = []
+        if source_meta and source_meta.get("rules_summary"):
+            rule_risk.append("Review subreddit rules before posting.")
+        lowered_rules = " ".join(rule.lower() for rule in (source_rules or []))
+        if not lowered_rules:
+            return penalty, rule_risk
+        if any(term in lowered_rules for term in [
+            "self-promo", "promotion", "no solicitation", "no advertising",
+            "no commercial", "no business", "no marketing",
+        ]):
+            rule_risk.append("Subreddit appears sensitive to promotional replies.")
+            penalty += 8.0
+        if any(term in lowered_rules for term in ["no external link", "no link", "no url"]):
+            rule_risk.append("Subreddit rules restrict external links.")
+            penalty += 4.0
+        elif "link" in lowered_rules:
+            rule_risk.append("Subreddit rules mention external links.")
+            penalty += 3.0
+        return penalty, rule_risk
+
+    @staticmethod
     def _negative_community_rule_penalty(candidate: CandidatePost) -> float:
         # Simple heuristic based on platform norms
         if candidate.platform.lower() in {"hackernews", "hn"}:
@@ -472,15 +571,25 @@ class RelevanceEngine:
         intent_result: IntentResult,
         full_text: str,
         brand_profile: dict[str, Any],
+        has_topical_signal: bool = True,
     ) -> tuple[bool, str | None]:
         reasons: list[str] = []
+
+        if not has_topical_signal:
+            reasons.append(
+                "no topical overlap with the business domain (no keyword match, "
+                "domain vocabulary, or brand mention)"
+            )
 
         if final_score < self.relevance_threshold:
             reasons.append(
                 f"final score {final_score} below threshold {self.relevance_threshold}"
             )
 
-        if semantic_sim < self.semantic_threshold:
+        # Direct keyword matches are stronger topical evidence than the
+        # (noisy, especially with TF-IDF on short texts) semantic signal, so
+        # the semantic floor only applies when no keywords matched.
+        if semantic_sim < self.semantic_threshold and not matched_keywords:
             reasons.append(
                 f"semantic similarity {semantic_sim:.2f} below threshold {self.semantic_threshold}"
             )

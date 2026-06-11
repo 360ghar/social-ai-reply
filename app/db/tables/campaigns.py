@@ -75,6 +75,18 @@ def list_published_posts_for_campaign(db: Client, campaign_id: str) -> list[dict
     return list(result.data)
 
 
+def list_published_posts_for_reddit_account(db: Client, reddit_account_id: Any) -> list[dict[str, Any]]:
+    """List published posts made through a specific Reddit account."""
+    result = (
+        db.table(PUBLISHED_POSTS_TABLE)
+        .select("*")
+        .eq("reddit_account_id", reddit_account_id)
+        .order("published_at", desc=True)
+        .execute()
+    )
+    return list(result.data)
+
+
 def create_published_post(db: Client, post_data: dict[str, Any]) -> dict[str, Any]:
     """Create a new published post."""
     result = db.table(PUBLISHED_POSTS_TABLE).insert(post_data).execute()

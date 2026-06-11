@@ -52,6 +52,7 @@ class RedditPostRequest(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     parent_post_id: str | None = Field(default=None, max_length=64)
     campaign_id: int | None = None
+    override_safety: bool = False
 
 
 class RedditPostResponse(BaseModel):

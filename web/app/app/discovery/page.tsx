@@ -1,28 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import {
-  Loader2,
-  Target,
-  Users,
-  MessageSquare,
-  Plus,
-  Sparkles,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  Search,
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, MessageSquare, Plus, Target, Users } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
-import { useToast } from "@/stores/toast";
-import { getErrorMessage } from "@/types/errors";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,471 +16,221 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
-import { apiRequest } from "@/lib/api";
-import { withProjectId } from "@/lib/project";
+import type { Opportunity } from "@/lib/api";
+import { sourceLabel } from "@/lib/opportunity";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { useDiscoveryData } from "@/hooks/use-discovery-data";
+import { useDraftOps } from "@/hooks/use-draft-ops";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useScanRunner } from "@/hooks/use-scan-runner";
 import { PageHeader } from "@/components/shared/page-header";
 import { KPIGrid } from "@/components/shared/kpi-card";
-import { EmptyState } from "@/components/shared/empty-state";
-import { SheetPanel } from "@/components/shared/sheet-panel";
-import { ScoreBadge } from "@/components/shared/score-badge";
-import { PlatformIcon } from "@/components/shared/platform-icon";
-import { redditUrl, copyText } from "@/lib/reddit";
+import { VoiceProfileSelect } from "@/components/shared/voice-profile-select";
+import { CampaignDialog } from "@/components/discovery/campaign-dialog";
+import { CommunitiesSection } from "@/components/discovery/communities-section";
+import { DiscoverySkeleton } from "@/components/discovery/discovery-skeleton";
+import { InboxSection } from "@/components/discovery/inbox-section";
+import { OpportunityDetailPanel } from "@/components/discovery/opportunity-detail-panel";
+import { ScanProgressBanner } from "@/components/discovery/scan-progress-banner";
+import { SignalsSection } from "@/components/discovery/signals-section";
+import { WorkflowStrip } from "@/components/discovery/workflow-strip";
 
-interface Keyword {
-  id: number;
-  keyword: string;
-  rationale?: string;
-  priority_score?: number;
-}
-
-interface Subreddit {
-  id: number;
-  name: string;
-  fit_score?: number;
-  activity_score?: number;
-  description?: string;
-}
-
-interface Opportunity {
-  id: number;
-  title: string;
-  subreddit_name: string;
-  permalink: string;
-  body_excerpt?: string;
-  score: number;
-  status?: string;
-  score_reasons?: string[];
-}
-
-interface ReplyDraft {
-  content: string;
-  rationale?: string;
-}
-
-interface ProjectContext {
-  id: number;
-  name: string;
-}
-
-interface Campaign {
-  id: number;
-  name: string;
-  description?: string;
-  status?: string;
+function lastSeenKey(projectId: number): string {
+  return `rf-inbox-last-seen-${projectId}`;
 }
 
 export default function DiscoveryPage() {
   const { token } = useAuth();
-  const { success, error, warning } = useToast();
   const selectedProjectId = useSelectedProjectId();
 
-  const [keywords, setKeywords] = useState<Keyword[]>([]);
-  const [subreddits, setSubreddits] = useState<Subreddit[]>([]);
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-  const [loading, setLoading] = useState(true);
+  const data = useDiscoveryData(token, selectedProjectId);
+  const { project, keywords, subreddits, opportunities, campaigns, loading } = data;
+  const scan = useScanRunner(token, project?.id, () => void data.loadAll());
+  const draftOps = useDraftOps(token);
 
   const [newKeyword, setNewKeyword] = useState("");
-  const [addingKeyword, setAddingKeyword] = useState(false);
-  const [generatingKeywords, setGeneratingKeywords] = useState(false);
-  const [discoveringCommunities, setDiscoveringCommunities] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [generatingReply, setGeneratingReply] = useState<number | null>(null);
-
+  const [voiceProfileId, setVoiceProfileId] = useState<number | null>(null);
   const [draftingOpp, setDraftingOpp] = useState<Opportunity | null>(null);
   const [draftContent, setDraftContent] = useState("");
   const [draftRationale, setDraftRationale] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number; name: string } | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("");
-  const [project, setProject] = useState<ProjectContext | null>(null);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [stageFilter, setStageFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("");
   const [showCampaignModal, setShowCampaignModal] = useState(false);
-  const [newCampaignName, setNewCampaignName] = useState("");
-  const [newCampaignDesc, setNewCampaignDesc] = useState("");
-  const [creatingCampaign, setCreatingCampaign] = useState(false);
 
-  // Collapsible sections in draft panel
-  const [showOriginalThread, setShowOriginalThread] = useState(true);
-  const [showRationale, setShowRationale] = useState(false);
+  // Inbox state: explicit row selection, bulk checkboxes, last-visit marker.
+  const [selectedOppId, setSelectedOppId] = useState<number | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [lastSeenAt, setLastSeenAt] = useState<string | null>(null);
 
-  // Section refs for workflow strip scroll
   const signalsRef = useRef<HTMLDivElement>(null);
   const communitiesRef = useRef<HTMLDivElement>(null);
   const queueRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!token) {
-      return;
+    if (token) {
+      void data.loadAll();
     }
-    void loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedProjectId]);
 
-  async function loadAll() {
-    setLoading(true);
-    try {
-      const dashRes = await apiRequest<any>(withProjectId("/v1/dashboard", selectedProjectId), {}, token);
-      const currentProject =
-        dashRes.projects?.find((item: ProjectContext) => item.id === selectedProjectId) ??
-        (dashRes.projects && dashRes.projects.length > 0 ? dashRes.projects[0] : null);
-
-      if (!currentProject) {
-        setProject(null);
-        setLoading(false);
-        return;
-      }
-
-      setProject(currentProject);
-
-      const projectId = currentProject.id;
-
-      let kwData: Keyword[] = [];
-      let subData: Subreddit[] = [];
-      let oppData: Opportunity[] = [];
-      let campData: Campaign[] = [];
-
-      try {
-        kwData = await apiRequest<Keyword[]>(`/v1/discovery/keywords?project_id=${projectId}`, {}, token);
-      } catch (err: unknown) {
-        console.warn("Failed to load keywords:", err);
-        error("Failed to load keywords");
-      }
-
-      try {
-        subData = await apiRequest<Subreddit[]>(`/v1/discovery/subreddits?project_id=${projectId}`, {}, token);
-      } catch (err: unknown) {
-        console.warn("Failed to load subreddits:", err);
-        error("Failed to load subreddits");
-      }
-
-      try {
-        oppData = await apiRequest<Opportunity[]>(`/v1/opportunities?project_id=${projectId}&status=all&limit=200`, {}, token);
-      } catch (err: unknown) {
-        console.warn("Failed to load opportunities:", err);
-        error("Failed to load opportunities");
-      }
-
-      try {
-        campData = await apiRequest<Campaign[]>(`/v1/campaigns?project_id=${projectId}`, {}, token);
-      } catch (err: unknown) {
-        console.warn("Failed to load campaigns:", err);
-        error("Failed to load campaigns");
-      }
-
-      setKeywords(kwData);
-      setSubreddits(subData);
-      setOpportunities(oppData);
-      setCampaigns(campData);
-    } catch (err: unknown) {
-      error("Failed to load data", getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function addKeyword() {
-    if (!newKeyword.trim() || !project) {
+  // "New since last visit": read the previous visit timestamp once per project,
+  // then stamp the current visit after 5s on page (and again on unmount).
+  useEffect(() => {
+    const projectId = project?.id;
+    if (!projectId) {
       return;
     }
-    setAddingKeyword(true);
-    try {
-      await apiRequest(
-        `/v1/discovery/keywords?project_id=${project.id}`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            keyword: newKeyword.trim(),
-            rationale: "Manual",
-            priority_score: 5,
-            is_active: true,
-          }),
-        },
-        token
-      );
+    const key = lastSeenKey(projectId);
+    setLastSeenAt(window.localStorage.getItem(key));
+    const stamp = () => window.localStorage.setItem(key, new Date().toISOString());
+    const timer = window.setTimeout(stamp, 5000);
+    return () => {
+      window.clearTimeout(timer);
+      stamp();
+    };
+  }, [project?.id]);
+
+  async function handleAddKeyword() {
+    if (await data.addKeyword(newKeyword)) {
       setNewKeyword("");
-      success("Signal added");
-      await loadAll();
-    } catch (err: unknown) {
-      error("Failed to add keyword", getErrorMessage(err));
     }
-    setAddingKeyword(false);
   }
 
-  async function generateKeywords() {
-    if (!project) {
+  async function handleGenerateReply(opp: Opportunity) {
+    const draft = await draftOps.generateReplyDraft(opp.id, undefined, { voiceProfileId });
+    if (!draft) {
       return;
     }
-    setGeneratingKeywords(true);
-    try {
-      await apiRequest(
-        `/v1/discovery/keywords/generate?project_id=${project.id}`,
-        {
-          method: "POST",
-          body: JSON.stringify({ count: 12 }),
-        },
-        token
-      );
-      success("Audience signals generated");
-      await loadAll();
-    } catch (err: unknown) {
-      error("Failed to generate", getErrorMessage(err));
-    }
-    setGeneratingKeywords(false);
+    setDraftContent(draft.content || "");
+    setDraftRationale(draft.rationale || "");
+    setDraftingOpp(opp);
   }
 
-  async function discoverCommunities() {
-    if (!project) {
-      return;
-    }
-    setDiscoveringCommunities(true);
-    try {
-      await apiRequest(
-        `/v1/discovery/subreddits/discover?project_id=${project.id}`,
-        {
-          method: "POST",
-          body: JSON.stringify({ max_subreddits: 8 }),
-        },
-        token
-      );
-      success("Communities discovered");
-      await loadAll();
-    } catch (err: unknown) {
-      error("Failed to discover", getErrorMessage(err));
-    }
-    setDiscoveringCommunities(false);
-  }
-
-  async function runScan() {
-    if (!project) {
-      return;
-    }
-    setScanning(true);
-    try {
-      const run = await apiRequest<{
-        posts_scanned: number;
-        opportunities_found: number;
-        error_message: string | null;
-        status: string;
-      }>(
-        "/v1/scans",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            project_id: project.id,
-            search_window_hours: 72,
-            max_posts_per_subreddit: 10,
-          }),
-        },
-        token
-      );
-
-      // Surface the actual scan result so the user can distinguish
-      // "nothing matched" from "Reddit refused the request".
-      if (run.error_message) {
-        warning("Scan finished with issues", run.error_message);
-      } else if (run.opportunities_found > 0) {
-        success(
-          "Scan complete",
-          `Scanned ${run.posts_scanned} post(s) — found ${run.opportunities_found} opportunity(ies). Check the queue below.`
-        );
-      } else if (run.posts_scanned > 0) {
-        warning(
-          "Scan complete — no matches above the threshold",
-          `Scanned ${run.posts_scanned} post(s), none cleared the relevance gate. Check the Rejected tab to see what Reddit returned, or broaden your keywords / subreddits.`
-        );
-      } else {
-        warning(
-          "Scan returned no posts",
-          "Reddit returned zero posts for your keywords in the last 72 hours. Try broader keywords, higher-traffic subreddits, or a wider time window."
-        );
-      }
-
-      await loadAll();
-    } catch (err: unknown) {
-      error("Scan failed", getErrorMessage(err));
-    }
-    setScanning(false);
-  }
-
-  async function generateReply(oppId: number) {
-    setGeneratingReply(oppId);
-    try {
-      const res = await apiRequest<ReplyDraft>(
-        "/v1/drafts/replies",
-        {
-          method: "POST",
-          body: JSON.stringify({ opportunity_id: oppId }),
-        },
-        token
-      );
-      setDraftContent(res.content || "");
-      setDraftRationale(res.rationale || "");
-      setDraftingOpp(opportunities.find((opp) => opp.id === oppId) || null);
-      setShowOriginalThread(true);
-      setShowRationale(false);
-      success("Response drafted");
-    } catch (err: unknown) {
-      error("Could not generate response", getErrorMessage(err));
-    }
-    setGeneratingReply(null);
-  }
-
-  async function deleteItem() {
-    if (!deleteTarget) {
-      return;
-    }
-    try {
-      await apiRequest(`/v1/discovery/${deleteTarget.type}/${deleteTarget.id}`, { method: "DELETE" }, token);
-      success(`${deleteTarget.name} deleted`);
-      setDeleteTarget(null);
-      await loadAll();
-    } catch (err: unknown) {
-      error("Delete failed", getErrorMessage(err));
-    }
-  }
-
-  async function copyToClipboard(text: string) {
-    try {
-      await copyText(text);
-      success("Copied to clipboard");
-    } catch {
-      error("Failed to copy", "Clipboard access was denied.");
-    }
-  }
-
-  async function copyAndOpenReddit(text: string, permalink: string) {
-    try {
-      await copyText(text);
-    } catch {
-      error("Failed to copy", "Clipboard access was denied.");
-      return;
-    }
-    window.open(redditUrl(permalink), "_blank");
-    success("Draft copied. Reddit is opening so you can review and paste.");
-  }
-
-  async function markAsPosted(oppId: number) {
-    try {
-      await apiRequest(
-        `/v1/opportunities/${oppId}/status`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ status: "posted" }),
-        },
-        token
-      );
-      success("Marked as posted");
+  async function handleMarkPosted(oppId: number) {
+    if (await draftOps.markAsPosted(oppId)) {
       setDraftingOpp(null);
-      await loadAll();
-    } catch (err: unknown) {
-      error("Could not update status", getErrorMessage(err));
+      await data.loadAll();
     }
   }
 
-  async function createCampaign() {
-    if (!project || !newCampaignName.trim()) {
-      warning("Please enter a campaign name");
+  async function handleDelete() {
+    if (deleteTarget && (await data.deleteDiscoveryItem(deleteTarget.type, deleteTarget.id, deleteTarget.name))) {
+      setDeleteTarget(null);
+    }
+  }
+
+  async function handleCreateCampaign(name: string, description: string): Promise<boolean> {
+    const created = await data.createCampaign(name, description);
+    if (created) {
+      setShowCampaignModal(false);
+    }
+    return created;
+  }
+
+  // "All" means the active funnel and excludes "rejected" so the default
+  // view isn't polluted by low-fit posts the scoring pipeline filtered out.
+  const search = searchQuery.trim().toLowerCase();
+  const filteredOpps = useMemo(
+    () =>
+      opportunities
+        .filter((opp) => (statusFilter ? opp.status === statusFilter : opp.status !== "rejected"))
+        .filter(
+          (opp) =>
+            !search ||
+            opp.title.toLowerCase().includes(search) ||
+            (opp.body_excerpt ?? "").toLowerCase().includes(search) ||
+            sourceLabel(opp).toLowerCase().includes(search)
+        )
+        .sort((a, b) => (b.score || 0) - (a.score || 0)),
+    [opportunities, statusFilter, search]
+  );
+  // Note: campaignFilter is UI-ready but opportunities don't have campaign_id yet.
+
+  // Stage chips show counts over the status/search-filtered list; the inbox
+  // then narrows further by the active stage (client-side).
+  const stageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const opp of filteredOpps) {
+      if (opp.buying_stage) {
+        counts[opp.buying_stage] = (counts[opp.buying_stage] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [filteredOpps]);
+
+  const inboxOpps = useMemo(
+    () => (stageFilter ? filteredOpps.filter((opp) => opp.buying_stage === stageFilter) : filteredOpps),
+    [filteredOpps, stageFilter]
+  );
+
+  // Selection falls back to the top row whenever the explicit pick is filtered out.
+  const selectedOpp = inboxOpps.find((opp) => opp.id === selectedOppId) ?? inboxOpps[0] ?? null;
+
+  function moveSelection(delta: number) {
+    if (inboxOpps.length === 0) {
       return;
     }
-    setCreatingCampaign(true);
-    try {
-      const campaign = await apiRequest<Campaign>(
-        "/v1/campaigns",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            project_id: project.id,
-            name: newCampaignName.trim(),
-            description: newCampaignDesc.trim() || null,
-          }),
-        },
-        token
-      );
-      setCampaigns((prev) => [campaign, ...prev]);
-      setNewCampaignName("");
-      setNewCampaignDesc("");
-      setShowCampaignModal(false);
-      success("Campaign created");
-    } catch (err: unknown) {
-      error("Failed to create campaign", getErrorMessage(err));
+    const currentIndex = selectedOpp ? inboxOpps.findIndex((opp) => opp.id === selectedOpp.id) : -1;
+    const nextIndex = Math.min(Math.max(currentIndex + delta, 0), inboxOpps.length - 1);
+    setSelectedOppId(inboxOpps[nextIndex].id);
+  }
+
+  async function handleApprove(opp: Opportunity) {
+    await data.setOpportunityStatus(opp, "saved");
+  }
+
+  async function handleIgnore(opp: Opportunity) {
+    await data.setOpportunityStatus(opp, "ignored");
+  }
+
+  function toggleChecked(oppId: number) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(oppId)) {
+        next.delete(oppId);
+      } else {
+        next.add(oppId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setCheckedIds((prev) => {
+      const allChecked = inboxOpps.length > 0 && inboxOpps.every((opp) => prev.has(opp.id));
+      return allChecked ? new Set<number>() : new Set(inboxOpps.map((opp) => opp.id));
+    });
+  }
+
+  async function handleBulk(status: "saved" | "ignored") {
+    const targets = inboxOpps.filter((opp) => checkedIds.has(opp.id));
+    if (targets.length === 0) {
+      return;
     }
-    setCreatingCampaign(false);
+    await data.bulkUpdateStatus(targets, status);
+    setCheckedIds(new Set());
   }
 
-  // Workflow step definitions
-  const workflowSteps = [
-    { label: "Signals", count: keywords.length, done: keywords.length > 0, ref: signalsRef },
-    { label: "Communities", count: subreddits.length, done: subreddits.length > 0, ref: communitiesRef },
-    { label: "Queue", count: opportunities.length, done: opportunities.length > 0, ref: queueRef },
-  ];
-  const currentStep = workflowSteps.findIndex((step) => !step.done);
-
-  // Filtered opportunities. "All" means the active funnel — new / saved /
-  // drafting / posted / ignored — and excludes "rejected" so the default
-  // view isn't polluted by low-fit posts the scoring pipeline filtered out.
-  let filteredOpps = [...opportunities];
-  if (statusFilter) {
-    filteredOpps = filteredOpps.filter((opp) => opp.status === statusFilter);
-  } else {
-    filteredOpps = filteredOpps.filter((opp) => opp.status !== "rejected");
-  }
-  // Note: campaignFilter is UI-ready but opportunities don't have campaign_id yet
-  // Future enhancement: add campaign association to opportunities table
-  filteredOpps.sort((a, b) => (b.score || 0) - (a.score || 0));
-
-  // Status filter tabs. "Rejected" is a secondary bucket for posts the
-  // scoring pipeline found but didn't think were a good fit — users can
-  // still review them and promote back to "New" if the judgement seems off.
-  const statusTabs = [
-    { label: "All", value: "" },
-    { label: "New", value: "new" },
-    { label: "Saved", value: "saved" },
-    { label: "Drafting", value: "drafting" },
-    { label: "Posted", value: "posted" },
-    { label: "Ignored", value: "ignored" },
-    { label: "Rejected", value: "rejected" },
-  ];
+  // Inbox keyboard shortcuts — paused while any dialog/sheet is open.
+  const shortcutsEnabled = !draftingOpp && !deleteTarget && !showCampaignModal;
+  useKeyboardShortcuts(
+    {
+      j: () => moveSelection(1),
+      k: () => moveSelection(-1),
+      a: () => selectedOpp && void handleApprove(selectedOpp),
+      s: () => selectedOpp && void handleApprove(selectedOpp),
+      i: () => selectedOpp && void handleIgnore(selectedOpp),
+      Enter: () => selectedOpp && void handleGenerateReply(selectedOpp),
+    },
+    shortcutsEnabled
+  );
 
   if (loading) {
-    return (
-      <div className="space-y-8 p-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-8 w-24" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
-          ))}
-        </div>
-        <Skeleton className="h-16 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
-          ))}
-        </div>
-      </div>
-    );
+    return <DiscoverySkeleton />;
   }
 
   if (!project) {
@@ -512,29 +245,35 @@ export default function DiscoveryPage() {
     );
   }
 
+  const scanBusy = scan.scanning || scan.scanRunning;
+
   return (
     <div className="grid gap-8">
-      {/* Page Header */}
       <PageHeader
         title="Opportunity Radar"
         description="Discover live Reddit conversations using a workflow shaped for broader forum, Q&A, and social comment patterns."
         actions={
           <div className="flex items-center gap-2">
+            <VoiceProfileSelect
+              token={token}
+              projectId={project?.id ?? null}
+              value={voiceProfileId}
+              onChange={setVoiceProfileId}
+            />
             {campaigns.length > 0 && (
               <Button variant="ghost" size="sm" onClick={() => setShowCampaignModal(true)}>
                 <Plus className="h-4 w-4" />
                 Campaign
               </Button>
             )}
-            <Button onClick={runScan} disabled={scanning || subreddits.length === 0}>
-              {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
-              {scanning ? "Scanning..." : "Run Scan"}
+            <Button onClick={() => void scan.runScan()} disabled={scanBusy || subreddits.length === 0}>
+              {scanBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {scanBusy ? "Scanning..." : "Run Scan"}
             </Button>
           </div>
         }
       />
 
-      {/* Campaign Chips */}
       {campaigns.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">Campaigns:</span>
@@ -547,444 +286,124 @@ export default function DiscoveryPage() {
         </div>
       )}
 
-      {/* KPI Grid */}
       <KPIGrid
         columns={3}
         cards={[
           { label: "Signals", value: keywords.length, icon: Target },
           { label: "Communities", value: subreddits.length, icon: Users },
-          { label: "Queue", value: filteredOpps.length, icon: MessageSquare },
+          { label: "Queue", value: inboxOpps.length, icon: MessageSquare },
         ]}
       />
 
-      {/* Workflow Strip */}
-      <Card>
-        <CardContent className="py-3">
-          <div className="flex items-center justify-center gap-1">
-            {workflowSteps.map((step, i) => (
-              <div key={step.label} className="flex items-center">
-                <button
-                  type="button"
-                  onClick={() => step.ref.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-colors hover:bg-muted"
-                >
-                  <span
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors",
-                      step.done
-                        ? "bg-primary text-primary-foreground"
-                        : i === currentStep
-                          ? "bg-primary/10 text-primary ring-2 ring-primary/30"
-                          : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {step.done ? "\u2713" : i + 1}
-                  </span>
-                  <span className="text-sm font-medium text-foreground">{step.label}</span>
-                  <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
-                    {step.count}
-                  </Badge>
-                </button>
-                {i < workflowSteps.length - 1 && (
-                  <div
-                    className={cn(
-                      "h-0.5 w-6",
-                      step.done ? "bg-primary" : "bg-muted"
-                    )}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <WorkflowStrip
+        steps={[
+          { label: "Signals", count: keywords.length, done: keywords.length > 0, ref: signalsRef },
+          { label: "Communities", count: subreddits.length, done: subreddits.length > 0, ref: communitiesRef },
+          { label: "Queue", count: opportunities.length, done: opportunities.length > 0, ref: queueRef },
+        ]}
+      />
 
-      {/* Section 1: Audience Signals */}
+      <ScanProgressBanner scanRun={scan.scanRun} onRefresh={() => void data.loadAll()} />
+
       <div ref={signalsRef}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              Audience Signals
-              <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
-                {keywords.length}
-              </Badge>
-            </CardTitle>
-            <CardAction>
-              <Button variant="outline" size="sm" onClick={generateKeywords} disabled={generatingKeywords}>
-                {generatingKeywords ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                Generate Signals
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                value={newKeyword}
-                onChange={(event) => setNewKeyword(event.target.value)}
-                placeholder="Add a market phrase or audience signal"
-                onKeyDown={(event) => event.key === "Enter" && void addKeyword()}
-                className="flex-1"
-              />
-              <Button size="sm" onClick={addKeyword} disabled={addingKeyword}>
-                {addingKeyword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Add
-              </Button>
-            </div>
-            {keywords.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {keywords.map((keyword) => (
-                  <Badge key={keyword.id} variant="secondary" className="inline-flex items-center gap-1.5">
-                    {keyword.keyword}
-                    <button
-                      onClick={() => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
-                      className="ml-0.5 text-muted-foreground hover:text-foreground"
-                    >
-                      x
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Add audience signals or generate them from your project description to seed community discovery.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <SignalsSection
+          keywords={keywords}
+          newKeyword={newKeyword}
+          onNewKeywordChange={setNewKeyword}
+          onAddKeyword={() => void handleAddKeyword()}
+          addingKeyword={data.addingKeyword}
+          onGenerateKeywords={() => void data.generateKeywords()}
+          generatingKeywords={data.generatingKeywords}
+          onDeleteKeyword={(keyword) => setDeleteTarget({ type: "keywords", id: keyword.id, name: keyword.keyword })}
+        />
       </div>
 
-      {/* Section 2: Community Coverage */}
       <div ref={communitiesRef}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              Community Coverage
-              <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
-                {subreddits.length}
-              </Badge>
-            </CardTitle>
-            <CardAction>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={discoverCommunities}
-                disabled={discoveringCommunities || keywords.length === 0}
-              >
-                {discoveringCommunities ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Discover Communities
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            {subreddits.length === 0 ? (
-              <EmptyState
-                icon={Users}
-                title="No communities yet"
-                description="Add audience signals first, then discover communities that match those intents."
-              />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {subreddits.map((community) => (
-                  <div
-                    key={community.id}
-                    className="flex items-center justify-between rounded-lg border bg-card p-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <PlatformIcon platform="reddit" />
-                        <span className="text-sm font-medium truncate">r/{community.name}</span>
-                      </div>
-                      {community.description && (
-                        <p className="mt-1 text-xs text-muted-foreground truncate">
-                          {community.description.substring(0, 80)}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-3">
-                      {community.fit_score !== undefined && (
-                        <ScoreBadge score={community.fit_score} />
-                      )}
-                      <button
-                        onClick={() => setDeleteTarget({ type: "subreddits", id: community.id, name: `r/${community.name}` })}
-                        className="text-muted-foreground hover:text-foreground text-xs"
-                      >
-                        x
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <CommunitiesSection
+          communities={subreddits}
+          onDiscover={() => void data.discoverCommunities()}
+          discovering={data.discoveringCommunities}
+          canDiscover={keywords.length > 0}
+          onDeleteCommunity={(community) =>
+            setDeleteTarget({ type: "subreddits", id: community.id, name: `r/${community.name}` })
+          }
+        />
       </div>
 
-      {/* Section 3: Conversation Queue */}
       <div ref={queueRef}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              Conversation Queue
-              <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
-                {filteredOpps.length}
-              </Badge>
-            </CardTitle>
-            <CardAction>
-              <div className="flex items-center gap-2">
-                {campaigns.length > 0 && (
-                  <Select value={campaignFilter} onValueChange={(v) => setCampaignFilter(v ?? "")}>
-                    <SelectTrigger className="h-8 w-[140px] text-xs">
-                      <SelectValue placeholder="All Campaigns" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">All Campaigns</SelectItem>
-                      {campaigns.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Status Filter Pills */}
-            <div className="flex flex-wrap gap-1.5">
-              {statusTabs.map((tab) => (
-                <button
-                  key={tab.value}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.value)}
-                  className={cn(
-                    "inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                    statusFilter === tab.value
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-transparent bg-muted text-muted-foreground hover:bg-muted/80"
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Opportunity List */}
-            {filteredOpps.length === 0 ? (
-              <EmptyState
-                icon={MessageSquare}
-                title={opportunities.length === 0 ? "No conversations found yet" : "No matches for this filter"}
-                description={
-                  opportunities.length === 0
-                    ? "Add signals, discover communities, then scan for reply-ready discussions."
-                    : "Try changing the status filter."
-                }
-                action={
-                  subreddits.length > 0
-                    ? { label: "Run Scan", onClick: () => void runScan() }
-                    : undefined
-                }
-              />
-            ) : (
-              <div className="space-y-2">
-                {filteredOpps.map((opp) => (
-                  <div
-                    key={opp.id}
-                    className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border bg-card p-5"
-                  >
-                    {/* Left: Platform + subreddit */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <PlatformIcon platform="reddit" />
-                      <Badge variant="outline" className="text-xs">r/{opp.subreddit_name}</Badge>
-                    </div>
-
-                    {/* Center: Title + score reasons */}
-                    <div className="flex-1 min-w-0">
-                      <a
-                        href={redditUrl(opp.permalink)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-medium text-foreground hover:underline truncate block"
-                      >
-                        {opp.title}
-                      </a>
-                      {(opp.score_reasons || []).length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {(opp.score_reasons || []).slice(0, 3).map((reason) => (
-                            <Badge key={reason} variant="secondary" className="text-[11px] px-1.5 py-0">
-                              {reason}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right: Score + Action */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <ScoreBadge score={opp.score || 0} />
-                      <Button
-                        size="sm"
-                        onClick={() => generateReply(opp.id)}
-                        disabled={generatingReply === opp.id}
-                      >
-                        {generatingReply === opp.id && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Draft Reply
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <InboxSection
+          opportunities={inboxOpps}
+          totalCount={opportunities.length}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          stageCounts={stageCounts}
+          stageTotal={filteredOpps.length}
+          stageFilter={stageFilter}
+          onStageFilterChange={setStageFilter}
+          search={{ value: searchQuery, onChange: setSearchQuery }}
+          filters={
+            campaigns.length > 0
+              ? [
+                  {
+                    id: "campaign",
+                    placeholder: "All Campaigns",
+                    options: campaigns.map((c) => ({ label: c.name, value: String(c.id) })),
+                    value: campaignFilter,
+                    onChange: setCampaignFilter,
+                  },
+                ]
+              : []
+          }
+          selectedOpportunity={selectedOpp}
+          onSelect={setSelectedOppId}
+          checkedIds={checkedIds}
+          onToggleChecked={toggleChecked}
+          onToggleAllVisible={toggleAllVisible}
+          onBulkApprove={() => void handleBulk("saved")}
+          onBulkIgnore={() => void handleBulk("ignored")}
+          bulkBusy={data.bulkUpdating}
+          lastSeenAt={lastSeenAt}
+          generatingReplyId={draftOps.generatingReplyId}
+          updatingStatus={data.updatingStatus}
+          onGenerateReply={(opp) => void handleGenerateReply(opp)}
+          onApprove={(opp) => void handleApprove(opp)}
+          onIgnore={(opp) => void handleIgnore(opp)}
+          emptyAction={subreddits.length > 0 ? { label: "Run Scan", onClick: () => void scan.runScan() } : undefined}
+        />
       </div>
 
-      {/* Reply Draft Sheet */}
-      <SheetPanel
-        title="Reply Draft"
-        description={draftingOpp?.title?.substring(0, 60) || ""}
-        open={!!draftingOpp}
-        onOpenChange={(open) => !open && setDraftingOpp(null)}
-        width="lg"
-        footer={
-          <div className="flex flex-wrap gap-2">
-            <a href="/app/content">
-              <Button variant="ghost" size="sm">Review in Studio</Button>
-            </a>
-            <Button variant="outline" size="sm" onClick={() => copyToClipboard(draftContent)}>
-              Copy
-            </Button>
-            {draftingOpp?.permalink && (
-              <Button size="sm" onClick={() => copyAndOpenReddit(draftContent, draftingOpp.permalink)}>
-                Copy &amp; Open Reddit
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => draftingOpp && markAsPosted(draftingOpp.id)}>
-              Mark as Posted
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {/* Collapsible: Original Thread */}
-          {draftingOpp?.permalink && (
-            <div className="rounded-lg border">
-              <button
-                type="button"
-                onClick={() => setShowOriginalThread(!showOriginalThread)}
-                className="flex w-full items-center justify-between p-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
-              >
-                <span>Original Thread</span>
-                {showOriginalThread ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-              {showOriginalThread && (
-                <div className="border-t px-3 pb-3 pt-2">
-                  <a
-                    href={redditUrl(draftingOpp.permalink)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-                  >
-                    View on Reddit <ExternalLink className="h-3 w-3" />
-                  </a>
-                  {draftingOpp.body_excerpt && (
-                    <p className="mt-2 text-xs text-muted-foreground leading-snug">
-                      {draftingOpp.body_excerpt.substring(0, 280)}...
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+      <OpportunityDetailPanel
+        opportunity={draftingOpp}
+        content={draftContent}
+        onContentChange={setDraftContent}
+        rationale={draftRationale}
+        onClose={() => setDraftingOpp(null)}
+        onCopy={(text) => void draftOps.copyToClipboard(text)}
+        onCopyAndOpen={(text, permalink) => void draftOps.copyAndOpenReddit(text, permalink)}
+        onMarkPosted={(oppId) => void handleMarkPosted(oppId)}
+      />
 
-          {/* Draft Textarea */}
-          <div className="space-y-2">
-            <Label>Generated Response</Label>
-            <Textarea
-              rows={10}
-              value={draftContent}
-              onChange={(event) => setDraftContent(event.target.value)}
-              className="text-sm leading-relaxed"
-            />
-            <p className="text-xs text-muted-foreground">{draftContent.length} characters</p>
-          </div>
-
-          {/* Collapsible: Rationale */}
-          {draftRationale && (
-            <div className="rounded-lg border">
-              <button
-                type="button"
-                onClick={() => setShowRationale(!showRationale)}
-                className="flex w-full items-center justify-between p-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
-              >
-                <span>Why this response works</span>
-                {showRationale ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-              {showRationale && (
-                <div className="border-t px-3 pb-3 pt-2">
-                  <p className="text-sm text-muted-foreground">{draftRationale}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </SheetPanel>
-
-      {/* Delete Confirm */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name || ""}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. Are you sure?
-            </AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone. Are you sure?</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={deleteItem} variant="destructive">
+            <AlertDialogAction onClick={() => void handleDelete()} variant="destructive">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Create Campaign Dialog */}
-      <Dialog open={showCampaignModal} onOpenChange={setShowCampaignModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Campaign</DialogTitle>
-            <DialogDescription>Set up a new engagement campaign for your project.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Campaign Name</Label>
-              <Input
-                type="text"
-                value={newCampaignName}
-                onChange={(e) => setNewCampaignName(e.target.value)}
-                placeholder="e.g., Q4 Engagement"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                rows={3}
-                value={newCampaignDesc}
-                onChange={(e) => setNewCampaignDesc(e.target.value)}
-                placeholder="What is this campaign focused on?"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCampaignModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => void createCampaign()} disabled={creatingCampaign}>
-              {creatingCampaign && <Loader2 className="h-4 w-4 animate-spin" />}
-              {creatingCampaign ? "Creating..." : "Create Campaign"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CampaignDialog
+        open={showCampaignModal}
+        onOpenChange={setShowCampaignModal}
+        creating={data.creatingCampaign}
+        onCreate={handleCreateCampaign}
+      />
     </div>
   );
 }

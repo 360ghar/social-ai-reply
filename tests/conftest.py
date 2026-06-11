@@ -301,6 +301,13 @@ def reset_rate_limits():
 
 
 @pytest.fixture(autouse=True)
+def stub_llm_stage_refinement():
+    """Keep scans offline: never call a real LLM for buying-stage refinement."""
+    with patch("app.services.product.scanner.refine_stages_with_llm", return_value={}):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def mock_supabase_auth():
     """Keep the test suite offline by mocking auth verification + signup."""
     with (

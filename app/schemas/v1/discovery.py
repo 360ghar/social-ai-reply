@@ -93,6 +93,9 @@ class ScanRunResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    # Incremental progress (populated while status == "running")
+    subreddits_total: int | None = None
+    subreddits_scanned: int | None = None
 
 
 class OpportunityResponse(BaseModel):
@@ -103,7 +106,6 @@ class OpportunityResponse(BaseModel):
     scan_run_id: str | None
     reddit_post_id: str
     subreddit_name: str
-    platform: str = "reddit"
     author: str
     title: str
     permalink: str
@@ -129,6 +131,10 @@ class OpportunityResponse(BaseModel):
     draft_article: str | None = None
     draft_post: str | None = None
     engagement_score: int | None = None
+    # Buying-stage intent ladder
+    buying_stage: str | None = None
+    intent_confidence: float | None = None
+    scoring_breakdown: dict | None = None
 
 
 class OpportunityStatusRequest(BaseModel):

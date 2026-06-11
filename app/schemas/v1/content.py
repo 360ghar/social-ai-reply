@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ReplyDraftRequest(BaseModel):
     opportunity_id: int
+    voice_profile_id: int | None = Field(default=None, ge=1)
 
 
 class ReplyDraftResponse(BaseModel):

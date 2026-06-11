@@ -10,12 +10,12 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.conftest import _create_test_user, _make_test_token
 
 from app.db.supabase_client import get_supabase
 from app.db.tables.users import get_user_by_email
 from app.main import app
 from app.services.product.supabase_auth import SupabaseAuthError
+from tests.conftest import _create_test_user, _make_test_token
 
 
 @pytest.fixture

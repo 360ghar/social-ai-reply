@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -15,12 +16,14 @@ import jwt
 from jwt import PyJWK
 
 from app.core.config import get_settings
+from app.core.constants.timeouts import JWKS_CACHE_TTL, JWKS_REFRESH_COOLDOWN
 
 logger = logging.getLogger(__name__)
 
-# ── JWKS cache (thread-safe, refreshed on key-miss) ─────────────
+# ── JWKS cache (thread-safe, TTL-bounded, refreshed on key-miss) ─
 
 _jwks_cache: dict[str, PyJWK] = {}
+_jwks_fetched_at: float = 0.0  # time.monotonic() of last successful fetch
 _jwks_lock = threading.Lock()
 
 # ── Data classes ─────────────────────────────────────────────────
@@ -76,13 +79,22 @@ def _fetch_jwks() -> dict[str, PyJWK]:
 
 
 def _get_signing_key(kid: str) -> PyJWK:
-    """Look up a signing key by kid, refreshing the JWKS cache if needed."""
-    global _jwks_cache
+    """Look up a signing key by kid, refreshing the JWKS cache if needed.
+
+    The cache expires after ``JWKS_CACHE_TTL`` so rotated signing keys are
+    picked up without a restart. Unknown kids also trigger a refresh, but at
+    most once per ``JWKS_REFRESH_COOLDOWN`` so a flood of forged tokens can't
+    hammer the Supabase JWKS endpoint.
+    """
+    global _jwks_cache, _jwks_fetched_at
     with _jwks_lock:
-        if kid in _jwks_cache:
+        now = time.monotonic()
+        expired = now - _jwks_fetched_at >= JWKS_CACHE_TTL
+        if kid in _jwks_cache and not expired:
             return _jwks_cache[kid]
-        # Key not found — refresh cache
-        _jwks_cache = _fetch_jwks()
+        if expired or now - _jwks_fetched_at >= JWKS_REFRESH_COOLDOWN:
+            _jwks_cache = _fetch_jwks()
+            _jwks_fetched_at = time.monotonic()
         if kid in _jwks_cache:
             return _jwks_cache[kid]
     raise ValueError(f"Signing key '{kid}' not found in Supabase JWKS.")

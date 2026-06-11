@@ -204,7 +204,12 @@ def test_manual_discovery_filters_offtopic_subreddits_and_posts(authed_client, m
         json={"project_id": project_id, "search_window_hours": 72, "max_posts_per_subreddit": 10},
     )
     assert scan.status_code == 200
-    assert scan.json()["status"] == "completed"
+    # Scans are async now: POST returns a running scan_run; the TestClient
+    # executes the background task before returning, so polling once suffices.
+    assert scan.json()["status"] == "running"
+    scan_status = client.get(f"/v1/scans/{scan.json()['id']}")
+    assert scan_status.status_code == 200
+    assert scan_status.json()["status"] == "completed"
 
     opportunities = client.get(f"/v1/opportunities?project_id={project_id}")
     assert opportunities.status_code == 200

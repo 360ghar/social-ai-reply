@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Trash2, Link2, Key, Webhook, FolderKanban, Save } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { AccountSafetyCard } from "@/components/settings/account-safety-card";
 
 const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];
@@ -565,6 +566,7 @@ export default function SettingsPage() {
                           Disconnect
                         </Button>
                       </div>
+                      <AccountSafetyCard token={token} accountId={account.id} />
                     </Card>
                   ))}
                   <Button

@@ -139,7 +139,14 @@ class EmbeddingService:
         return float(np.dot(arr_a, arr_b) / (norm_a * norm_b))
 
     def similarity(self, text_a: str, text_b: str) -> float:
-        """Convenience: embed both texts and compute cosine similarity."""
+        """Convenience: similarity between two texts.
+
+        TF-IDF embeddings are corpus-dependent: vectors from different fits are
+        not comparable, so the TF-IDF path computes a pairwise fit instead of
+        using the (corpus-independent) embedding cache.
+        """
+        if isinstance(self._provider, TfidfProvider):
+            return self._provider.pairwise_similarity(text_a, text_b)
         emb_a = self.embed_text(text_a)
         emb_b = self.embed_text(text_b)
         return self.cosine_similarity(emb_a, emb_b)

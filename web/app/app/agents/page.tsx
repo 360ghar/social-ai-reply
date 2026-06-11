@@ -38,6 +38,7 @@ import {
   type Opportunity,
 } from "@/lib/api/feed";
 import { getCompanies } from "@/lib/api/company";
+import { sourceLabel, sourcePlatform } from "@/lib/opportunity";
 
 interface FeedFilters {
   platform: string;
@@ -286,8 +287,8 @@ export default function AgentsPage() {
               <CardContent className="p-4">
                 <div className="flex flex-col sm:flex-row sm:items-start gap-3">
                   <div className="flex items-center gap-2 shrink-0">
-                    <PlatformIcon platform="reddit" />
-                    <Badge variant="outline" className="text-xs">r/{opp.subreddit_name}</Badge>
+                    <PlatformIcon platform={sourcePlatform(opp)} />
+                    <Badge variant="outline" className="text-xs">{sourceLabel(opp)}</Badge>
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-semibold truncate">{opp.title}</h3>

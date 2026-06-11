@@ -211,16 +211,23 @@ def test_v1_discovery_scan_and_draft_flow(monkeypatch, mock_supabase):
         headers=headers,
     )
     assert scan.status_code == 200
-    assert scan.json()["status"] == "completed"
+    # Scans are async now: POST returns a running scan_run; the TestClient
+    # executes the background task before returning, so polling once suffices.
+    assert scan.json()["status"] == "running"
+    scan_status = client.get(f"/v1/scans/{scan.json()['id']}", headers=headers)
+    assert scan_status.status_code == 200
+    assert scan_status.json()["status"] == "completed"
 
     opportunities = client.get(f"/v1/opportunities?project_id={project_id}", headers=headers)
     assert opportunities.status_code == 200
     assert opportunities.json()
     opportunity_id = opportunities.json()[0]["id"]
 
+    # drafts.py imports generate_reply directly (voice-profile aware), so patch
+    # the name where it is used rather than the ProductCopilot facade.
     monkeypatch.setattr(
-        "app.services.product.copilot.ProductCopilot.generate_reply",
-        lambda self, opportunity, brand, prompts: (
+        "app.api.v1.routes.drafts.generate_reply",
+        lambda opportunity, brand, prompts, voice_profile=None, subreddit_tone_rules=None: (
             "This looks like a good fit to solve by first defining the signals that make a thread worth answering, "
             "then reviewing recent posts against those signals before writing a specific, non-promotional reply.",
             "Deterministic test draft for the API persistence flow.",

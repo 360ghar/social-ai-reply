@@ -1,3 +1,4 @@
+import base64
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,6 +23,15 @@ _PLACEHOLDER_VALUES = {
     "your-secret-key",
     "your-jwt-secret",
 }
+
+
+def _is_valid_fernet_key(value: str) -> bool:
+    """True when the string is a 32-byte urlsafe-base64 Fernet key (mirrors app.utils.encryption)."""
+    try:
+        raw = base64.urlsafe_b64decode(value.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+    return len(raw) == 32
 
 
 def _strip_optional_quotes(value: str) -> str:
@@ -52,6 +62,9 @@ def _normalize_placeholder(value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "RedditFlow"
     environment: str = "development"
+    # When True, plan limits from plan_entitlements (with PLAN_CATALOG fallback)
+    # are enforced via HTTP 402. Off by default: the product is currently free.
+    enforce_plan_limits: bool = False
     database_url: str = "sqlite:///./poacher.db"
     auto_create_tables: bool = True
 
@@ -95,6 +108,9 @@ class Settings(BaseSettings):
     local_llm_model: str = "llama3.1"
 
     embedding_model: str = Field(default="tfidf", description="Embedding model: tfidf or sentence-transformers")
+    # Rollback switch for the 2026-06 scoring unification: when True the
+    # scanner uses the legacy scoring.score_post path instead of RelevanceEngine.
+    use_legacy_scoring: bool = False
 
     relevance_threshold: int = Field(default=70, ge=0, le=100)
     semantic_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
@@ -102,6 +118,9 @@ class Settings(BaseSettings):
     reddit_base_url: str = "https://www.reddit.com"
     reddit_user_agent: str = "web:redditflow:v1.2 (by /u/redditflow_bot)"
     reddit_search_provider: str = "auto"
+    # Min seconds between requests to reddit.com hosts. Reddit asks crawlers to
+    # stay above ~2s; lowering this risks 429s and IP bans.
+    reddit_scrape_min_interval: float = 2.0
     serpapi_api_key: str | None = None
     bing_search_api_key: str | None = None
     bing_search_url: str = "https://api.bing.microsoft.com/v7.0/search"
@@ -156,6 +175,12 @@ class Settings(BaseSettings):
                 raise ValueError("SUPABASE_JWT_SECRET is required in production.")
             if not self.encryption_key:
                 raise ValueError("ENCRYPTION_KEY is required in production.")
+            if not _is_valid_fernet_key(self.encryption_key.strip()):
+                raise ValueError(
+                    "ENCRYPTION_KEY must be a real Fernet key in production (passphrase-derived "
+                    "keys are dev-only). Generate one with: "
+                    'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+                )
         return self
 
     @property

@@ -1,14 +1,30 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Copy } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
-import { getErrorMessage } from "@/types/errors";
 import { apiRequest } from "@/lib/api";
+import {
+  getRoiRollup,
+  getTrackedLinks,
+  shortLinkUrl,
+  type RoiRollupRow,
+  type TrackedLink,
+} from "@/lib/api/links";
+import { copyText } from "@/lib/reddit";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { withProjectId } from "@/lib/project";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/page-header";
 import { KPIGrid, type KPICardProps } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -65,7 +81,7 @@ function formatActivityLabel(event: ActivityEvent) {
 
 export default function AnalyticsPage() {
   const { token } = useAuth();
-  const { error } = useToast();
+  const { success, error } = useToast();
   const selectedProjectId = useSelectedProjectId();
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
@@ -75,6 +91,8 @@ export default function AnalyticsPage() {
   const [keywords, setKeywords] = useState<KeywordData[]>([]);
   const [subreddits, setSubreddits] = useState<SubredditData[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [trackedLinks, setTrackedLinks] = useState<TrackedLink[]>([]);
+  const [roiRows, setRoiRows] = useState<RoiRollupRow[]>([]);
 
   useEffect(() => {
     if (!token) return;
@@ -165,7 +183,27 @@ export default function AnalyticsPage() {
         error("Failed to load activity data");
       }
 
+      // Reply ROI (tracked links + rollups). Loaded best-effort: the section
+      // simply shows its empty state when these endpoints fail.
+      let trackedLinksRes: TrackedLink[] = [];
+      let roiRowsRes: RoiRollupRow[] = [];
+      if (token) {
+        try {
+          trackedLinksRes = await getTrackedLinks(token, selectedProjectId);
+        } catch (err: unknown) {
+          console.warn("Failed to load tracked links:", err);
+        }
+        try {
+          const res = await getRoiRollup(token, selectedProjectId);
+          roiRowsRes = res.rows || [];
+        } catch (err: unknown) {
+          console.warn("Failed to load ROI rollup:", err);
+        }
+      }
+
       setOverview(overviewRes);
+      setTrackedLinks(trackedLinksRes);
+      setRoiRows(roiRowsRes);
       setTrendData(trendDataRes);
       setEngagementData(funnelRes);
       setKeywords(keywordsRes);
@@ -227,6 +265,21 @@ export default function AnalyticsPage() {
     { label: "Drafts Created", value: overview?.total_drafts || 0 },
     { label: "Posts Published", value: overview?.total_published || 0 },
   ];
+
+  // Reply ROI rollups
+  const subredditClicks = roiRows.filter((row) => row.group_by === "subreddit");
+  const stageClicks = roiRows.filter((row) => row.group_by === "buying_stage");
+  const maxRollupClicks = roiRows.reduce((max, row) => Math.max(max, row.clicks), 1);
+  const totalLinkClicks = trackedLinks.reduce((sum, link) => sum + link.click_count, 0);
+
+  async function copyShortUrl(link: TrackedLink) {
+    try {
+      await copyText(shortLinkUrl(link));
+      success("Short URL copied");
+    } catch {
+      error("Failed to copy", "Clipboard access was denied.");
+    }
+  }
 
   // SVG chart data (last 30 points)
   const chartData = trendData.slice(-30);
@@ -381,6 +434,106 @@ export default function AnalyticsPage() {
             </div>
           ))}
         </div>
+      </Card>
+
+      {/* Section 2.5: Reply ROI */}
+      <Card className="p-5">
+        <h3 className="text-sm font-semibold mb-1">Reply ROI</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Tracked short links attached to your replies — {trackedLinks.length} link{trackedLinks.length === 1 ? "" : "s"},{" "}
+          {totalLinkClicks} click{totalLinkClicks === 1 ? "" : "s"} total.
+        </p>
+        {trackedLinks.length === 0 ? (
+          <EmptyState
+            title="No tracked links yet"
+            description="Create a tracked link from a reply draft in Content Studio to start attributing clicks back to replies."
+          />
+        ) : (
+          <div className="space-y-6">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Destination</TableHead>
+                  <TableHead className="text-right">Clicks</TableHead>
+                  <TableHead className="w-[1%]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trackedLinks.map((link) => (
+                  <TableRow key={link.id}>
+                    <TableCell className="font-mono text-xs">{link.code}</TableCell>
+                    <TableCell className="max-w-[320px] truncate text-xs text-muted-foreground">
+                      {link.destination_url}
+                    </TableCell>
+                    <TableCell className="text-right text-sm font-semibold tabular-nums">
+                      {link.click_count}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => void copyShortUrl(link)}
+                        aria-label={`Copy short URL for ${link.code}`}
+                      >
+                        <Copy className="h-3.5 w-3.5" /> Copy short URL
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div>
+                <h4 className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Clicks per subreddit
+                </h4>
+                {subredditClicks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No subreddit attribution yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {subredditClicks.map((row) => (
+                      <div key={`sr-${row.key}`} className="flex items-center gap-3 text-sm">
+                        <span className="w-32 truncate shrink-0">r/{row.key}</span>
+                        <div className="flex-1 h-5 bg-muted rounded overflow-hidden">
+                          <div
+                            className="h-full bg-primary"
+                            style={{ width: `${(row.clicks / maxRollupClicks) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-10 text-right text-xs font-semibold tabular-nums">{row.clicks}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <h4 className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Clicks per buying stage
+                </h4>
+                {stageClicks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No buying-stage attribution yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {stageClicks.map((row) => (
+                      <div key={`stage-${row.key}`} className="flex items-center gap-3 text-sm">
+                        <span className="w-32 truncate shrink-0 capitalize">{row.key.replace(/_/g, " ")}</span>
+                        <div className="flex-1 h-5 bg-muted rounded overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-500"
+                            style={{ width: `${(row.clicks / maxRollupClicks) * 100}%` }}
+                          />
+                        </div>
+                        <span className="w-10 text-right text-xs font-semibold tabular-nums">{row.clicks}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Section 3: Two columns - Keywords & Subreddits */}

@@ -20,6 +20,22 @@ export interface PublishedPost {
   published_at?: string;
 }
 
+/** Posting-safety assessment for a connected Reddit account. */
+export interface AccountSafety {
+  score: number;
+  tier: "new" | "warming" | "established" | string;
+  daily_cap: number;
+  weekly_cap: number;
+  posted_today: number;
+  posted_this_week: number;
+  warnings: string[];
+  shadowban_suspected: boolean;
+}
+
+export async function getAccountSafety(token: string, accountId: number | string): Promise<AccountSafety> {
+  return apiRequest<AccountSafety>(`/v1/reddit/accounts/${accountId}/safety`, {}, token);
+}
+
 export async function getRedditAccounts(token: string): Promise<RedditAccount[]> {
   const result = await apiRequest<{ items: RedditAccount[] }>("/v1/reddit/accounts", {}, token);
   return result.items;
@@ -48,6 +64,8 @@ export async function postToReddit(
     title?: string;
     parent_post_id?: string;
     campaign_id?: number;
+    /** Bypass the account-safety daily cap (422 guard) when explicitly confirmed by the user. */
+    override_safety?: boolean;
   },
 ): Promise<PublishedPost> {
   return apiRequest<PublishedPost>(

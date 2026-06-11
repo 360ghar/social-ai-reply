@@ -6,6 +6,7 @@ Each domain router lives in its own module under this package.
 from fastapi import APIRouter
 
 from app.api.v1.routes.agents import router as agents_router
+from app.api.v1.routes.amplify import router as amplify_router
 from app.api.v1.routes.analytics import router as analytics_router
 from app.api.v1.routes.analytics_v2 import router as analytics_v2_router
 from app.api.v1.routes.articles import router as articles_router
@@ -23,6 +24,8 @@ from app.api.v1.routes.feed import router as feed_router
 from app.api.v1.routes.feedback import router as feedback_router
 from app.api.v1.routes.geo import router as geo_router
 from app.api.v1.routes.invitations import router as invitations_router
+from app.api.v1.routes.links import public_router as links_public_router
+from app.api.v1.routes.links import router as links_router
 from app.api.v1.routes.manual_import import router as manual_import_router
 from app.api.v1.routes.notifications import router as notifications_router
 from app.api.v1.routes.opportunities import router as opportunities_router
@@ -37,12 +40,14 @@ from app.api.v1.routes.sources import router as sources_router
 from app.api.v1.routes.technical_seo import router as technical_seo_router
 from app.api.v1.routes.ugc import router as ugc_router
 from app.api.v1.routes.visibility import router as visibility_router
+from app.api.v1.routes.voice_profiles import router as voice_profiles_router
 from app.api.v1.routes.webhooks import router as webhooks_router
 from app.api.v1.routes.workspace import router as workspace_router
 
 router = APIRouter()
 
 router.include_router(agents_router)
+router.include_router(amplify_router)
 router.include_router(analytics_router)
 router.include_router(analytics_v2_router)
 router.include_router(articles_router)
@@ -60,6 +65,9 @@ router.include_router(feed_router)
 router.include_router(feedback_router)
 router.include_router(geo_router)
 router.include_router(invitations_router)
+router.include_router(links_router)
+# Public unauthenticated short-link redirect (/r/{code}) — no /v1 prefix.
+router.include_router(links_public_router)
 router.include_router(manual_import_router)
 router.include_router(notifications_router)
 router.include_router(opportunities_router)
@@ -74,5 +82,6 @@ router.include_router(sources_router)
 router.include_router(technical_seo_router)
 router.include_router(ugc_router)
 router.include_router(visibility_router)
+router.include_router(voice_profiles_router)
 router.include_router(webhooks_router)
 router.include_router(workspace_router)

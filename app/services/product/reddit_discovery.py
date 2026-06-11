@@ -23,6 +23,7 @@ from bs4 import BeautifulSoup
 
 from app.core.config import get_settings
 from app.core.exceptions import BusinessRuleError
+from app.services.infrastructure.http_budget import HttpBudget
 from app.services.product.reddit import (
     RedditPost,
     RedditSubredditMatch,
@@ -52,8 +53,11 @@ _MIN_INTERVAL_BY_HOST = {
     "api.bing.microsoft.com": 0.25,
     "html.duckduckgo.com": 0.75,
     "serpapi.com": 0.25,
-    "www.reddit.com": 0.5,
 }
+
+# Shared across all RedditDiscoveryService instances (the scanner creates one
+# per subreddit) so throttling and circuit state apply process-wide per host.
+_HTTP_BUDGET = HttpBudget(min_interval_by_host=_MIN_INTERVAL_BY_HOST)
 
 
 @dataclass(slots=True)
@@ -78,7 +82,8 @@ class RedditDiscoveryService:
         self._duckduckgo_search_url = settings.duckduckgo_search_url
         self._bing_search_url = settings.bing_search_url
         self._reddit_base_url = settings.reddit_base_url.rstrip("/")
-        self._last_request_time_by_host: dict[str, float] = {}
+        for reddit_host in _REDDIT_HOSTS:
+            _HTTP_BUDGET.set_min_interval(reddit_host, settings.reddit_scrape_min_interval)
         self._client = httpx.Client(
             headers={
                 "Accept-Language": "en-US,en;q=0.9",
@@ -798,44 +803,40 @@ class RedditDiscoveryService:
         response: httpx.Response | None = None
 
         for attempt in range(3):
-            self._throttle(host)
+            _HTTP_BUDGET.acquire(host)  # raises CircuitOpenError when the host is cooling down
             try:
                 response = self._client.request(method, url, params=params, headers=headers)
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                _HTTP_BUDGET.record_failure(host)
                 if attempt == 2:
                     raise
-                wait = min(2 ** attempt, 4)
+                wait = _HTTP_BUDGET.backoff_delay(attempt)
                 log.warning("Connection error on %s (attempt %d/3): %s", url, attempt + 1, exc)
                 time.sleep(wait)
                 continue
 
-            self._last_request_time_by_host[host] = time.monotonic()
-            if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
-                wait = min(2 ** attempt, 4)
-                log.warning(
-                    "Transient HTTP %d on %s (attempt %d/3); retrying in %ss",
-                    response.status_code,
-                    url,
-                    attempt + 1,
-                    wait,
-                )
-                time.sleep(wait)
-                continue
+            if response.status_code in {429, 500, 502, 503, 504}:
+                _HTTP_BUDGET.record_failure(host)
+                if attempt < 2:
+                    wait = _HTTP_BUDGET.backoff_delay(attempt, retry_after=response.headers.get("Retry-After"))
+                    log.warning(
+                        "Transient HTTP %d on %s (attempt %d/3); retrying in %.1fs",
+                        response.status_code,
+                        url,
+                        attempt + 1,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    continue
 
             response.raise_for_status()
+            _HTTP_BUDGET.record_success(host)
             return response
 
         if response is None:
             raise RuntimeError(f"Request did not execute for {url}")
         response.raise_for_status()
         return response
-
-    def _throttle(self, host: str) -> None:
-        min_interval = _MIN_INTERVAL_BY_HOST.get(host, 0.5)
-        last_request_time = self._last_request_time_by_host.get(host, 0.0)
-        elapsed = time.monotonic() - last_request_time
-        if elapsed < min_interval:
-            time.sleep(min_interval - elapsed)
 
     def _merge_posts(
         self,

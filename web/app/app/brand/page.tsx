@@ -17,6 +17,7 @@ import { apiRequest, type BrandProfile, type Dashboard } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PageHeader } from "@/components/shared/page-header";
+import { VoiceProfilesSection } from "@/components/brand/voice-profiles-section";
 
 function CircularProgress({ value, size = 48, strokeWidth = 4 }: { value: number; size?: number; strokeWidth?: number }) {
   const radius = (size - strokeWidth) / 2;
@@ -208,6 +209,7 @@ export default function BrandPage() {
         tabs={
           <TabsList>
             <TabsTrigger value="profile">Brand Profile</TabsTrigger>
+            <TabsTrigger value="voice">Voice profiles</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
           </TabsList>
         }
@@ -360,6 +362,10 @@ export default function BrandPage() {
               </div>
             </div>
           </form>
+      </TabsContent>
+
+      <TabsContent value="voice">
+        <VoiceProfilesSection token={token} projectId={project?.id ?? selectedProjectId} />
       </TabsContent>
 
       <TabsContent value="analysis">

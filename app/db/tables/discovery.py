@@ -269,6 +269,7 @@ def list_opportunities_for_project(
     platform: str | None = None,
     agent_name: str | None = None,
     intent: str | None = None,
+    buying_stage: str | None = None,
     min_score: int | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -283,6 +284,8 @@ def list_opportunities_for_project(
         query = query.eq("agent_name", agent_name)
     if intent:
         query = query.eq("intent", intent)
+    if buying_stage:
+        query = query.eq("buying_stage", buying_stage)
     if min_score is not None:
         query = query.gte("score", min_score)
     result = query.order("score", desc=True).range(offset, offset + limit - 1).execute()

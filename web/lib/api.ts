@@ -1,3 +1,5 @@
+import { ApiError } from "@/types/errors";
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export type AuthPayload = {
@@ -36,8 +38,13 @@ export type Opportunity = {
   id: number;
   project_id: number;
   scan_run_id: string | null;
-  reddit_post_id: string;
-  subreddit_name: string;
+  reddit_post_id?: string;
+  subreddit_name?: string;
+  platform?: string;
+  source_name?: string;
+  intent?: string;
+  buying_stage?: string;
+  intent_confidence?: number;
   author: string;
   title: string;
   permalink: string;
@@ -295,11 +302,15 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
     let detail = `Request failed: ${response.status}`;
     try {
       const payload = await response.json();
-      detail = payload.detail ?? payload.message ?? detail;
+      const raw = payload.detail ?? payload.message ?? detail;
+      detail = typeof raw === "string" ? raw : JSON.stringify(raw);
     } catch {
       // ignore JSON parse errors
     }
-    throw new Error(detail);
+    // ApiError extends Error, so existing `instanceof Error` checks keep working
+    // while callers that need the HTTP status (e.g. 422 safety overrides) can
+    // use `isApiError(err)`.
+    throw new ApiError(response.status, detail, detail);
   }
   if (response.status === 204) {
     return undefined as unknown as T;
@@ -333,13 +344,17 @@ export {
   triggerScan,
   getScanStatus,
   getOpportunities,
+  updateOpportunityStatus,
+  type ScanRun,
 } from "./api/discovery";
 
 export {
   generateReply,
   getReplyDrafts,
+  updateReplyDraft,
   createPostDraft,
   getPostDrafts,
+  updatePostDraft,
   getPrompts,
   createPrompt,
   updatePrompt,

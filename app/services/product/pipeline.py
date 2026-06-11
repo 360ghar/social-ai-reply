@@ -1,8 +1,11 @@
 """Background task to run the auto-pipeline from website URL to sales package."""
 
 import logging
+import time
 import traceback
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import TypeVar
 
 from app.db.tables.analytics import get_auto_pipeline_by_id, update_auto_pipeline
 from app.db.tables.content import create_reply_draft
@@ -28,6 +31,31 @@ from app.services.product.scoring import MIN_RELEVANT_OPPORTUNITY_SCORE
 
 log = logging.getLogger("redditflow.pipeline")
 TARGET_PIPELINE_SUBREDDITS = 10
+TARGET_PIPELINE_KEYWORDS = 10
+_LLM_RETRY_DELAY_SECONDS = 5.0
+
+T = TypeVar("T")
+
+# Brand profile fields the pipeline produces and downstream steps consume.
+_BRAND_FIELDS = (
+    "brand_name",
+    "summary",
+    "product_summary",
+    "target_audience",
+    "call_to_action",
+    "voice_notes",
+    "business_domain",
+)
+
+
+def _retry_once(step_name: str, fn: Callable[[], T]) -> T:
+    """Run an LLM step, retrying once after a short delay on any failure."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("%s failed (%s); retrying once in %.0fs", step_name, exc, _LLM_RETRY_DELAY_SECONDS)
+        time.sleep(_LLM_RETRY_DELAY_SECONDS)
+        return fn()
 
 
 def run_auto_pipeline_background(
@@ -63,50 +91,51 @@ def run_auto_pipeline_background(
             "current_step": "Analyzing website content...",
         })
 
-        try:
-            website_analysis = copilot.analyze_website(website_url)
-            log.info("Website analysis OK — brand=%s summary_len=%d",
-                     website_analysis.brand_name, len(website_analysis.summary or ""))
-        except Exception as e:
-            log.error("Website analysis FAILED: %s\n%s", e, traceback.format_exc())
-            raise
-
-        update_auto_pipeline(db, pipeline_id, {"brand_summary": website_analysis.summary, "progress": 15})
-
         brand = get_brand_profile_by_project(db, project_id)
-        if brand:
-            updated_brand = update_brand_profile(db, brand["id"], {
-                "brand_name": website_analysis.brand_name,
-                "summary": website_analysis.summary,
-                "product_summary": website_analysis.product_summary,
-                "target_audience": website_analysis.target_audience,
-                "call_to_action": website_analysis.call_to_action,
-                "voice_notes": website_analysis.voice_notes,
-                "business_domain": website_analysis.business_domain,
-            })
-            if updated_brand is None:
-                log.warning(
-                    "BrandProfile update returned no row for project %s; refetching persisted record",
-                    project_id,
-                )
-                updated_brand = get_brand_profile_by_project(db, project_id)
-                if updated_brand is None:
-                    raise RuntimeError(f"Brand profile update did not persist for project {project_id}.")
-            brand = updated_brand
-            log.info("Updated existing BrandProfile id=%s", brand["id"])
+        brand_complete = bool(
+            brand
+            and (brand.get("summary") or "").strip()
+            and (brand.get("business_domain") or "").strip()
+        )
+
+        if brand_complete:
+            # Resume path: a previous (possibly failed) run already produced a
+            # full brand profile — reuse it instead of re-running the LLM.
+            log.info("Brand profile already complete for project %s — skipping website analysis", project_id)
+            update_auto_pipeline(db, pipeline_id, {"brand_summary": brand.get("summary"), "progress": 15})
         else:
-            brand = create_brand_profile(db, {
-                "project_id": project_id,
-                "brand_name": website_analysis.brand_name,
-                "website_url": website_url,
-                "summary": website_analysis.summary,
-                "product_summary": website_analysis.product_summary,
-                "target_audience": website_analysis.target_audience,
-                "call_to_action": website_analysis.call_to_action,
-                "voice_notes": website_analysis.voice_notes,
-                "business_domain": website_analysis.business_domain,
-            })
-            log.info("Created new BrandProfile for project %s", project_id)
+            try:
+                website_analysis = _retry_once(
+                    "Website analysis", lambda: copilot.analyze_website(website_url)
+                )
+                log.info("Website analysis OK — brand=%s summary_len=%d",
+                         website_analysis.brand_name, len(website_analysis.summary or ""))
+            except Exception as e:
+                log.error("Website analysis FAILED: %s\n%s", e, traceback.format_exc())
+                raise
+
+            update_auto_pipeline(db, pipeline_id, {"brand_summary": website_analysis.summary, "progress": 15})
+
+            analysis_fields = {key: getattr(website_analysis, key) for key in _BRAND_FIELDS}
+            if brand:
+                updated_brand = update_brand_profile(db, brand["id"], analysis_fields)
+                if updated_brand is None:
+                    log.warning(
+                        "BrandProfile update returned no row for project %s; refetching persisted record",
+                        project_id,
+                    )
+                    updated_brand = get_brand_profile_by_project(db, project_id)
+                    if updated_brand is None:
+                        raise RuntimeError(f"Brand profile update did not persist for project {project_id}.")
+                brand = updated_brand
+                log.info("Updated existing BrandProfile id=%s", brand["id"])
+            else:
+                brand = create_brand_profile(db, {
+                    "project_id": project_id,
+                    "website_url": website_url,
+                    **analysis_fields,
+                })
+                log.info("Created new BrandProfile for project %s", project_id)
 
         # Attach brand profile to proj so downstream discovery steps have
         # domain context. discover_and_store_subreddits and the helpers it
@@ -123,40 +152,38 @@ def run_auto_pipeline_background(
             "current_step": "Generating target personas...",
         })
 
-        brand_dict = {
-            "brand_name": website_analysis.brand_name,
-            "summary": website_analysis.summary,
-            "product_summary": website_analysis.product_summary,
-            "target_audience": website_analysis.target_audience,
-            "call_to_action": website_analysis.call_to_action,
-            "voice_notes": website_analysis.voice_notes,
-            "business_domain": website_analysis.business_domain,
-        }
+        # Read brand fields from the persisted row so the resume path (which
+        # skips website analysis) and the fresh path share one source of truth.
+        brand_dict = {key: brand.get(key) for key in _BRAND_FIELDS}
 
-        try:
-            personas_data = copilot.suggest_personas(
-                brand_dict,
-                count=4,
-            )
-            log.info("Generated %d personas", len(personas_data))
-        except Exception as e:
-            log.error("Persona generation FAILED: %s\n%s", e, traceback.format_exc())
-            raise
+        existing_personas = list_personas_for_project(db, project_id)
+        if existing_personas:
+            log.info("Project %s already has %d personas — skipping generation", project_id, len(existing_personas))
+            update_auto_pipeline(db, pipeline_id, {"personas_generated": len(existing_personas), "progress": 30})
+        else:
+            try:
+                personas_data = _retry_once(
+                    "Persona generation", lambda: copilot.suggest_personas(brand_dict, count=4)
+                )
+                log.info("Generated %d personas", len(personas_data))
+            except Exception as e:
+                log.error("Persona generation FAILED: %s\n%s", e, traceback.format_exc())
+                raise
 
-        from app.db.tables.discovery import create_persona
-        for p_data in personas_data:
-            create_persona(db, {
-                "project_id": project_id,
-                "name": p_data["name"],
-                "role": p_data.get("role"),
-                "summary": p_data["summary"],
-                "pain_points": p_data.get("pain_points", []),
-                "goals": p_data.get("goals", []),
-                "triggers": p_data.get("triggers", []),
-                "preferred_subreddits": p_data.get("preferred_subreddits", []),
-                "source": "generated",
-            })
-        update_auto_pipeline(db, pipeline_id, {"personas_generated": len(personas_data), "progress": 30})
+            from app.db.tables.discovery import create_persona
+            for p_data in personas_data:
+                create_persona(db, {
+                    "project_id": project_id,
+                    "name": p_data["name"],
+                    "role": p_data.get("role"),
+                    "summary": p_data["summary"],
+                    "pain_points": p_data.get("pain_points", []),
+                    "goals": p_data.get("goals", []),
+                    "triggers": p_data.get("triggers", []),
+                    "preferred_subreddits": p_data.get("preferred_subreddits", []),
+                    "source": "generated",
+                })
+            update_auto_pipeline(db, pipeline_id, {"personas_generated": len(personas_data), "progress": 30})
 
         # ── Step 3: Discover Keywords (30→45%) ──────────────────
         log.info("Step 3/7: Discovering keywords")
@@ -167,38 +194,42 @@ def run_auto_pipeline_background(
         })
 
         personas_list = list_personas_for_project(db, project_id)
-        try:
-            keywords_data = copilot.generate_keywords(
-                brand_dict,
-                personas_list,
-                count=15,
-            )
-            log.info("Generated %d keywords", len(keywords_data))
-        except Exception as e:
-            log.error("Keyword generation FAILED: %s\n%s", e, traceback.format_exc())
-            raise
-
         from app.db.tables.discovery import create_discovery_keyword, list_discovery_keywords_for_project
         existing_kw = {row["keyword"] for row in list_discovery_keywords_for_project(db, project_id)}
-        new_kw_count = 0
-        # copilot.generate_keywords returns list[GeneratedKeyword] (a @dataclass),
-        # NOT list[dict] — use attribute access, not subscript. suggest_personas
-        # returns list[dict] so the pattern is different for personas above.
-        for k_data in keywords_data:
-            if k_data.keyword in existing_kw:
-                log.info("Keyword '%s' already exists — skipping", k_data.keyword)
-                continue
-            create_discovery_keyword(db, {
-                "project_id": project_id,
-                "keyword": k_data.keyword,
-                "rationale": k_data.rationale,
-                "priority_score": k_data.priority_score,
-                "source": "generated",
-            })
-            existing_kw.add(k_data.keyword)
-            new_kw_count += 1
-        update_auto_pipeline(db, pipeline_id, {"keywords_generated": len(keywords_data), "progress": 45})
-        log.info("Inserted %d new keywords (%d already existed)", new_kw_count, len(keywords_data) - new_kw_count)
+
+        if len(existing_kw) >= TARGET_PIPELINE_KEYWORDS:
+            log.info("Project %s already has %d keywords — skipping generation", project_id, len(existing_kw))
+            update_auto_pipeline(db, pipeline_id, {"keywords_generated": len(existing_kw), "progress": 45})
+        else:
+            try:
+                keywords_data = _retry_once(
+                    "Keyword generation",
+                    lambda: copilot.generate_keywords(brand_dict, personas_list, count=15),
+                )
+                log.info("Generated %d keywords", len(keywords_data))
+            except Exception as e:
+                log.error("Keyword generation FAILED: %s\n%s", e, traceback.format_exc())
+                raise
+
+            new_kw_count = 0
+            # copilot.generate_keywords returns list[GeneratedKeyword] (a @dataclass),
+            # NOT list[dict] — use attribute access, not subscript. suggest_personas
+            # returns list[dict] so the pattern is different for personas above.
+            for k_data in keywords_data:
+                if k_data.keyword in existing_kw:
+                    log.info("Keyword '%s' already exists — skipping", k_data.keyword)
+                    continue
+                create_discovery_keyword(db, {
+                    "project_id": project_id,
+                    "keyword": k_data.keyword,
+                    "rationale": k_data.rationale,
+                    "priority_score": k_data.priority_score,
+                    "source": "generated",
+                })
+                existing_kw.add(k_data.keyword)
+                new_kw_count += 1
+            update_auto_pipeline(db, pipeline_id, {"keywords_generated": len(keywords_data), "progress": 45})
+            log.info("Inserted %d new keywords (%d already existed)", new_kw_count, len(keywords_data) - new_kw_count)
 
         # ── Step 4: Discover Subreddits (45→60%) ────────────────
         log.info("Step 4/7: Discovering subreddits")
@@ -316,15 +347,7 @@ def run_auto_pipeline_background(
                 if not is_valid:
                     update_opportunity(db, opp["id"], {"status": "ignored"})
                     continue
-                content, rationale, source_prompt = copilot.generate_reply(opp, {
-                    "brand_name": website_analysis.brand_name,
-                    "summary": website_analysis.summary,
-                    "product_summary": website_analysis.product_summary,
-                    "target_audience": website_analysis.target_audience,
-                    "call_to_action": website_analysis.call_to_action,
-                    "voice_notes": website_analysis.voice_notes,
-                    "business_domain": website_analysis.business_domain,
-                }, prompts)
+                content, rationale, source_prompt = copilot.generate_reply(opp, brand_dict, prompts)
                 create_reply_draft(db, {
                     "project_id": project_id,
                     "opportunity_id": opp["id"],

@@ -33,3 +33,36 @@ class TestEncryption:
         original = "こんにちは世界 🔐"
         encrypted = encrypt_text(original)
         assert decrypt_text(encrypted) == original
+
+
+class TestProductionKeyGuard:
+    _PROD_KWARGS = {
+        "environment": "production",
+        "supabase_url": "https://example.supabase.co",
+        "supabase_publishable_key": "pk-test",
+        "supabase_secret_key": "sk-test",
+        "supabase_jwt_secret": "jwt-secret-test",
+    }
+
+    def _settings(self, **overrides):
+        from app.core.config import Settings
+
+        return Settings(_env_file=None, **{**self._PROD_KWARGS, **overrides})
+
+    def test_production_rejects_passphrase_key(self):
+        with pytest.raises(ValueError, match="must be a real Fernet key"):
+            self._settings(encryption_key="just-a-passphrase-not-a-fernet-key")
+
+    def test_production_rejects_missing_key(self):
+        with pytest.raises(ValueError, match="ENCRYPTION_KEY is required"):
+            self._settings(encryption_key=None)
+
+    def test_production_accepts_real_fernet_key(self):
+        from cryptography.fernet import Fernet
+
+        settings = self._settings(encryption_key=Fernet.generate_key().decode())
+        assert settings.environment == "production"
+
+    def test_development_allows_passphrase_key(self):
+        settings = self._settings(environment="development", encryption_key="dev-passphrase")
+        assert settings.encryption_key == "dev-passphrase"

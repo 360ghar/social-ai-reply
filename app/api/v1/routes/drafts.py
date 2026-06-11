@@ -14,6 +14,7 @@ from app.api.v1.deps import (
 )
 from app.db.supabase_client import get_supabase
 from app.db.tables.content import (
+    count_reply_drafts_for_project,
     create_post_draft,
     create_reply_draft,
     get_post_draft_by_id,
@@ -27,14 +28,18 @@ from app.db.tables.content import (
 from app.db.tables.content import (
     update_reply_draft as update_reply_draft_db,
 )
-from app.db.tables.content import count_reply_drafts_for_project
 from app.db.tables.discovery import (
     count_opportunities_for_project,
     get_opportunity_by_id,
+    get_subreddit_by_project_and_name,
     list_opportunities_for_project,
     update_opportunity,
 )
 from app.db.tables.projects import list_prompt_templates_for_project
+from app.db.tables.voice_profiles import (
+    get_default_voice_profile_for_project,
+    get_voice_profile_by_id,
+)
 from app.schemas.v1.content import (
     PostDraftRequest,
     PostDraftResponse,
@@ -44,6 +49,7 @@ from app.schemas.v1.content import (
     ReplyDraftUpdateRequest,
 )
 from app.services.product.copilot import ProductCopilot
+from app.services.product.copilot.reply import generate_reply
 from app.services.product.scanner import revalidate_opportunity
 
 logger = logging.getLogger(__name__)
@@ -73,7 +79,31 @@ def generate_reply_draft(
 
     ensure_default_prompts(supabase, project["id"])
     prompts = list_prompt_templates_for_project(supabase, project["id"])
-    content, rationale, source_prompt = ProductCopilot().generate_reply(opportunity, project.get("brand_profile"), prompts)
+
+    # Resolve the voice profile: explicit request > project default > none.
+    voice_profile = None
+    if payload.voice_profile_id is not None:
+        voice_profile = get_voice_profile_by_id(supabase, payload.voice_profile_id)
+        if not voice_profile or voice_profile["project_id"] != project["id"]:
+            raise HTTPException(status_code=404, detail="Voice profile not found.")
+    else:
+        voice_profile = get_default_voice_profile_for_project(supabase, project["id"])
+
+    # Load per-subreddit tone rules from the opportunity's monitored subreddit, if any.
+    subreddit_tone_rules = None
+    subreddit_name = opportunity.get("subreddit_name") or opportunity.get("subreddit")
+    if subreddit_name:
+        monitored = get_subreddit_by_project_and_name(supabase, project["id"], subreddit_name)
+        if monitored:
+            subreddit_tone_rules = monitored.get("tone_rules")
+
+    content, rationale, source_prompt = generate_reply(
+        opportunity,
+        project.get("brand_profile"),
+        prompts,
+        voice_profile=voice_profile,
+        subreddit_tone_rules=subreddit_tone_rules,
+    )
 
     # Get next version number - batch query to avoid N+1
     existing_drafts = list_reply_drafts_for_opportunity(supabase, opportunity["id"])

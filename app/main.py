@@ -4,6 +4,7 @@ Backend API server using FastAPI with Supabase for authentication and database.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -31,6 +32,14 @@ async def lifespan(app: FastAPI):
     dashboard, migrations, or SQL scripts.
     """
     logger.info("Starting RedditFlow API...")
+    workers = os.environ.get("WEB_CONCURRENCY") or os.environ.get("UVICORN_WORKERS") or "1"
+    if workers.isdigit() and int(workers) > 1:
+        logger.warning(
+            "Running with %s workers: the in-memory rate limiter and HTTP budget are "
+            "per-process, so effective limits multiply by the worker count. Swap in a "
+            "shared RateLimitBackend (app/middleware.py) before scaling out.",
+            workers,
+        )
     if settings.environment == "development" and not settings.supabase_secret_key:
         logger.warning(
             "SUPABASE_SECRET_KEY is not configured. Falling back to SUPABASE_PUBLISHABLE_KEY for local DB access; "
