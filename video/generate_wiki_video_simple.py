@@ -12,12 +12,11 @@ Output:
     video/overview.mp4 - Video overview of the wiki
 """
 
-import os
 import subprocess
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from video.slides import SlideRenderer
 
 
 class SimpleWikiVideoGenerator:
@@ -28,186 +27,10 @@ class SimpleWikiVideoGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
 
-        # Video settings
-        self.width = 1920
-        self.height = 1080
         self.fps = 30
-        self.slide_duration = 4  # seconds per slide
+        self.renderer = SlideRenderer()
 
-        # Colors
-        self.bg_color = (15, 23, 42)  # Dark blue-gray
-        self.text_color = (255, 255, 255)  # White
-        self.accent_color = (59, 130, 246)  # Blue
-        self.secondary_color = (148, 163, 184)  # Gray
-
-    def create_title_slide(self) -> Image.Image:
-        """Create the title slide."""
-        img = Image.new("RGB", (self.width, self.height), self.bg_color)
-        draw = ImageDraw.Draw(img)
-
-        # Try to load a font, fallback to default
-        try:
-            title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 72)
-            subtitle_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 36)
-        except (OSError, IOError):
-            title_font = ImageFont.load_default()
-            subtitle_font = ImageFont.load_default()
-
-        # Draw title
-        title = "Social AI Reply / RedditFlow"
-        subtitle = "Wiki Documentation Overview"
-        branding = "360 Flatmates"
-
-        # Center text
-        title_bbox = draw.textbbox((0, 0), title, font=title_font)
-        title_width = title_bbox[2] - title_bbox[0]
-        title_x = (self.width - title_width) // 2
-        title_y = self.height // 2 - 100
-
-        draw.text((title_x, title_y), title, fill=self.text_color, font=title_font)
-
-        # Subtitle
-        subtitle_bbox = draw.textbbox((0, 0), subtitle, font=subtitle_font)
-        subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
-        subtitle_x = (self.width - subtitle_width) // 2
-        subtitle_y = title_y + 100
-
-        draw.text(
-            (subtitle_x, subtitle_y), subtitle, fill=self.secondary_color, font=subtitle_font
-        )
-
-        # Branding
-        branding_bbox = draw.textbbox((0, 0), branding, font=subtitle_font)
-        branding_width = branding_bbox[2] - branding_bbox[0]
-        branding_x = (self.width - branding_width) // 2
-        branding_y = self.height - 100
-
-        draw.text(
-            (branding_x, branding_y), branding, fill=self.accent_color, font=subtitle_font
-        )
-
-        return img
-
-    def create_section_slide(self, title: str, items: list[str]) -> Image.Image:
-        """Create a section slide with title and bullet points."""
-        img = Image.new("RGB", (self.width, self.height), self.bg_color)
-        draw = ImageDraw.Draw(img)
-
-        try:
-            title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
-            item_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 28)
-        except (OSError, IOError):
-            title_font = ImageFont.load_default()
-            item_font = ImageFont.load_default()
-
-        # Draw title
-        draw.text((100, 100), title, fill=self.accent_color, font=title_font)
-
-        # Draw items
-        y_offset = 200
-        for item in items[:8]:  # Limit to 8 items
-            draw.text((150, y_offset), f"• {item}", fill=self.text_color, font=item_font)
-            y_offset += 50
-
-        return img
-
-    def create_architecture_slide(self) -> Image.Image:
-        """Create an architecture overview slide."""
-        img = Image.new("RGB", (self.width, self.height), self.bg_color)
-        draw = ImageDraw.Draw(img)
-
-        try:
-            title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
-            box_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
-        except (OSError, IOError):
-            title_font = ImageFont.load_default()
-            box_font = ImageFont.load_default()
-
-        # Title
-        draw.text((100, 50), "Architecture Overview", fill=self.accent_color, font=title_font)
-
-        # Draw architecture boxes
-        boxes = [
-            {"title": "Frontend", "items": ["Next.js 16", "React 19", "Tailwind CSS"], "x": 100, "y": 200},
-            {"title": "Backend", "items": ["FastAPI", "Python 3.11", "Supabase"], "x": 700, "y": 200},
-            {"title": "Agents", "items": ["10 Specialized", "Multi-agent", "System"], "x": 1300, "y": 200},
-            {"title": "Database", "items": ["Supabase Postgres", "Redis Cache", "File Storage"], "x": 100, "y": 600},
-            {"title": "LLM", "items": ["Gemini", "OpenAI", "Claude"], "x": 700, "y": 600},
-            {"title": "External", "items": ["Reddit API", "HN API", "Web Scraping"], "x": 1300, "y": 600},
-        ]
-
-        for box in boxes:
-            # Draw box background
-            draw.rectangle(
-                [box["x"], box["y"], box["x"] + 400, box["y"] + 200],
-                fill=(30, 41, 59),
-                outline=self.accent_color,
-                width=2,
-            )
-
-            # Draw box title
-            draw.text(
-                (box["x"] + 20, box["y"] + 20),
-                box["title"],
-                fill=self.text_color,
-                font=box_font,
-            )
-
-            # Draw box items
-            y_offset = box["y"] + 60
-            for item in box["items"]:
-                draw.text(
-                    (box["x"] + 40, y_offset),
-                    f"• {item}",
-                    fill=self.secondary_color,
-                    font=box_font,
-                )
-                y_offset += 30
-
-        return img
-
-    def create_agents_slide(self) -> Image.Image:
-        """Create a slide showing all 10 agents."""
-        img = Image.new("RGB", (self.width, self.height), self.bg_color)
-        draw = ImageDraw.Draw(img)
-
-        try:
-            title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
-            agent_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
-        except (OSError, IOError):
-            title_font = ImageFont.load_default()
-            agent_font = ImageFont.load_default()
-
-        # Title
-        draw.text((100, 50), "10 Specialized Agents", fill=self.accent_color, font=title_font)
-
-        # Agent list
-        agents = [
-            "Brand Brain - Website analysis",
-            "Reddit Agent - Post discovery",
-            "Hacker News Agent - Tech discussions",
-            "SEO Agent - Website audit",
-            "GEO Agent - AI search visibility",
-            "Articles Agent - Content briefs",
-            "X Agent - Twitter ideas",
-            "LinkedIn Agent - Professional posts",
-            "UGC Agent - Video briefs",
-            "Technical SEO Agent - Code audit",
-        ]
-
-        # Draw agents in two columns
-        y_offset = 150
-        for i, agent in enumerate(agents):
-            x_offset = 100 if i < 5 else 900
-            if i == 5:
-                y_offset = 150
-
-            draw.text((x_offset, y_offset), f"{i+1}. {agent}", fill=self.text_color, font=agent_font)
-            y_offset += 60
-
-        return img
-
-    def save_slide(self, slide: Image.Image, slide_number: int, temp_dir: Path) -> Path:
+    def save_slide(self, slide, slide_number: int, temp_dir: Path) -> Path:
         """Save a slide as an image file."""
         slide_path = temp_dir / f"slide_{slide_number:03d}.png"
         slide.save(slide_path, "PNG")
@@ -217,69 +40,24 @@ class SimpleWikiVideoGenerator:
         """Generate the complete video."""
         print("Generating wiki video overview...")
 
-        # Create slides
-        slides = [
-            self.create_title_slide(),
-            self.create_section_slide(
-                "Core Features",
-                [
-                    "Multi-agent AI marketing platform",
-                    "Transparent relevance scoring",
-                    "Manual posting (no auto-posting)",
-                    "Free/open-source-first approach",
-                    "10 specialized marketing agents",
-                    "LLM provider flexibility",
-                ],
-            ),
-            self.create_architecture_slide(),
-            self.create_agents_slide(),
-            self.create_section_slide(
-                "Technical Stack",
-                [
-                    "Backend: FastAPI + Python 3.11",
-                    "Frontend: Next.js 16 + React 19",
-                    "Database: Supabase Postgres",
-                    "Auth: Supabase Auth with JWT",
-                    "Embeddings: TF-IDF + sentence-transformers",
-                    "LLM: Gemini, OpenAI, Claude, Perplexity",
-                ],
-            ),
-            self.create_section_slide(
-                "Deployment",
-                [
-                    "Backend: Railway",
-                    "Frontend: Netlify",
-                    "Database: Supabase (managed)",
-                    "CI/CD: GitHub Actions",
-                    "Automatic wiki publishing",
-                ],
-            ),
-        ]
+        slides_with_duration = self.renderer.get_all_slides()
 
-        # Save slides to temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            slide_paths = []
-
-            for i, slide in enumerate(slides):
-                slide_path = self.save_slide(slide, i, temp_path)
-                slide_paths.append(slide_path)
-                print(f"Created slide {i+1}/{len(slides)}")
-
-            # Create ffmpeg input file
             input_file = temp_path / "input.txt"
-            with open(input_file, "w") as f:
-                for slide_path in slide_paths:
-                    f.write(f"file '{slide_path}'\n")
-                    f.write(f"duration {self.slide_duration}\n")
-                # Add last slide again for ffmpeg
-                f.write(f"file '{slide_paths[-1]}'\n")
 
-            # Generate video using ffmpeg
+            with open(input_file, "w") as f:
+                for i, (slide, duration) in enumerate(slides_with_duration):
+                    slide_path = self.save_slide(slide, i, temp_path)
+                    f.write(f"file '{slide_path}'\n")
+                    f.write(f"duration {duration}\n")
+                    print(f"Created slide {i+1}/{len(slides_with_duration)}")
+                # Add last slide again for ffmpeg concat
+                f.write(f"file '{self.save_slide(slides_with_duration[-1][0], len(slides_with_duration), temp_path)}'\n")
+
             output_path = self.output_dir / "overview.mp4"
             cmd = [
-                "ffmpeg",
-                "-y",
+                "ffmpeg", "-y",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", str(input_file),

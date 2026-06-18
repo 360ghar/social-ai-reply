@@ -8,11 +8,7 @@ A free/open-source-first AI CMO platform that finds highly relevant posts across
 
 ## Video Overview
 
-Watch the video overview of the wiki documentation:
-
-[![Wiki Video Overview](video/overview.mp4)](video/overview.mp4)
-
-*Click the image to play the video*
+Watch the video overview of the wiki documentation: [video/overview.mp4](video/overview.mp4)
 
 ## Architecture
 
