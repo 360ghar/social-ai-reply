@@ -341,8 +341,14 @@ class JWKSUnavailableError(AppError):
 
     Distinct from token-validation errors: this indicates a service-level
     problem (network / config / upstream) that should surface as HTTP 503,
-    not 401.
+    not 401. Call sites can pass a custom ``detail`` describing the actual
+    cause (e.g. network timeout, missing env var) so the error payload is
+    useful in logs.
     """
 
     status_code = 503
-    detail = "Supabase JWKS endpoint is unavailable."
+
+    def __init__(self, detail: str | None = None) -> None:
+        message = detail or "Supabase JWKS endpoint is unavailable."
+        self.detail = message
+        super().__init__(message)

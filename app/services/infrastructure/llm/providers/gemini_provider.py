@@ -77,14 +77,15 @@ class GeminiProvider:
             }
             resp = self._post(payload)
             data = resp.json()
+            candidates = data.get("candidates") or [{}]
             text = (
-                data.get("candidates", [{}])[0]
+                candidates[0]
                 .get("content", {})
                 .get("parts", [{}])[0]
                 .get("text", "{}")
             )
             return parse_json_payload(text)
-        except (httpx.HTTPError, json.JSONDecodeError, ValueError, KeyError) as exc:
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError, KeyError, IndexError) as exc:
             logger.error("Gemini chat_json failed: %s: %s", type(exc).__name__, exc)
             return None
 
@@ -106,13 +107,14 @@ class GeminiProvider:
             }
             resp = self._post(payload)
             data = resp.json()
+            candidates = data.get("candidates") or [{}]
             return (
-                data.get("candidates", [{}])[0]
+                candidates[0]
                 .get("content", {})
                 .get("parts", [{}])[0]
                 .get("text")
             )
-        except (httpx.HTTPError, json.JSONDecodeError, ValueError, KeyError) as exc:
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError, KeyError, IndexError) as exc:
             logger.error("Gemini chat_text failed: %s: %s", type(exc).__name__, exc)
             return None
 

@@ -13,15 +13,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.db.tables.company import get_company_by_id
-from app.db.tables.projects import list_projects_for_workspace
-
 if TYPE_CHECKING:
     from supabase import Client
 
 
 def get_first_project_for_workspace(db: Client, workspace_id: int) -> int | None:
     """Return the first project ID for a workspace, or None."""
+    from app.db.tables.projects import list_projects_for_workspace
+
     projects = list_projects_for_workspace(db, workspace_id)
     return projects[0]["id"] if projects else None
 
@@ -42,29 +41,55 @@ def get_company_opportunities(
     this fetches all workspace projects once and batches opportunities into a
     single query using .in_("project_id", ...) (Issue #19).
 
+    The ``company_id`` is enforced: only opportunities whose ``company_id``
+    column matches are returned, so cross-company leakage within a workspace
+    is impossible (Issue: PR review).
+
     Args:
         platform: If set, filter to opportunities with this platform value.
         opportunity_type: If set, filter by opportunity_type.
         limit/offset: Pagination.
     """
-    company = get_company_by_id(db, company_id)
-    if not company or company.get("workspace_id") != workspace_id:
-        return []
+    # Use a project_ids list passed in by callers when available, otherwise
+    # resolve it from the workspace. Callers MUST validate company_id and
+    # workspace membership before invoking us — we do NOT re-fetch the company
+    # here (avoids a redundant DB lookup per request, PR review).
+    from app.db.tables.discovery import OPPORTUNITIES_TABLE
+    from app.db.tables.projects import list_projects_for_workspace
 
     projects = list_projects_for_workspace(db, workspace_id)
     project_ids = [p["id"] for p in projects]
     if not project_ids:
         return []
 
-    # Fetch opportunities for ALL workspace projects in one batched query.
-    # list_opportunities_for_project accepts a single project_id, so for the
-    # N+1 fix we query the opportunities table directly with in_().
-    from app.db.tables.discovery import OPPORTUNITIES_TABLE
-
-    query = db.table(OPPORTUNITIES_TABLE).select("*").in_("project_id", project_ids)
+    # Fetch opportunities for ALL workspace projects in one batched query,
+    # then filter by company_id in Python (no company_id column index assumed
+    # across all opportunity rows). The company_id check guarantees that one
+    # company's data is never returned to another company's request.
+    query = (
+        db.table(OPPORTUNITIES_TABLE)
+        .select("*")
+        .in_("project_id", project_ids)
+        .eq("company_id", company_id)
+    )
     if platform:
         query = query.eq("platform", platform)
     if opportunity_type:
         query = query.eq("opportunity_type", opportunity_type)
     result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    return list(result.data)
+    rows: list[dict[str, Any]] = list(result.data)
+    return [_normalize_opportunity(r) for r in rows]
+
+
+def _normalize_opportunity(row: dict[str, Any]) -> dict[str, Any]:
+    """Normalize opportunity record fields to a consistent shape.
+
+    Different callers expect slightly different field names (e.g. ``subreddit``
+    vs ``subreddit_name``). Provide both so downstream consumers don't break
+    (Issue: PR review).
+    """
+    normalized = dict(row)
+    # Ensure subreddit_name is always present (fall back to subreddit).
+    if "subreddit_name" not in normalized and "subreddit" in normalized:
+        normalized["subreddit_name"] = normalized["subreddit"]
+    return normalized

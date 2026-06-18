@@ -457,6 +457,55 @@ def list_citations_for_prompt_sets(
     return list(result.data)
 
 
+def count_citations_for_prompt_sets(
+    db: Client,
+    set_ids: list[int],
+    *,
+    domain: str | None = None,
+) -> int:
+    """Return the total number of citations across all pages.
+
+    Mirrors ``list_citations_for_prompt_sets`` so a caller running both
+    functions gets a consistent view (same domain filter applied at the DB
+    level). Uses Supabase ``count="exact"`` so the returned integer reflects
+    the true row count, not just the current page (Issue: PR review).
+    """
+    if not set_ids:
+        return 0
+
+    # Resolve the AI response IDs once (same join as the list function).
+    runs_result = (
+        db.table(PROMPT_RUNS_TABLE)
+        .select("id")
+        .in_("prompt_set_id", set_ids)
+        .eq("status", "complete")
+        .execute()
+    )
+    run_ids = [r["id"] for r in runs_result.data]
+    if not run_ids:
+        return 0
+
+    ai_result = (
+        db.table(AI_RESPONSES_TABLE)
+        .select("id")
+        .in_("prompt_run_id", run_ids)
+        .execute()
+    )
+    ai_ids = [r["id"] for r in ai_result.data]
+    if not ai_ids:
+        return 0
+
+    query = (
+        db.table(CITATIONS_TABLE)
+        .select("id", count="exact")
+        .in_("ai_response_id", ai_ids)
+    )
+    if domain:
+        query = query.ilike("domain", f"%{domain}%")
+    result = query.execute()
+    return int(result.count or 0)
+
+
 def list_citations_for_project(db: Client, project_id: int, limit: int = 100) -> list[dict[str, Any]]:
     """List citations for a project."""
     sets = list_prompt_sets_for_project(db, project_id)

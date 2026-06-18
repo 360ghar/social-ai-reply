@@ -44,16 +44,29 @@ class EmbeddingService:
     """
 
     _instance: EmbeddingService | None = None
+    _instance_model_name: str | None = None
     _lock: threading.Lock = threading.Lock()
 
     def __new__(cls, model_name: str = "tfidf", max_cache_size: int = _DEFAULT_MAX_CACHE_SIZE) -> EmbeddingService:
+        # Read the class-level model name under the lock so that concurrent
+        # calls can't both decide to recreate when a switch is in progress.
         with cls._lock:
-            if cls._instance is not None and getattr(cls._instance, "_model_name", None) != model_name:
-                # Recreate when the requested model differs from the cached one.
-                cls._instance = None
             if cls._instance is None:
-                cls._instance = super().__new__(cls)
-                cls._instance._initialized = False
+                # No instance yet — create one and remember the model name
+                # BEFORE returning so concurrent threads see a consistent
+                # (instance, model_name) pair and don't spuriously recreate.
+                inst = super().__new__(cls)
+                inst._initialized = False
+                cls._instance = inst
+                cls._instance_model_name = model_name
+                return inst
+            if cls._instance_model_name != model_name:
+                # Recreate when the requested model differs from the cached one.
+                inst = super().__new__(cls)
+                inst._initialized = False
+                cls._instance = inst
+                cls._instance_model_name = model_name
+                return inst
             return cls._instance
 
     def __init__(self, model_name: str = "tfidf", max_cache_size: int = _DEFAULT_MAX_CACHE_SIZE) -> None:
@@ -77,6 +90,7 @@ class EmbeddingService:
         """
         with cls._lock:
             cls._instance = None
+            cls._instance_model_name = None
 
     def _create_provider(self) -> TfidfProvider | SentenceTransformerProvider:
         name = self._model_name

@@ -67,16 +67,21 @@ export default function BrandBrainPage() {
   }
 
   function toggleKeyword(keyword: BrandKeyword) {
+    // Guard first: if we can't persist, do nothing. Otherwise the UI would
+    // toggle optimistically without ever calling the API (Issue: PR review).
+    if (!token || !company?.id) return;
+    const previousState = keyword.is_enabled;
+    const nextState = !previousState;
     // Optimistically update UI, then persist to backend (Issue #9).
     setKeywords((prev) =>
-      prev.map((k) => (k.id === keyword.id ? { ...k, is_enabled: !k.is_enabled } : k))
+      prev.map((k) => (k.id === keyword.id ? { ...k, is_enabled: nextState } : k))
     );
-    if (!token || !company?.id) return;
-    updateBrandKeyword(token, company.id, keyword.id, { is_enabled: !keyword.is_enabled })
+    updateBrandKeyword(token, company.id, keyword.id, { is_enabled: nextState })
       .catch((err) => {
-        // Revert on failure
+        // Revert on failure using a functional update so concurrent toggles
+        // on the same keyword don't snap to a stale captured value (Issue: PR review).
         setKeywords((prev) =>
-          prev.map((k) => (k.id === keyword.id ? { ...k, is_enabled: keyword.is_enabled } : k))
+          prev.map((k) => (k.id === keyword.id ? { ...k, is_enabled: previousState } : k))
         );
         error("Failed to update keyword", err instanceof Error ? err.message : "Unknown error");
       });

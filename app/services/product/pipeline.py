@@ -78,10 +78,28 @@ def _is_transient_error(exc: Exception) -> bool:
     )
     if isinstance(exc, transient_types):
         return True
-    # RuntimeError is used by the LLM service for provider failures (429, 5xx).
-    # Treat these as transient since they may succeed on retry (Issue #63).
+    # RuntimeError is used by the LLM service for provider failures. Treat it
+    # as transient ONLY when its message clearly indicates a retryable cause
+    # (rate limit / 5xx / network). A bare RuntimeError from config or
+    # programming bugs must not be retried — it would mask permanent failures
+    # (Issue: PR review).
     if isinstance(exc, RuntimeError):
-        return True
+        msg = str(exc).lower()
+        transient_indicators = (
+            "rate limit",
+            "rate_limit",
+            "429",
+            " 500",
+            " 502",
+            " 503",
+            " 504",
+            "timeout",
+            "connection",
+            "temporarily unavailable",
+            "retry",
+            "overloaded",
+        )
+        return any(indicator in msg for indicator in transient_indicators)
     # httpx transient errors
     try:
         import httpx

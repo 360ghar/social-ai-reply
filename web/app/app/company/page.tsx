@@ -31,6 +31,18 @@ export default function CompanyPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [autoUrl, setAutoUrl] = useState("");
   const [isAutoRunning, setIsAutoRunning] = useState(false);
+  const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up polling interval when the component unmounts to prevent
+  // background polling leaks and state updates after unmount (Issue: PR review).
+  useEffect(() => {
+    return () => {
+      if (analysisPollRef.current !== null) {
+        clearInterval(analysisPollRef.current);
+        analysisPollRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -91,32 +103,44 @@ export default function CompanyPage() {
   async function handleAnalyze() {
     if (!token || !company?.id) return;
     setIsAnalyzing(true);
+    // Clear any existing poll before starting a new one
+    if (analysisPollRef.current !== null) {
+      clearInterval(analysisPollRef.current);
+      analysisPollRef.current = null;
+    }
     try {
       const res = await analyzeCompanyWebsite(token, company.id);
       success("Analysis started", `Run ID: ${res.run_id}`);
 
-      // Poll for results every 3 seconds for up to 2 minutes (Issue #26)
+      // Poll for results every 3 seconds for up to 2 minutes (Issue #26).
+      // The interval is stored in a ref so the unmount effect can clear it.
       const companyId = company.id;
       const tok = token;
       let attempts = 0;
       const maxAttempts = 40;
-      const pollInterval = setInterval(async () => {
+      const stopPolling = () => {
+        if (analysisPollRef.current !== null) {
+          clearInterval(analysisPollRef.current);
+          analysisPollRef.current = null;
+        }
+        setIsAnalyzing(false);
+      };
+      analysisPollRef.current = setInterval(async () => {
         attempts++;
         try {
           const companies = await getCompanies(tok);
           const updated = companies.find((c) => c.id === companyId);
           if (updated) {
-            // Check if analysis has been updated (extracted_summary changed)
+            // Update company data when extracted_summary changes
             setCompany((prev) => {
               if (prev && updated.extracted_summary && updated.extracted_summary !== prev.extracted_summary) {
-                return updated; // Analysis complete - update company data
+                return updated;
               }
               return prev;
             });
-            // If we see extracted data, or hit max attempts, stop polling
+            // Stop polling once we see extracted data or hit max attempts
             if (updated.extracted_summary || attempts >= maxAttempts) {
-              clearInterval(pollInterval);
-              setIsAnalyzing(false);
+              stopPolling();
               if (updated.extracted_summary) {
                 success("Analysis complete", "Company intelligence updated.");
               }
@@ -126,13 +150,9 @@ export default function CompanyPage() {
           // Silently ignore polling errors
         }
         if (attempts >= maxAttempts) {
-          clearInterval(pollInterval);
-          setIsAnalyzing(false);
+          stopPolling();
         }
       }, 3000);
-
-      // Cleanup on unmount
-      return () => clearInterval(pollInterval);
     } catch (err) {
       error("Analysis failed", err instanceof Error ? err.message : "Unknown error");
       setIsAnalyzing(false);

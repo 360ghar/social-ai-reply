@@ -24,6 +24,7 @@ from app.schemas.v1.brands import (
     BrandProfileRequest,
     BrandProfileResponse,
 )
+from app.schemas.v1.common import BackgroundTaskResponse
 from app.services.product.copilot import ProductCopilot
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ def update_brand_profile(
     return BrandProfileResponse.model_validate(updated)
 
 
-@router.post("/brand/{project_id}/analyze", status_code=202)
+@router.post("/brand/{project_id}/analyze", status_code=202, response_model=BackgroundTaskResponse)
 def analyze_brand_website(
     project_id: int,
     payload: BrandAnalysisRequest,
@@ -109,7 +110,7 @@ def analyze_brand_website(
     current_user: dict = Depends(get_current_user),
     workspace: dict = Depends(get_current_workspace),
     supabase: Client = Depends(get_supabase),
-) -> dict:
+) -> BackgroundTaskResponse:
     """Trigger brand website analysis as a background task (Issue #49).
 
     Returns 202 immediately. The frontend polls GET /brand/{project_id} to
@@ -143,4 +144,8 @@ def analyze_brand_website(
             logger.exception("Background brand website analysis failed")
 
     background_tasks.add_task(_run_analysis)
-    return {"status": "running", "agent": "brand_analysis", "message": "Analysis started. Poll GET /brand/{project_id} for results."}
+    return BackgroundTaskResponse(
+        status="running",
+        agent="brand_analysis",
+        message=f"Analysis started for project {project_id}. Poll GET /v1/brand/{project_id} for results.",
+    )

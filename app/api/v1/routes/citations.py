@@ -45,6 +45,11 @@ def list_citations(
     from app.db.tables.visibility import list_citations_for_prompt_sets
     all_citations = list_citations_for_prompt_sets(supabase, set_ids, limit=limit, offset=offset, domain=domain)
 
+    # Run a second count query (no pagination) so callers see the real
+    # total across all pages, not just the current page size (Issue: PR review).
+    from app.db.tables.visibility import count_citations_for_prompt_sets
+    total = count_citations_for_prompt_sets(supabase, set_ids, domain=domain)
+
     return {
         "items": [
             {
@@ -57,7 +62,10 @@ def list_citations(
             }
             for c in all_citations
         ],
-        "total": len(all_citations),
+        "total": total,
+        "page_count": len(all_citations),
+        "limit": limit,
+        "offset": offset,
     }
 
 
