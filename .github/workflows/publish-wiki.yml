@@ -1,0 +1,66 @@
+name: Publish Wiki to GitHub Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wiki/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-wiki:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone GitHub Wiki
+        run: |
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git wiki-repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy wiki files
+        run: |
+          # Clear existing wiki content (except .git)
+          find wiki-repo -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          
+          # Copy new wiki content
+          cp -r wiki/* wiki-repo/
+          
+          # Copy .wiki-meta.json if it exists
+          if [ -f wiki/.wiki-meta.json ]; then
+            cp wiki/.wiki-meta.json wiki-repo/
+          fi
+
+      - name: Configure git
+        run: |
+          cd wiki-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push changes
+        run: |
+          cd wiki-repo
+          git add -A
+          git diff --cached --quiet || {
+            git commit -m "docs: update wiki from main branch
+
+          Updated wiki documentation from commit: ${{ github.sha }}
+          
+          Changes include:
+          - Updated documentation pages
+          - New feature documentation
+          - Architecture diagrams
+          - Development guides"
+            git push
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
