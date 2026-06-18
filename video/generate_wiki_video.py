@@ -20,6 +20,7 @@ import numpy as np
 from moviepy import (
     ImageClip,
     concatenate_videoclips,
+    vfx,
 )
 
 from video.slides import SlideRenderer
@@ -45,6 +46,15 @@ class WikiVideoGenerator:
             ImageClip(np.array(img)).with_duration(duration)
             for img, duration in slides_with_duration
         ]
+
+        # Add fade transitions between slides
+        transition_duration = 0.5
+        for i, clip in enumerate(slides):
+            if i > 0:
+                clip = clip.with_effects([vfx.FadeIn(transition_duration)])
+            if i < len(slides) - 1:
+                clip = clip.with_effects([vfx.FadeOut(transition_duration)])
+            slides[i] = clip
 
         final_video = concatenate_videoclips(slides, method="compose")
 

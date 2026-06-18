@@ -1,10 +1,13 @@
 # Social AI Reply / RedditFlow
 
-A multi-agent AI marketing platform that finds relevant social opportunities, generates safe drafts, and helps brands grow without spam.
+> **360 Flatmates Platform** — Multi-Agent AI Marketing Platform
+> Find relevant social opportunities, generate safe drafts, and grow without spam.
 
 ## What is this
 
-Social AI Reply (also called RedditFlow) is a free/open-source-first AI CMO platform. It finds highly relevant posts across Reddit, Hacker News, and more, scores them with a transparent relevance engine, and drafts helpful replies. The platform does not auto-post to Reddit or any other service. All posting is manual.
+Social AI Reply (also called RedditFlow) is a free/open-source-first AI CMO platform built by **360 Flatmates**. It finds highly relevant posts across Reddit, Hacker News, and more, scores them with a transparent relevance engine, and drafts helpful replies. The platform does not auto-post to Reddit or any other service. All posting is manual.
+
+> **New to Social AI Reply?** Start with [Getting started](getting-started.md) to set up your development environment, then explore the [Architecture](architecture.md) to understand how everything fits together.
 
 ## Who uses it
 

@@ -8,7 +8,7 @@ A free/open-source-first AI CMO platform that finds highly relevant posts across
 
 ## Video Overview
 
-Watch the video overview of the wiki documentation: [video/overview.mp4](video/overview.mp4)
+Watch the branded video overview of the wiki documentation with charts, architecture diagrams, and 360 Flatmates branding: [video/overview.mp4](video/overview.mp4)
 
 ## Architecture
 

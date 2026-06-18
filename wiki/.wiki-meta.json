@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-06-18T16:30:00Z",
-  "commitHash": "147541e5e1f9f50e8c67cab42a239aab71aaf0d1",
-  "branch": "main",
+  "generatedAt": "2026-06-18T18:30:00Z",
+  "commitHash": "8f528dc",
+  "branch": "docs/wiki-generation",
   "projectName": "Social AI Reply / RedditFlow",
   "branding": "360 Flatmates",
-  "pageCount": 42,
+  "pageCount": 43,
   "topLevelSections": [
     "overview",
     "how-to-contribute",
@@ -24,6 +24,7 @@
     "overview/architecture.md",
     "overview/getting-started.md",
     "overview/glossary.md",
+    "overview/brand-identity.md",
     "fun-facts.md",
     "how-to-contribute/index.md",
     "how-to-contribute/development-workflow.md",

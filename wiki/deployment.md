@@ -24,6 +24,29 @@ graph LR
     FastAPI --> Postgres
 ```
 
+## Deployment pipeline
+
+```mermaid
+graph TD
+    Dev[Developer] -->|git push| GH[GitHub]
+    GH -->|webhook| Railway
+    GH -->|webhook| Netlify
+
+    Railway -->|Nixpacks| Build1[Build Backend]
+    Build1 -->|uv sync| Deps1[Install Dependencies]
+    Deps1 -->|uvicorn| Deploy1[Deploy to Railway]
+
+    Netlify -->|Next.js| Build2[Build Frontend]
+    Build2 -->|npm run build| Deps2[Bundle Assets]
+    Deps2 -->|.next| Deploy2[Deploy to Netlify]
+
+    Deploy1 --> API[API Ready]
+    Deploy2 --> UI[UI Ready]
+
+    API --> Health[Health Check /health]
+    UI --> Lighthouse[Lighthouse Score]
+```
+
 ## Backend deployment (Railway)
 
 ### Configuration

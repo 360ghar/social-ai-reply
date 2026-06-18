@@ -3,6 +3,7 @@
 Simple Wiki Video Generator for Social AI Reply / RedditFlow
 
 This script generates a video overview of the wiki documentation using PIL and ffmpeg.
+It uses simple cuts between slides. For crossfade transitions, use video/generate_wiki_video.py.
 It can be run independently and the code is kept for future editing.
 
 Usage:

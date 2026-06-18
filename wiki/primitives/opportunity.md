@@ -73,6 +73,28 @@ stateDiagram-v2
 - Source fit (10%)
 - Freshness (5%)
 
+### Scoring flow
+
+```mermaid
+graph LR
+    Post[Reddit Post] --> KW[Keyword Match]
+    Post --> SEM[Semantic Sim]
+    Post --> INT[Intent Class]
+    Post --> PP[Pain Points]
+    Post --> SF[Source Fit]
+    Post --> FR[Freshness]
+
+    KW --> SCORE[Weighted Score]
+    SEM --> SCORE
+    INT --> SCORE
+    PP --> SCORE
+    SF --> SCORE
+    FR --> SCORE
+
+    SCORE -->|>= 70| KEEP[Keep]
+    SCORE -->|< 70| REJECT[Reject]
+```
+
 ### Explanations
 - `reason_relevant` - Why it passed threshold
 - `rejection_reason` - Why it failed (debug mode)

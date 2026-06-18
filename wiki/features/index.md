@@ -1,10 +1,46 @@
 # Features
 
-Multi-agent platform for AI-powered marketing and community engagement.
+> **360 Flatmates Platform** — Multi-agent system for AI-powered marketing and community engagement.
 
 ## Overview
 
 Social AI Reply uses a multi-agent architecture where specialized agents handle different marketing channels and tasks. Each agent focuses on a specific domain, from discovering Reddit opportunities to generating SEO content briefs.
+
+## Agent interaction flow
+
+```mermaid
+graph TD
+    BB[Brand Brain] -->|keywords + profile| Discovery
+    BB -->|keywords + profile| Analysis
+    BB -->|keywords + profile| Content
+
+    subgraph Discovery
+        RA[Reddit Agent]
+        HN[HN Agent]
+    end
+
+    subgraph Analysis
+        SEO[SEO Agent]
+        GEO[GEO Agent]
+        TSEO[Technical SEO]
+    end
+
+    subgraph Content
+        ART[Articles Agent]
+        X[X Agent]
+        LI[LinkedIn Agent]
+        UGC[UGC Agent]
+    end
+
+    Discovery --> CF[Central Feed]
+    Analysis --> CF
+    Content --> CF
+
+    CF --> RE[Relevance Engine]
+    RE -->|scored opportunities| Dashboard[User Dashboard]
+    Dashboard -->|approve/reject| FL[Feedback Loop]
+    FL -->|calibrate weights| RE
+```
 
 ## Agent categories
 
