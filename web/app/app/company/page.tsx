@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, useRef } from "react";
 import { Loader2, Globe, Users, Target, Sparkles, Save, Zap } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -94,10 +94,49 @@ export default function CompanyPage() {
     try {
       const res = await analyzeCompanyWebsite(token, company.id);
       success("Analysis started", `Run ID: ${res.run_id}`);
+
+      // Poll for results every 3 seconds for up to 2 minutes (Issue #26)
+      const companyId = company.id;
+      const tok = token;
+      let attempts = 0;
+      const maxAttempts = 40;
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const companies = await getCompanies(tok);
+          const updated = companies.find((c) => c.id === companyId);
+          if (updated) {
+            // Check if analysis has been updated (extracted_summary changed)
+            setCompany((prev) => {
+              if (prev && updated.extracted_summary && updated.extracted_summary !== prev.extracted_summary) {
+                return updated; // Analysis complete - update company data
+              }
+              return prev;
+            });
+            // If we see extracted data, or hit max attempts, stop polling
+            if (updated.extracted_summary || attempts >= maxAttempts) {
+              clearInterval(pollInterval);
+              setIsAnalyzing(false);
+              if (updated.extracted_summary) {
+                success("Analysis complete", "Company intelligence updated.");
+              }
+            }
+          }
+        } catch {
+          // Silently ignore polling errors
+        }
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          setIsAnalyzing(false);
+        }
+      }, 3000);
+
+      // Cleanup on unmount
+      return () => clearInterval(pollInterval);
     } catch (err) {
       error("Analysis failed", err instanceof Error ? err.message : "Unknown error");
+      setIsAnalyzing(false);
     }
-    setIsAnalyzing(false);
   }
 
   async function handleAutoPipeline(event: FormEvent<HTMLFormElement>) {

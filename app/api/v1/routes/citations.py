@@ -39,13 +39,11 @@ def list_citations(
 
     set_ids = [s["id"] for s in prompt_sets]
 
-    # Get all citations for these prompt sets (batch query)
+    # Get all citations for these prompt sets (batch query).
+    # Domain filtering is applied at the DB level before pagination so the
+    # total count and page size are accurate (Issue #46).
     from app.db.tables.visibility import list_citations_for_prompt_sets
-    all_citations = list_citations_for_prompt_sets(supabase, set_ids, limit=limit, offset=offset)
-
-    # Filter by domain if specified (apply filter before pagination for accurate total)
-    if domain:
-        all_citations = [c for c in all_citations if domain.lower() in c.get("domain", "").lower()]
+    all_citations = list_citations_for_prompt_sets(supabase, set_ids, limit=limit, offset=offset, domain=domain)
 
     return {
         "items": [
