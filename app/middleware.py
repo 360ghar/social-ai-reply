@@ -94,13 +94,33 @@ def reset_rate_limit_store() -> None:
     _backend.reset()
 
 
+def _get_client_ip(request: Request) -> str:
+    """Resolve the real client IP, accounting for reverse proxies.
+
+    Checks X-Forwarded-For (first hop), then X-Real-IP, then falls back to
+    the direct connection IP. This prevents all users from sharing a single
+    proxy IP behind nginx/Cloudflare/Railway (Issue #22).
+    """
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        # X-Forwarded-For is a comma-separated list; the first entry is the
+        # original client. Strip whitespace and take the leftmost valid IP.
+        first_ip = forwarded_for.split(",")[0].strip()
+        if first_ip:
+            return first_ip
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _rate_limit_key(request: Request) -> str:
     """Derive a privacy-preserving rate limit key from auth header or IP."""
     auth_header = request.headers.get("authorization", "")
     if auth_header:
         # Hash the token instead of using raw suffix — prevents token leakage
         return hashlib.sha256(auth_header.encode("utf-8")).hexdigest()[:16]
-    return request.client.host if request.client else "unknown"
+    return _get_client_ip(request)
 
 
 def _resolve_limit_type(path: str, method: str) -> str:

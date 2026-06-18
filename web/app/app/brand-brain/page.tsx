@@ -18,6 +18,7 @@ import {
   getCompanyKeywords,
   generateCompanyKeywords,
   updateCompany,
+  updateBrandKeyword,
   type CompanyProfile,
   type BrandKeyword,
 } from "@/lib/api/company";
@@ -66,9 +67,19 @@ export default function BrandBrainPage() {
   }
 
   function toggleKeyword(keyword: BrandKeyword) {
+    // Optimistically update UI, then persist to backend (Issue #9).
     setKeywords((prev) =>
       prev.map((k) => (k.id === keyword.id ? { ...k, is_enabled: !k.is_enabled } : k))
     );
+    if (!token || !company?.id) return;
+    updateBrandKeyword(token, company.id, keyword.id, { is_enabled: !keyword.is_enabled })
+      .catch((err) => {
+        // Revert on failure
+        setKeywords((prev) =>
+          prev.map((k) => (k.id === keyword.id ? { ...k, is_enabled: keyword.is_enabled } : k))
+        );
+        error("Failed to update keyword", err instanceof Error ? err.message : "Unknown error");
+      });
   }
 
   async function saveCompanyField(field: keyof CompanyProfile, value: unknown) {

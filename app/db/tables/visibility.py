@@ -415,8 +415,13 @@ def list_citations_for_prompt_sets(
     set_ids: list[int],
     limit: int = 100,
     offset: int = 0,
+    domain: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List citations for multiple prompt sets (batch query)."""
+    """List citations for multiple prompt sets (batch query).
+
+    When ``domain`` is set, filters at the DB level using ilike so pagination
+    is accurate (Issue #46).
+    """
     # Get all prompt runs for these sets
     runs_result = (
         db.table(PROMPT_RUNS_TABLE)
@@ -440,15 +445,15 @@ def list_citations_for_prompt_sets(
     if not ai_ids:
         return []
 
-    # Get all citations for these AI responses
-    result = (
+    # Get all citations for these AI responses (with optional domain filter)
+    query = (
         db.table(CITATIONS_TABLE)
         .select("*")
         .in_("ai_response_id", ai_ids)
-        .order("first_seen_at", desc=True)
-        .range(offset, offset + limit - 1)
-        .execute()
     )
+    if domain:
+        query = query.ilike("domain", f"%{domain}%")
+    result = query.order("first_seen_at", desc=True).range(offset, offset + limit - 1).execute()
     return list(result.data)
 
 
