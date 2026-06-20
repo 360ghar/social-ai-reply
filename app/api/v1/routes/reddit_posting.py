@@ -273,7 +273,7 @@ def handle_reddit_callback(
         username=reddit["username"],
         karma=reddit.get("karma", 0),
         is_active=reddit.get("is_active", True),
-        connected_at=reddit.get("connected_at"),
+        connected_at=reddit.get("created_at"),
         message="Reddit account connected successfully.",
     )
 
@@ -296,7 +296,7 @@ def list_reddit_accounts(
                 username=acc["username"],
                 karma=acc.get("karma", 0),
                 is_active=acc.get("is_active", True),
-                connected_at=acc.get("connected_at"),
+                connected_at=acc.get("created_at"),
             )
             for acc in accounts
         ]

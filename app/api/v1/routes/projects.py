@@ -151,7 +151,7 @@ def create_project_endpoint(
         "name": payload.name.strip(),
         "slug": slug,
         "description": payload.description,
-        "is_active": True,
+        "status": "active",
     }
     project = create_project(supabase, project_data)
 
@@ -192,7 +192,7 @@ def update_project_endpoint(
     update_data = {
         "name": payload.name.strip(),
         "description": payload.description,
-        "is_active": payload.status == "active",
+        "status": payload.status,
     }
     updated = update_project(supabase, project_id, update_data)
     return ProjectResponse.model_validate(updated)

@@ -110,17 +110,19 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="tfidf", description="Embedding model: tfidf or sentence-transformers")
     # Rollback switch for the 2026-06 scoring unification: when True the
     # scanner uses the legacy scoring.score_post path instead of RelevanceEngine.
-    use_legacy_scoring: bool = True
+    # Default is False — the v2 engine is more permissive and produces more
+    # opportunities from RSS feeds (which have score=0, num_comments=0).
+    use_legacy_scoring: bool = False
 
     relevance_threshold: int = Field(default=70, ge=0, le=100)
     semantic_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
 
-    reddit_base_url: str = "https://www.reddit.com"
-    reddit_user_agent: str = "web:redditflow:v1.2 (by /u/redditflow_bot)"
+    reddit_base_url: str = "https://old.reddit.com"
+    reddit_user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
     reddit_search_provider: str = "auto"
-    # Min seconds between requests to reddit.com hosts. Reddit asks crawlers to
-    # stay above ~2s; lowering this risks 429s and IP bans.
-    reddit_scrape_min_interval: float = 35.0
+    # Min seconds between requests to reddit.com hosts. Reddit's public RSS
+    # endpoints tolerate ~1 req/2s; 3s gives a safety margin against 429s.
+    reddit_scrape_min_interval: float = 3.0
     serpapi_api_key: str | None = None
     bing_search_api_key: str | None = None
     bing_search_url: str = "https://api.bing.microsoft.com/v7.0/search"

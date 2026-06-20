@@ -179,6 +179,9 @@ def run_auto_pipeline_background(
                     "pain_points": p_data.get("pain_points", []),
                     "goals": p_data.get("goals", []),
                     "triggers": p_data.get("triggers", []),
+                    "preferred_subreddits": p_data.get("preferred_subreddits", []),
+                    "source": p_data.get("source", "generated"),
+                    "is_active": True,
                 })
             update_auto_pipeline(db, pipeline_id, {"personas_generated": len(personas_data), "progress": 30})
 
@@ -192,10 +195,28 @@ def run_auto_pipeline_background(
 
         personas_list = list_personas_for_project(db, project_id)
         from app.db.tables.discovery import create_discovery_keyword, list_discovery_keywords_for_project
-        existing_kw = {row["keyword"] for row in list_discovery_keywords_for_project(db, project_id)}
+        existing_kw_rows = list_discovery_keywords_for_project(db, project_id)
+
+        # On re-runs, deactivate old auto-generated keywords so fresh ones replace them.
+        # Manual keywords (source != 'generated') are always preserved.
+        stale_rationale_prefixes = ("Domain-specific keyword", "Heuristic keyword")
+        stale_generated = [
+            row for row in existing_kw_rows
+            if row.get("source") == "generated"
+            and any((row.get("rationale") or "").startswith(p) for p in stale_rationale_prefixes)
+        ]
+        if stale_generated:
+            from app.db.tables.discovery import update_discovery_keyword
+            for row in stale_generated:
+                update_discovery_keyword(db, row["id"], {"is_active": False})
+            log.info("Deactivated %d stale generated keywords", len(stale_generated))
+            # Refresh the active keyword set after deactivation
+            existing_kw_rows = list_discovery_keywords_for_project(db, project_id)
+
+        existing_kw = {row["keyword"] for row in existing_kw_rows}
 
         if len(existing_kw) >= TARGET_PIPELINE_KEYWORDS:
-            log.info("Project %s already has %d keywords — skipping generation", project_id, len(existing_kw))
+            log.info("Project %s already has %d quality keywords — skipping generation", project_id, len(existing_kw))
             update_auto_pipeline(db, pipeline_id, {"keywords_generated": len(existing_kw), "progress": 45})
         else:
             try:
@@ -221,6 +242,9 @@ def run_auto_pipeline_background(
                     "keyword": k_data.keyword,
                     "rationale": k_data.rationale,
                     "priority_score": k_data.priority_score,
+                    "category": k_data.category,
+                    "source": "generated",
+                    "is_active": True,
                 })
                 existing_kw.add(k_data.keyword)
                 new_kw_count += 1
@@ -253,38 +277,66 @@ def run_auto_pipeline_background(
                     existing_sub_count,
                 )
         except Exception as e:
-            log.error("Subreddit discovery FAILED: %s\n%s", e, traceback.format_exc())
-            update_auto_pipeline(db, pipeline_id, {
-                "status": "failed",
-                "error_message": f"Subreddit discovery failed: {str(e)[:500]}",
-                "completed_at": datetime.now(UTC).isoformat(),
-            })
-            return
+            log.error("Subreddit discovery FAILED (non-fatal, continuing with existing): %s\n%s", e, traceback.format_exc())
+            discovered_subreddits = []
 
         if not discovered_subreddits and subreddits_to_discover > 0:
             log.warning("Subreddit discovery returned 0 results for project %s — continuing with existing subreddits", project_id)
 
+        total_subreddits = existing_sub_count + len(discovered_subreddits)
         update_auto_pipeline(db, pipeline_id, {
-            "subreddits_found": existing_sub_count + len(discovered_subreddits),
+            "subreddits_found": total_subreddits,
             "progress": 60,
         })
         log.info("Discovered %d new subreddits (%d already existed)", len(discovered_subreddits), existing_sub_count)
+
+        # If we still have zero subreddits, the scan will fail — bail out early
+        # with a clear message instead of letting run_scan raise a confusing 400.
+        if total_subreddits == 0:
+            error_msg = (
+                "No subreddits could be discovered. This usually means Reddit's public "
+                "search is temporarily rate-limiting requests from this server. Please add "
+                "subreddits manually from the Discovery page, or try again in a few minutes."
+            )
+            log.error("Pipeline aborting: %s", error_msg)
+            update_auto_pipeline(db, pipeline_id, {
+                "status": "failed",
+                "error_message": error_msg,
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
+            create_notification(db, {
+                "workspace_id": workspace_id,
+                "type": "pipeline_error",
+                "title": "Pipeline: No subreddits found",
+                "message": error_msg,
+            })
+            return
 
         # ── Step 5: Scan for Opportunities (60→75%) ─────────────
         log.info("Step 5/7: Scanning Reddit for opportunities")
         update_auto_pipeline(db, pipeline_id, {
             "status": "scanning_opportunities",
             "progress": 65,
-            "current_step": "Scanning Reddit for opportunities...",
+            "current_step": "Cooling down before scanning (Reddit rate-limit recovery)...",
         })
+
+        # Cool down after discovery — Reddit rate-limits aggressively and the
+        # discovery phase may have exhausted the HTTP budget.  A short pause
+        # lets the rate-limiter window slide and resets our circuit breakers so
+        # the scanner starts with a clean slate.
+        import time as _time
+
+        from app.services.product.reddit_discovery import _HTTP_BUDGET
+        _time.sleep(10)
+        _HTTP_BUDGET._hosts.clear()  # reset all circuit breakers
 
         opp_found = 0
         try:
             scan_req = ScanRequest(
                 project_id=project_id,
                 search_window_hours=72,
-                max_posts_per_subreddit=15,
-                min_score=MIN_RELEVANT_OPPORTUNITY_SCORE,
+                max_posts_per_subreddit=25,
+                min_score=15,
             )
             scan_run = run_scan(db, proj, scan_req)
             if scan_run.get("fatal_error"):

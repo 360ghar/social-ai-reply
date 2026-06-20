@@ -209,13 +209,13 @@ def get_active_project(
 
     if project_id is not None:
         project = get_project_by_id(supabase, project_id)
-        if project and project["workspace_id"] == workspace_id and project.get("is_active"):
+        if project and project["workspace_id"] == workspace_id and project.get("status") == "active":
             return project
 
     # Get most recent active project
     projects = list_projects_for_workspace(supabase, workspace_id)
     for project in projects:
-        if project.get("is_active"):
+        if project.get("status") == "active":
             return project
     return None
 
@@ -237,7 +237,7 @@ def ensure_default_project(supabase: Client, workspace: dict) -> dict:
         "workspace_id": workspace["id"],
         "name": base_name,
         "slug": slug,
-        "is_active": True,
+        "status": "active",
         "description": None,
     }
     project = create_project(supabase, project_data)
@@ -266,30 +266,30 @@ def ensure_default_prompts(supabase: Client, project_id: int) -> None:
     """Ensure default prompt templates exist for a project."""
     defaults = [
         {
-            "type": "reply",
+            "prompt_type": "reply",
             "name": "Helpful Reply",
             "system_prompt": "You write grounded Reddit replies that help first and pitch never.",
-            "user_prompt_template": "Start with empathy, answer the actual question, avoid hard CTAs, and only mention the product when invited.",
+            "instructions": "Start with empathy, answer the actual question, avoid hard CTAs, and only mention the product when invited.",
         },
         {
-            "type": "post",
+            "prompt_type": "post",
             "name": "Educational Post",
             "system_prompt": "You write Reddit posts that teach from direct experience.",
-            "user_prompt_template": "Use first-hand lessons, concrete examples, and end with an invitation for discussion rather than a promo CTA.",
+            "instructions": "Use first-hand lessons, concrete examples, and end with an invitation for discussion rather than a promo CTA.",
         },
         {
-            "type": "analysis",
+            "prompt_type": "analysis",
             "name": "Signal Review",
             "system_prompt": "You summarize opportunities with clarity and no fluff.",
-            "user_prompt_template": "Highlight why the thread matters, what the risk is, and how the brand can contribute credibly.",
+            "instructions": "Highlight why the thread matters, what the risk is, and how the brand can contribute credibly.",
         },
     ]
 
     existing = list_prompt_templates_for_project(supabase, project_id)
-    existing_types = {p.get("type") or p.get("prompt_type") for p in existing}
+    existing_types = {p.get("prompt_type") or p.get("type") for p in existing}
 
     for prompt in defaults:
-        if prompt["type"] not in existing_types:
+        if prompt["prompt_type"] not in existing_types:
             prompt_data = {
                 **prompt,
                 "project_id": project_id,

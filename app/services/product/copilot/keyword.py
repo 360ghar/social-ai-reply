@@ -28,6 +28,7 @@ class GeneratedKeyword:
     keyword: str
     rationale: str
     priority_score: int
+    category: str = "general_buyer_seller"
     specificity: int = 0
 
 
@@ -36,14 +37,20 @@ def generate_keywords(
     personas: list[dict],
     count: int = 25,
 ) -> list[GeneratedKeyword]:
-    """Generate keywords from brand and persona context.
+    """Generate categorized, prioritized keywords from brand and persona context.
 
-    Uses LLM to generate domain-specific keywords first, then supplements
-    with heuristic extraction from brand/persona data.
+    Uses a structured LLM prompt that produces keywords in 4 buckets:
+    - pain_point: things people say when frustrated with a problem the brand solves
+    - solution_seeking: actively looking for a solution like the brand
+    - competitor_alternative: comparing or looking for alternatives
+    - general_buyer_seller: broader market queries from the target audience
+
+    Keywords sound like real things humans type on Reddit/Twitter — conversational,
+    long-tail phrases, not robotic SEO terms.
 
     Args:
         brand: Brand profile dict containing brand_name, summary, product_summary,
-               target_audience, and business_domain.
+               target_audience, business_domain, and geography.
         personas: List of persona dicts with name, role, summary, pain_points, etc.
         count: Maximum number of keywords to generate (default 25).
 
@@ -59,64 +66,104 @@ def generate_keywords(
     summary = brand.get("summary", "")
     product_summary = brand.get("product_summary", "")
 
-    # Try LLM-generated keywords first
-    llm_keywords = _llm_keywords(brand_name, domain, audience, summary, product_summary, count)
+    # Try structured LLM keywords first
+    llm_results = _llm_keywords_structured(
+        brand_name, domain, audience, summary, product_summary, personas, count,
+    )
 
-    # Supplement with heuristic extraction
-    heuristic_keywords = _heuristic_keywords(brand, personas, count)
-
-    # Merge: LLM keywords first, then heuristic ones that aren't already covered
-    seen = set(k.lower() for k in llm_keywords)
-    merged = list(llm_keywords)
-    for kw in heuristic_keywords:
-        if kw.lower() not in seen:
-            merged.append(kw)
+    if llm_results:
+        # LLM returned structured data — use it directly
+        generated: list[GeneratedKeyword] = []
+        seen: set[str] = set()
+        for item in llm_results:
+            kw = item.get("keyword", "").strip()
+            if not kw or len(kw) < 3 or kw.lower() in seen:
+                continue
             seen.add(kw.lower())
+            generated.append(GeneratedKeyword(
+                keyword=kw,
+                rationale=item.get("rationale", f"Keyword for {domain or brand_name}."),
+                priority_score=max(1, min(int(item.get("priority_score", 50)), 100)),
+                category=item.get("category", "general_buyer_seller"),
+                specificity=keyword_specificity(kw),
+            ))
+            if len(generated) >= count:
+                break
+        if generated:
+            return sorted(generated, key=lambda g: g.priority_score, reverse=True)
 
-    generated: list[GeneratedKeyword] = []
-    for idx, keyword in enumerate(merged):
+    # Fallback: heuristic extraction if LLM failed
+    logger.warning("Structured LLM keyword generation returned no results; using heuristic fallback")
+    heuristic_keywords = _heuristic_keywords(brand, personas, count)
+    generated = []
+    for idx, keyword in enumerate(heuristic_keywords):
         spec = keyword_specificity(keyword)
         score = max(min(95 - idx * 3, 100), 10)
-        generated.append(
-            GeneratedKeyword(
-                keyword=keyword,
-                rationale=f"Domain-specific keyword for {domain or brand_name}.",
-                priority_score=score,
-                specificity=spec,
-            )
-        )
+        generated.append(GeneratedKeyword(
+            keyword=keyword,
+            rationale=f"Heuristic keyword for {domain or brand_name}.",
+            priority_score=score,
+            category="general_buyer_seller",
+            specificity=spec,
+        ))
         if len(generated) >= count:
             break
 
     return generated
 
 
-def _llm_keywords(
+_VALID_CATEGORIES = {"pain_point", "solution_seeking", "competitor_alternative", "general_buyer_seller"}
+
+
+def _llm_keywords_structured(
     brand_name: str,
     domain: str,
     audience: str,
     summary: str,
     product_summary: str,
+    personas: list[dict],
     count: int,
-) -> list[str]:
-    """Use LLM to generate domain-specific keywords."""
+) -> list[dict]:
+    """Use LLM to generate categorized, prioritized keywords with rationale."""
     if not domain and not audience and not summary:
         return []
 
+    # Build persona context
+    persona_context = ""
+    for p in personas[:3]:
+        pain_points = p.get("pain_points", [])
+        if isinstance(pain_points, list):
+            pain_points = ", ".join(pain_points[:3])
+        persona_context += f"  - {p.get('name', 'Unknown')}: {p.get('role', '')} — pain points: {pain_points}\n"
+
     llm = LLMClient()
     system_prompt = (
-        "You generate search keywords for discovering social media opportunities. "
-        "Return a JSON array of keyword strings ONLY. "
-        "Each keyword should be a term or phrase that someone might use when: "
-        "1. Looking for a product/service like this\n"
-        "2. Complaining about a problem this business solves\n"
-        "3. Comparing alternatives/competitors\n"
-        "4. Asking for recommendations in this space\n"
-        "5. Mentioning specific pain points this business addresses\n\n"
-        "Include both short keywords and longer phrase keywords. "
-        "Include competitor names if relevant. "
-        "Include location-related terms if the business is location-specific.\n\n"
-        f"Generate {count} high-quality keywords. Make them specific and realistic."
+        "You are a keyword strategist for social media opportunity discovery on Reddit and Twitter.\n"
+        "Generate keywords that REAL HUMANS actually type — conversational, long-tail phrases.\n\n"
+        "KEYWORD CATEGORIES — you MUST generate keywords for ALL 4 buckets:\n"
+        "1. **pain_point** — what people say when frustrated with a problem this product solves\n"
+        '   (e.g., "tired of blurry property photos", "no time for house visits")\n'
+        "2. **solution_seeking** — actively looking for a tool/service like this\n"
+        '   (e.g., "virtual tour software for real estate", "best way to sell property fast")\n'
+        "3. **competitor_alternative** — comparing products or seeking alternatives\n"
+        '   (e.g., "matterport alternative india", "magicbricks vs 99acres")\n'
+        "4. **general_buyer_seller** — broader market queries from the target audience\n"
+        '   (e.g., "NRI buying property in India", "how to inspect house remotely")\n\n'
+        "PRIORITY SCORING:\n"
+        "  90-100 = extreme buying intent (ready to purchase/switch)\n"
+        "  70-89 = high intent (actively researching solutions)\n"
+        "  50-69 = informational intent (exploring the problem space)\n"
+        "  30-49 = awareness level (broad topic interest)\n\n"
+        "RULES:\n"
+        "- Keywords MUST sound like real things typed on Reddit/Twitter — NOT robotic SEO terms\n"
+        "- Include long-tail conversational queries (3-8 words)\n"
+        "- Each rationale must explain WHY this keyword signals an opportunity for the brand\n"
+        "- Include competitor names if you can infer them from the domain\n"
+        "- If the brand context mentions specific locations, cities, or regions, include\n"
+        "  location-qualified keywords naturally (people in those areas search with location terms)\n"
+        f"- Generate exactly {count} keywords, spread across all 4 categories\n\n"
+        "Return ONLY a JSON array:\n"
+        '[{"keyword": "...", "rationale": "...", "priority_score": N, "category": "..."}]'
     )
 
     context = (
@@ -124,25 +171,37 @@ def _llm_keywords(
         f"Domain: {domain}\n"
         f"Target Audience: {audience}\n"
         f"Summary: {summary}\n"
-        f"Product: {product_summary}"
+        f"Product: {product_summary}\n"
     )
+    if persona_context:
+        context += f"\nTarget Personas:\n{persona_context}"
 
     try:
         result = llm.call(system_prompt, context, temperature=0.7)
-        if result and isinstance(result, list):
-            keywords = []
-            seen: set[str] = set()
-            for item in result:
-                kw = str(item).strip().strip('"').strip("'") if not isinstance(item, str) else item.strip()
-                if not kw or len(kw) < 2:
-                    continue
-                if kw.lower() in seen:
-                    continue
-                seen.add(kw.lower())
-                keywords.append(kw)
-            return keywords
+        if not result or not isinstance(result, list):
+            return []
+        # Validate and normalize each item
+        valid_items: list[dict] = []
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+            kw = item.get("keyword")
+            if not kw or not isinstance(kw, str) or len(kw.strip()) < 3:
+                continue
+            # Normalize category
+            cat = str(item.get("category", "general_buyer_seller")).strip().lower()
+            if cat not in _VALID_CATEGORIES:
+                cat = "general_buyer_seller"
+            item["category"] = cat
+            # Clamp priority score
+            try:
+                item["priority_score"] = max(1, min(int(item.get("priority_score", 50)), 100))
+            except (ValueError, TypeError):
+                item["priority_score"] = 50
+            valid_items.append(item)
+        return valid_items
     except Exception:
-        logger.exception("LLM keyword generation failed")
+        logger.exception("Structured LLM keyword generation failed")
     return []
 
 

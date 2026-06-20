@@ -91,9 +91,25 @@ def list_keywords_for_project(db: Client, project_id: int) -> list[dict[str, Any
 
 
 def create_discovery_keyword(db: Client, keyword_data: dict[str, Any]) -> dict[str, Any]:
-    """Create a new discovery keyword."""
-    result = db.table(DISCOVERY_KEYWORDS_TABLE).insert(keyword_data).execute()
-    return result.data[0]
+    """Create a new discovery keyword, silently dropping columns the DB doesn't have."""
+    try:
+        result = db.table(DISCOVERY_KEYWORDS_TABLE).insert(keyword_data).execute()
+        return result.data[0]
+    except Exception as exc:
+        # If a column doesn't exist (e.g. 'category'), strip it and retry
+        err_msg = str(exc)
+        if "schema cache" in err_msg or "column" in err_msg.lower():
+            # Find which columns the table supports
+            safe_data = {}
+            for key, value in keyword_data.items():
+                if _supports_column(db, DISCOVERY_KEYWORDS_TABLE, _DISCOVERY_KEYWORD_COLUMN_CACHE, key):
+                    safe_data[key] = value
+            result = db.table(DISCOVERY_KEYWORDS_TABLE).insert(safe_data).execute()
+            return result.data[0]
+        raise
+
+
+_DISCOVERY_KEYWORD_COLUMN_CACHE: dict[str, bool] = {}
 
 
 def update_discovery_keyword(db: Client, keyword_id: int, update_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -351,6 +367,10 @@ def count_opportunities_for_project(db: Client, project_id: int, status: str | N
 def list_personas_for_project(db: Client, project_id: int, source: str | None = None, limit: int = 100, include_inactive: bool = False) -> list[dict[str, Any]]:
     """List personas for a project with optional source filter."""
     query = db.table(PERSONAS_TABLE).select("*").eq("project_id", project_id)
+    if source:
+        query = query.eq("source", source)
+    if not include_inactive:
+        query = query.eq("is_active", True)
     result = query.order("created_at", desc=True).limit(limit).execute()
     return list(result.data)
 
@@ -358,6 +378,9 @@ def list_personas_for_project(db: Client, project_id: int, source: str | None = 
 def list_discovery_keywords_for_project(db: Client, project_id: int, source: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     """List discovery keywords for a project."""
     query = db.table(DISCOVERY_KEYWORDS_TABLE).select("*").eq("project_id", project_id)
+    if source:
+        query = query.eq("source", source)
+    query = query.eq("is_active", True)
     result = query.order("priority_score", desc=True).limit(limit).execute()
     return list(result.data)
 
@@ -460,11 +483,12 @@ def list_score_feedback_for_workspace(
     """List recent score feedback records for a workspace.
 
     Used by the calibration function to compute score adjustments.
+    Note: score_feedback table links through opportunity_id, not workspace_id.
+    We fetch the latest feedback globally; the caller filters by relevance.
     """
     result = (
         db.table(SCORE_FEEDBACK_TABLE)
         .select("*")
-        .eq("workspace_id", workspace_id)
         .order("created_at", desc=True)
         .limit(limit)
         .execute()

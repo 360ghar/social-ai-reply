@@ -119,6 +119,7 @@ def generate_keywords(
             "keyword": item.keyword,
             "rationale": item.rationale,
             "priority_score": item.priority_score,
+            "category": item.category,
             "source": "generated",
             "is_active": True,
         }

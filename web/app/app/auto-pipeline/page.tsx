@@ -55,8 +55,30 @@ function isRedditDiscoveryError(message?: string | null) {
   return (
     normalized.includes("all subreddit discovery requests failed") ||
     normalized.includes("public reddit feeds") ||
-    normalized.includes("reddit discovery methods failed")
+    normalized.includes("reddit discovery methods failed") ||
+    normalized.includes("no subreddits could be discovered") ||
+    normalized.includes("apify") ||
+    normalized.includes("add monitored subreddits before scanning")
   );
+}
+
+/** Map raw backend error strings to user-friendly messages. */
+function friendlyPipelineError(message?: string | null): string {
+  if (!message) return "Something went wrong while running the pipeline. Please try again.";
+  const m = message.toLowerCase();
+  if (m.includes("add monitored subreddits before scanning"))
+    return "No communities are being monitored yet. The pipeline will discover relevant subreddits automatically — please try again.";
+  if (m.includes("429") || m.includes("too many requests") || m.includes("rate limit"))
+    return "Reddit is temporarily rate-limiting requests. Please wait a few minutes and try again.";
+  if (m.includes("no llm provider"))
+    return "The AI provider is not configured. Please set up your API key in Settings.";
+  if (m.includes("connection") || m.includes("timeout") || m.includes("timed out"))
+    return "Could not connect to an external service. Please check your internet connection and try again.";
+  if (m.includes("could not access reddit") || m.includes("reddit discovery"))
+    return "Reddit is temporarily unavailable. Please retry in a few minutes.";
+  // Strip HTTP status codes from the message for cleaner display
+  const cleaned = message.replace(/^\d{3}:\s*/, "");
+  return cleaned || "An unexpected error occurred. Please try again.";
 }
 
 function openContentStudioForProject(router: ReturnType<typeof useRouter>, projectId: number) {
@@ -608,7 +630,7 @@ export default function AutoPipelinePage() {
         <div className="text-5xl mb-4">&#x26A0;&#xFE0F;</div>
         <h2 className="text-2xl font-bold mb-2">Pipeline Failed</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          {activeRun.error_message || "An error occurred while running the pipeline."}
+          {friendlyPipelineError(activeRun.error_message)}
         </p>
         {llmSetupRequired ? (
           <div className="mb-6 rounded-xl border bg-muted/40 p-4 text-left">
