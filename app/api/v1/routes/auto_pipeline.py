@@ -190,7 +190,7 @@ def get_auto_pipeline(
                     for s in subreddits
                 ],
                 "opportunities": [
-                    {"title": o["title"], "subreddit": o["subreddit_name"], "score": o.get("score", 0), "author": o.get("author", "")}
+                    {"title": o["title"], "subreddit": o["subreddit_name"], "platform": o.get("platform", "reddit"), "score": o.get("score", 0), "author": o.get("author", "")}
                     for o in visible_opportunities
                 ],
                 "drafts": [

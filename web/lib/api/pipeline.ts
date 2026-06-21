@@ -11,6 +11,7 @@ export interface PipelineRun {
     | "discovering_keywords"
     | "finding_subreddits"
     | "scanning_opportunities"
+    | "scanning_platforms"
     | "generating_drafts"
     | "ready"
     | "executed"
@@ -60,6 +61,7 @@ export interface PipelineSubreddit {
 export interface PipelineOpportunity {
   title: string;
   subreddit: string;
+  platform: string;
   score: number;
   author: string;
 }

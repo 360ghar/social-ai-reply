@@ -383,7 +383,7 @@ export default function AutoPipelinePage() {
         <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3 mb-8">
           <CounterCard label="Personas" value={activeRun.personas_count} />
           <CounterCard label="Keywords" value={activeRun.keywords_count} />
-          <CounterCard label="Subreddits" value={activeRun.subreddits_count} />
+          <CounterCard label="Communities" value={activeRun.subreddits_count} />
           <CounterCard label="Opportunities" value={activeRun.opportunities_count} />
           <CounterCard label="Drafts" value={activeRun.drafts_count} />
         </div>
@@ -440,7 +440,7 @@ export default function AutoPipelinePage() {
         <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 mb-8">
           <SummaryCard label="Personas" value={results.personas.length} />
           <SummaryCard label="Keywords" value={results.keywords.length} />
-          <SummaryCard label="Subreddits" value={results.subreddits.length} />
+          <SummaryCard label="Communities" value={results.subreddits.length} />
           <SummaryCard label="Opportunities" value={results.opportunities.length} />
           <SummaryCard label="Drafts" value={results.drafts.length} />
         </div>
@@ -555,7 +555,8 @@ export default function AutoPipelinePage() {
                 <thead>
                   <tr className="border-b">
                     <th className="p-2 text-left font-semibold text-muted-foreground">Title</th>
-                    <th className="p-2 text-left font-semibold text-muted-foreground">Subreddit</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Platform</th>
+                    <th className="p-2 text-left font-semibold text-muted-foreground">Source</th>
                     <th className="p-2 text-left font-semibold text-muted-foreground">Score</th>
                   </tr>
                 </thead>
@@ -567,7 +568,8 @@ export default function AutoPipelinePage() {
                           {opp.title}
                         </div>
                       </td>
-                      <td className="p-2 text-muted-foreground">r/{opp.subreddit}</td>
+                      <td className="p-2 text-muted-foreground capitalize">{opp.platform || "reddit"}</td>
+                      <td className="p-2 text-muted-foreground">{opp.platform === "reddit" ? `r/${opp.subreddit}` : opp.subreddit}</td>
                       <td className="p-2 text-primary font-semibold">{opp.score}</td>
                     </tr>
                   ))}

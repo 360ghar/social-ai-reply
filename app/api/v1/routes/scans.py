@@ -17,21 +17,34 @@ router = APIRouter(prefix="/v1", tags=["scans"])
 
 
 def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_run_id: str) -> None:
-    try:
-        run_scan(db, project, payload, scan_run_id=scan_run_id)
-    except Exception:  # noqa: BLE001 — run_scan already persisted the error status
-        logger.exception("Background scan %s failed", scan_run_id)
-
-    # Also run multi-platform scan if extra platforms requested
-    extra_platforms = payload.platforms
+    # Determine which platforms were selected
+    extra_platforms = list(payload.platforms) if payload.platforms else []
     if not extra_platforms and payload.platform == "all":
         extra_platforms = ["twitter", "instagram", "linkedin"]
-    if extra_platforms:
+
+    # Only run Reddit scan if Reddit is part of the requested platforms
+    scanning_reddit = (
+        "reddit" in extra_platforms
+        or payload.platform == "reddit"
+        or payload.platform == "all"
+        or not extra_platforms  # default = reddit only
+    )
+    # Remove Reddit from extra_platforms since it has its own scanner
+    non_reddit_platforms = [p for p in extra_platforms if p not in ("reddit", "x")]
+
+    if scanning_reddit:
+        try:
+            run_scan(db, project, payload, scan_run_id=scan_run_id)
+        except Exception:  # noqa: BLE001 — run_scan already persisted the error status
+            logger.exception("Background Reddit scan %s failed", scan_run_id)
+
+    # Run multi-platform scan for non-Reddit platforms
+    if non_reddit_platforms:
         try:
             from app.services.product.platform_scanner import run_platform_scan
             run_platform_scan(
                 db, project,
-                platforms=extra_platforms,
+                platforms=non_reddit_platforms,
                 scan_run_id=scan_run_id,
                 limit_per_platform=payload.max_posts_per_subreddit,
                 min_score=payload.min_score,
@@ -67,8 +80,21 @@ def create_scan(
     from app.db.tables.discovery import list_discovery_keywords_for_project, list_monitored_subreddits_for_project
     if not any(k.get("is_active", True) for k in list_discovery_keywords_for_project(supabase, proj["id"])):
         raise HTTPException(status_code=400, detail="Add discovery keywords before scanning.")
-    if not any(s.get("is_active", True) for s in list_monitored_subreddits_for_project(supabase, proj["id"])):
-        raise HTTPException(status_code=400, detail="Add monitored subreddits before scanning.")
+
+    # Only require subreddits when Reddit is actually part of the scan.
+    # Non-Reddit platforms (Twitter, LinkedIn, Instagram) use keyword search
+    # and don't need monitored subreddits.
+    extra_platforms = payload.platforms
+    scanning_reddit = payload.platform == "reddit" or payload.platform == "all" or not extra_platforms
+    no_active_subreddits = scanning_reddit and not any(
+        s.get("is_active", True) for s in list_monitored_subreddits_for_project(supabase, proj["id"])
+    )
+    if no_active_subreddits:
+        if extra_platforms:
+            # Non-Reddit platforms don't need subreddits; skip Reddit instead of blocking
+            scanning_reddit = False  # noqa: F841
+        else:
+            raise HTTPException(status_code=400, detail="Add monitored subreddits before scanning.")
 
     run = create_scan_run(supabase, {
         "project_id": proj["id"],
