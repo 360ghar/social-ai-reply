@@ -3,8 +3,8 @@
 Each platform has its own search strategy:
   - Reddit:    Browse subreddits via RapidAPI (reddit34)
   - Twitter/X: Direct keyword search via RapidAPI (twitter154)
-  - Instagram: Browse user posts via RapidAPI (instagram120) — no keyword search
-  - LinkedIn:  STUB — API provider is defunct (75/month limit when active)
+  - Instagram: Global search (users + hashtags) via RapidAPI (instagram-looter2)
+  - LinkedIn:  Keyword search via RapidAPI (fresh-linkedin-scraper-api)
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ PLATFORM_INFO = {
     "reddit": {"host": "reddit34.p.rapidapi.com", "search": "subreddit browsing", "limit": "1000/hr"},
     "twitter": {"host": "twitter154.p.rapidapi.com", "search": "keyword search", "limit": "1000/hr"},
     "x": {"host": "twitter154.p.rapidapi.com", "search": "keyword search (alias for twitter)", "limit": "1000/hr"},
-    "instagram": {"host": "instagram120.p.rapidapi.com", "search": "username/profile posts", "limit": "1000/hr"},
+    "instagram": {"host": "instagram-looter2.p.rapidapi.com", "search": "global search (users + hashtags)", "limit": "150/month"},
     "linkedin": {"host": "fresh-linkedin-scraper-api.p.rapidapi.com", "search": "keyword search", "limit": "1000/hr"},
 }
 

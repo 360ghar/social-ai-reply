@@ -86,16 +86,16 @@ class ScanRequest(BaseModel):
 class ScanRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: int | str
     project_id: int
     status: str
-    search_window_hours: int
-    posts_scanned: int
-    opportunities_found: int
-    error_message: str | None
-    started_at: datetime | None
-    completed_at: datetime | None
-    created_at: datetime
+    search_window_hours: int = 0
+    posts_scanned: int = 0
+    opportunities_found: int = 0
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime | None = None
     # Incremental progress (populated while status == "running")
     subreddits_total: int | None = None
     subreddits_scanned: int | None = None
