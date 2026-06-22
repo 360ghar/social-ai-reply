@@ -97,12 +97,53 @@ def generate_reply_draft(
         if monitored:
             subreddit_tone_rules = monitored.get("tone_rules")
 
+    # Resolve effective platform: explicit override > opportunity's platform > "reddit"
+    effective_platform = payload.platform or opportunity.get("platform") or "reddit"
+
+    if payload.variants > 1:
+        # Multi-variant generation
+        from app.services.product.copilot.reply import generate_reply_variants
+
+        variants = generate_reply_variants(
+            opportunity,
+            project.get("brand_profile"),
+            prompts,
+            voice_profile=voice_profile,
+            subreddit_tone_rules=subreddit_tone_rules,
+            platform=effective_platform,
+            count=payload.variants,
+        )
+        if not variants:
+            raise HTTPException(status_code=500, detail="Failed to generate any reply variants.")
+
+        # Save all variants as drafts, return the first one
+        first_draft = None
+        for i, (content, rationale, source_prompt) in enumerate(variants):
+            draft = create_reply_draft(
+                supabase,
+                {
+                    "project_id": project["id"],
+                    "opportunity_id": opportunity["id"],
+                    "content": content,
+                    "rationale": rationale,
+                    "source_prompt": source_prompt,
+                    "version": i + 1,
+                },
+            )
+            if first_draft is None:
+                first_draft = draft
+
+        update_opportunity(supabase, opportunity["id"], {"status": "drafting"})
+        return ReplyDraftResponse.model_validate(first_draft)
+
+    # Single reply (default path — unchanged behavior)
     content, rationale, source_prompt = generate_reply(
         opportunity,
         project.get("brand_profile"),
         prompts,
         voice_profile=voice_profile,
         subreddit_tone_rules=subreddit_tone_rules,
+        platform=effective_platform,
     )
 
     draft = create_reply_draft(
