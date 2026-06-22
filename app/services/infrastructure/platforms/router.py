@@ -8,6 +8,7 @@ Each platform has its own search strategy:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -87,16 +88,25 @@ class PlatformRouter:
         """
         all_posts: list[UnifiedPost] = []
 
+        # 25-second hard cap per platform so a slow/hanging API never blocks the scan.
+        per_platform_timeout = 25.0
+
         for platform in self.platforms:
             try:
                 adapter = _get_adapter(platform)
-                posts = await adapter.search_and_enrich(
-                    keywords,
-                    limit=limit_per_platform,
-                    fetch_comments=fetch_comments,
+                posts = await asyncio.wait_for(
+                    adapter.search_and_enrich(
+                        keywords,
+                        limit=limit_per_platform,
+                        fetch_comments=fetch_comments,
+                    ),
+                    timeout=per_platform_timeout,
                 )
                 logger.info("[%s] Found %d posts for keywords %s", platform, len(posts), keywords[:3])
                 all_posts.extend(posts)
+            except TimeoutError:
+                logger.warning("[%s] Timed out after %.0fs — skipping", platform, per_platform_timeout)
+                continue
             except Exception as e:
                 logger.error("[%s] Search failed: %s", platform, e)
                 continue

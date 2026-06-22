@@ -32,11 +32,11 @@ class RapidAPIClient:
     """
 
     BASE_URL = "https://{host}"
-    MAX_RETRIES = 2
+    MAX_RETRIES = 1           # 1 retry only
     RETRY_DELAY = 1.0
     REQUESTS_PER_MINUTE = 30  # safety throttle
 
-    def __init__(self, api_host: str, *, timeout: float = 30.0):
+    def __init__(self, api_host: str, *, timeout: float = 12.0):
         self.api_host = api_host
         self.timeout = timeout
         settings = get_settings()

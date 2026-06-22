@@ -138,25 +138,23 @@ def run_platform_scan(
     if not search_keywords:
         return {"error": "No active keywords found", "opportunities_found": 0}
 
-    # Run async search in a sync context
+    # Run async search in a sync context.
+    # BackgroundTasks in FastAPI run in a thread, not the event loop, so we
+    # must NOT touch the running loop directly — that deadlocks.  Instead,
+    # we always spin up a fresh event loop via asyncio.run(), wrapped with a
+    # hard wall-clock timeout so a hung API call can never block forever.
+    total_timeout_seconds = 90  # hard ceiling for the entire multi-platform fetch
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're inside an existing async context (e.g., FastAPI)
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                posts = pool.submit(
-                    asyncio.run,
-                    _async_platform_scan(platforms, search_keywords, limit_per_platform),
-                ).result(timeout=120)
-        else:
-            posts = loop.run_until_complete(
-                _async_platform_scan(platforms, search_keywords, limit_per_platform)
-            )
-    except RuntimeError:
-        posts = asyncio.run(
-            _async_platform_scan(platforms, search_keywords, limit_per_platform)
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="platform_scan") as pool:
+            future = pool.submit(asyncio.run, _async_platform_scan(platforms, search_keywords, limit_per_platform))
+            posts = future.result(timeout=total_timeout_seconds)
+    except _cf.TimeoutError:
+        logger.warning(
+            "Platform scan timed out after %ds — returning zero results",
+            total_timeout_seconds,
         )
+        posts = []
     except Exception as e:
         logger.error("Platform scan failed: %s", e)
         return {"error": str(e), "opportunities_found": 0}

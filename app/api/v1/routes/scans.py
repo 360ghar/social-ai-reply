@@ -17,6 +17,8 @@ router = APIRouter(prefix="/v1", tags=["scans"])
 
 
 def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_run_id: str) -> None:
+    from app.db.tables.discovery import get_scan_run_by_id, update_scan_run
+
     # Determine which platforms were selected
     extra_platforms = list(payload.platforms) if payload.platforms else []
     if not extra_platforms and payload.platform == "all":
@@ -32,25 +34,40 @@ def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_r
     # Remove Reddit from extra_platforms since it has its own scanner
     non_reddit_platforms = [p for p in extra_platforms if p not in ("reddit", "x")]
 
-    if scanning_reddit:
-        try:
-            run_scan(db, project, payload, scan_run_id=scan_run_id)
-        except Exception:  # noqa: BLE001 — run_scan already persisted the error status
-            logger.exception("Background Reddit scan %s failed", scan_run_id)
+    try:
+        if scanning_reddit:
+            try:
+                run_scan(db, project, payload, scan_run_id=scan_run_id)
+            except Exception:  # noqa: BLE001 — run_scan already persisted the error status
+                logger.exception("Background Reddit scan %s failed", scan_run_id)
 
-    # Run multi-platform scan for non-Reddit platforms
-    if non_reddit_platforms:
+        # Run multi-platform scan for non-Reddit platforms
+        if non_reddit_platforms:
+            try:
+                from app.services.product.platform_scanner import run_platform_scan
+                run_platform_scan(
+                    db, project,
+                    platforms=non_reddit_platforms,
+                    scan_run_id=scan_run_id,
+                    limit_per_platform=payload.max_posts_per_subreddit,
+                    min_score=payload.min_score,
+                )
+            except Exception:
+                logger.exception("Multi-platform scan within %s failed", scan_run_id)
+    finally:
+        # Guarantee the scan_run transitions out of "running".
+        # run_scan() sets "completed" for Reddit-only scans, but platform-only
+        # scans or partial failures could leave it stuck on "running" forever.
         try:
-            from app.services.product.platform_scanner import run_platform_scan
-            run_platform_scan(
-                db, project,
-                platforms=non_reddit_platforms,
-                scan_run_id=scan_run_id,
-                limit_per_platform=payload.max_posts_per_subreddit,
-                min_score=payload.min_score,
-            )
-        except Exception:
-            logger.exception("Multi-platform scan within %s failed", scan_run_id)
+            current = get_scan_run_by_id(db, scan_run_id)
+            if current and current.get("status") == "running":
+                update_scan_run(db, scan_run_id, {
+                    "status": "completed",
+                    "completed_at": datetime.now(UTC).isoformat(),
+                })
+                logger.info("Scan %s: forced status to 'completed' (was still running)", scan_run_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to finalize scan run %s status", scan_run_id)
 
 
 @router.post("/scans", response_model=ScanRunResponse)
