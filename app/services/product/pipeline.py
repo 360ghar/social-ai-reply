@@ -386,8 +386,8 @@ def run_auto_pipeline_background(
 
             available_platforms = []
             # Check which platforms we can scan (need RAPIDAPI_KEY)
-            import os
-            if os.getenv("RAPIDAPI_KEY"):
+            from app.core.config import get_settings as _get_settings
+            if _get_settings().rapidapi_key:
                 available_platforms = ["twitter", "instagram", "linkedin"]
             else:
                 log.info("RAPIDAPI_KEY not set — skipping multi-platform scan")

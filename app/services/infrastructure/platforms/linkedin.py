@@ -12,7 +12,6 @@ Endpoints used:
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,7 +39,10 @@ class LinkedInAdapter(PlatformAdapter):
         api_key: str = "",
         host: str = _DEFAULT_HOST,
     ) -> None:
-        self.api_key = api_key or os.getenv("RAPIDAPI_KEY", "")
+        if not api_key:
+            from app.core.config import get_settings
+            api_key = get_settings().rapidapi_key or ""
+        self.api_key = api_key
         self.api_host = host
         self._available = bool(self.api_key)
         if not self._available:

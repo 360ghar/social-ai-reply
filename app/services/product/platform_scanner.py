@@ -36,8 +36,11 @@ logger = logging.getLogger(__name__)
 
 def _candidate_from_unified(post: UnifiedPost) -> CandidatePost:
     """Convert a UnifiedPost to a CandidatePost for scoring."""
+    # Tweets and some LinkedIn posts have no title — use body excerpt instead
+    # so the relevance engine has text to score against.
+    title = post.title or post.body[:200]
     return CandidatePost(
-        title=post.title or "",
+        title=title,
         body=post.body,
         platform=post.platform,
         source_name=post.subreddit or post.platform,
