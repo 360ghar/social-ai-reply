@@ -98,12 +98,22 @@ async def _async_platform_scan(
     platforms: list[str],
     search_keywords: list[str],
     limit_per_platform: int = 25,
+    subreddits: list[str] | None = None,
 ) -> list[UnifiedPost]:
     """Run the PlatformRouter search asynchronously."""
+    # If Reddit is included and we have subreddits, configure the adapter
+    # to browse them instead of just fetching popular posts.
+    if subreddits and "reddit" in platforms:
+        from app.services.infrastructure.platforms.router import _get_adapter
+
+        reddit_adapter = _get_adapter("reddit")
+        reddit_adapter.set_subreddits(subreddits)
+
     router = PlatformRouter(platforms=platforms)
     return await router.search_all(
         keywords=search_keywords,
         limit_per_platform=limit_per_platform,
+        fetch_comments=True,
     )
 
 
@@ -116,11 +126,10 @@ def run_platform_scan(
     limit_per_platform: int = 25,
     min_score: int = 15,
 ) -> dict[str, Any]:
-    """Scan non-Reddit platforms for opportunities.
+    """Scan platforms for opportunities using RapidAPI adapters.
 
-    This is designed to be called *after* (or instead of) the existing Reddit
-    scanner. It uses the PlatformRouter + RapidAPI adapters to fetch posts
-    from Twitter/X, Instagram, TikTok, LinkedIn, etc.
+    Supports all platforms including Reddit. When Reddit is in the list,
+    monitored subreddits are loaded from the DB and browsed via RapidAPI.
 
     Args:
         db: Supabase client.
@@ -142,16 +151,31 @@ def run_platform_scan(
     if not search_keywords:
         return {"error": "No active keywords found", "opportunities_found": 0}
 
+    # Load monitored subreddits when Reddit is in the scan list
+    subreddits: list[str] | None = None
+    if "reddit" in platforms:
+        from app.db.tables.discovery import list_monitored_subreddits_for_project
+
+        active_subs = list_monitored_subreddits_for_project(db, project["id"])
+        subreddits = [s["name"] for s in active_subs if s.get("is_active", True)]
+        if subreddits:
+            logger.info("Reddit scan will browse %d subreddits: %s", len(subreddits), subreddits[:5])
+        else:
+            logger.warning("No active monitored subreddits — Reddit scan may return limited results")
+
     # Run async search in a sync context.
     # BackgroundTasks in FastAPI run in a thread, not the event loop, so we
     # must NOT touch the running loop directly — that deadlocks.  Instead,
     # we always spin up a fresh event loop via asyncio.run(), wrapped with a
     # hard wall-clock timeout so a hung API call can never block forever.
-    total_timeout_seconds = 90  # hard ceiling for the entire multi-platform fetch
+    total_timeout_seconds = 180 if "reddit" in platforms else 90
     try:
         import concurrent.futures as _cf
         with _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="platform_scan") as pool:
-            future = pool.submit(asyncio.run, _async_platform_scan(platforms, search_keywords, limit_per_platform))
+            future = pool.submit(
+                asyncio.run,
+                _async_platform_scan(platforms, search_keywords, limit_per_platform, subreddits=subreddits),
+            )
             posts = future.result(timeout=total_timeout_seconds)
     except _cf.TimeoutError:
         logger.warning(

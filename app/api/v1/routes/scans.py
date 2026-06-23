@@ -10,7 +10,6 @@ from app.db.supabase_client import get_supabase
 from app.db.tables.discovery import create_scan_run, get_scan_run_by_id
 from app.db.tables.projects import get_project_by_id
 from app.schemas.v1.discovery import ScanRequest, ScanRunResponse
-from app.services.product.scanner import run_scan
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["scans"])
@@ -19,45 +18,34 @@ router = APIRouter(prefix="/v1", tags=["scans"])
 def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_run_id: str) -> None:
     from app.db.tables.discovery import get_scan_run_by_id, update_scan_run
 
-    # Determine which platforms were selected
+    # Determine which platforms to scan
     extra_platforms = list(payload.platforms) if payload.platforms else []
     if not extra_platforms and payload.platform == "all":
-        extra_platforms = ["twitter", "instagram", "linkedin"]
+        extra_platforms = ["reddit", "twitter", "instagram", "linkedin"]
+    elif not extra_platforms:
+        extra_platforms = ["reddit"]  # default = reddit
 
-    # Only run Reddit scan if Reddit is part of the requested platforms
-    scanning_reddit = (
-        "reddit" in extra_platforms
-        or payload.platform == "reddit"
-        or payload.platform == "all"
-        or not extra_platforms  # default = reddit only
-    )
-    # Remove Reddit from extra_platforms since it has its own scanner
-    non_reddit_platforms = [p for p in extra_platforms if p != "reddit"]
+    # Always include reddit if it was requested
+    if payload.platform == "reddit" and "reddit" not in extra_platforms:
+        extra_platforms.insert(0, "reddit")
+
+    # Deduplicate
+    platforms = list(dict.fromkeys(extra_platforms))
 
     try:
-        if scanning_reddit:
-            try:
-                run_scan(db, project, payload, scan_run_id=scan_run_id)
-            except Exception:  # noqa: BLE001 — run_scan already persisted the error status
-                logger.exception("Background Reddit scan %s failed", scan_run_id)
+        from app.services.product.platform_scanner import run_platform_scan
 
-        # Run multi-platform scan for non-Reddit platforms
-        if non_reddit_platforms:
-            try:
-                from app.services.product.platform_scanner import run_platform_scan
-                run_platform_scan(
-                    db, project,
-                    platforms=non_reddit_platforms,
-                    scan_run_id=scan_run_id,
-                    limit_per_platform=payload.max_posts_per_subreddit,
-                    min_score=payload.min_score,
-                )
-            except Exception:
-                logger.exception("Multi-platform scan within %s failed", scan_run_id)
+        run_platform_scan(
+            db, project,
+            platforms=platforms,
+            scan_run_id=scan_run_id,
+            limit_per_platform=payload.max_posts_per_subreddit,
+            min_score=payload.min_score,
+        )
+    except Exception:
+        logger.exception("Background scan %s failed", scan_run_id)
     finally:
         # Guarantee the scan_run transitions out of "running".
-        # run_scan() sets "completed" for Reddit-only scans, but platform-only
-        # scans or partial failures could leave it stuck on "running" forever.
         try:
             current = get_scan_run_by_id(db, scan_run_id)
             if current and current.get("status") == "running":

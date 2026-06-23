@@ -23,11 +23,9 @@ from app.db.tables.projects import (
     update_brand_profile,
 )
 from app.db.tables.system import create_notification
-from app.schemas.v1.discovery import ScanRequest
 from app.services.product.copilot import ProductCopilot
 from app.services.product.discovery import discover_and_store_subreddits
-from app.services.product.scanner import revalidate_opportunity, run_scan
-from app.services.product.scoring import MIN_RELEVANT_OPPORTUNITY_SCORE
+from app.services.product.scanner import revalidate_opportunity
 
 log = logging.getLogger("signalflow.pipeline")
 TARGET_PIPELINE_SUBREDDITS = 10
@@ -312,110 +310,59 @@ def run_auto_pipeline_background(
             })
             return
 
-        # ── Step 5: Scan Reddit for Opportunities (60→70%) ────────
-        log.info("Step 5/8: Scanning Reddit for opportunities")
+        # ── Step 5: Scan All Platforms (60→80%) ────────────────────
+        # Unified scan using RapidAPI adapters for Reddit, Twitter,
+        # Instagram, and LinkedIn.  Reddit browses ALL monitored
+        # subreddits via the RapidAPI reddit34 adapter + fetches
+        # comments for top posts.
+        log.info("Step 5/8: Scanning all platforms for opportunities")
         update_auto_pipeline(db, pipeline_id, {
             "progress": 62,
-            "current_step": "Scanning Reddit posts and comments...",
+            "status": "scanning_all",
+            "current_step": "Scanning Reddit, Twitter, Instagram, LinkedIn...",
         })
 
-        # Cool down after discovery — Reddit rate-limits aggressively and the
-        # discovery phase may have exhausted the HTTP budget.  A short pause
-        # lets the rate-limiter window slide and resets our circuit breakers so
-        # the scanner starts with a clean slate.
-        import time as _time
-
-        from app.services.product.reddit_discovery import _HTTP_BUDGET
-        _time.sleep(10)
-        _HTTP_BUDGET._hosts.clear()  # reset all circuit breakers
-
-        opp_found = 0
+        total_opp_found = 0
         try:
-            scan_req = ScanRequest(
-                project_id=project_id,
-                search_window_hours=72,
-                max_posts_per_subreddit=25,
-                min_score=15,
+            from app.services.product.platform_scanner import run_platform_scan
+
+            available_platforms = ["reddit"]  # Reddit always included
+            from app.core.config import get_settings as _get_settings
+            if _get_settings().rapidapi_key:
+                available_platforms.extend(["twitter", "instagram", "linkedin"])
+            else:
+                log.info("RAPIDAPI_KEY not set — scanning Reddit only")
+
+            platform_result = run_platform_scan(
+                db,
+                proj,
+                platforms=available_platforms,
+                limit_per_platform=50,
+                min_score=10,
             )
-            scan_run = run_scan(db, proj, scan_req)
-            if scan_run.get("fatal_error"):
-                raise RuntimeError(scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
-            primary_opp_found = scan_run["opportunities_found"]
-            opp_found = primary_opp_found
-            # Fallback scan: when the narrow 72-hour window yields nothing,
-            # widen the time horizon to 30 days AND drop the score floor so
-            # the user gets *something* to review.
-            if opp_found <= 3:
-                fallback_scan_req = ScanRequest(
-                    project_id=project_id,
-                    search_window_hours=720,
-                    max_posts_per_subreddit=25,
-                    min_score=max(MIN_RELEVANT_OPPORTUNITY_SCORE - 10, 15),
+            total_opp_found = platform_result.get("opportunities_found", 0)
+            platform_error = platform_result.get("error")
+            if platform_error:
+                log.warning("Platform scan returned error (non-fatal): %s", platform_error)
+            else:
+                log.info(
+                    "Multi-platform scan complete — %d opportunities from %s",
+                    total_opp_found,
+                    ", ".join(available_platforms),
                 )
-                fallback_scan_run = run_scan(db, proj, fallback_scan_req)
-                if fallback_scan_run.get("fatal_error"):
-                    raise RuntimeError(fallback_scan_run.get("error_message") or "Opportunity scan could not access Reddit.")
-                opp_found = primary_opp_found + fallback_scan_run["opportunities_found"]
-            log.info("Reddit scan complete — %d opportunities found", opp_found)
         except Exception as e:
-            log.error("Reddit scan step failed: %s\n%s", e, traceback.format_exc())
+            log.error("Platform scan failed: %s\n%s", e, traceback.format_exc())
             update_auto_pipeline(db, pipeline_id, {
                 "status": "failed",
                 "error_message": f"Opportunity scan failed: {str(e)[:500]}",
                 "completed_at": datetime.now(UTC).isoformat(),
             })
             return
-        update_auto_pipeline(db, pipeline_id, {"opportunities_found": opp_found, "progress": 70})
 
-        # ── Step 5b: Multi-Platform Scan (70→80%) ────────────────
-        # Scan Twitter, Instagram, LinkedIn for additional opportunities
-        # using the RapidAPI adapters. This is non-fatal: if platform
-        # scanning fails (no API key, network error, etc.) the pipeline
-        # continues with whatever Reddit already found.
-        log.info("Step 5b/8: Scanning social platforms (Twitter, Instagram, LinkedIn)")
-        update_auto_pipeline(db, pipeline_id, {
-            "progress": 72,
-            "current_step": "Scanning Twitter, Instagram, LinkedIn...",
-        })
-
-        platform_opp_found = 0
-        try:
-            from app.services.product.platform_scanner import run_platform_scan
-
-            available_platforms = []
-            # Check which platforms we can scan (need RAPIDAPI_KEY)
-            from app.core.config import get_settings as _get_settings
-            if _get_settings().rapidapi_key:
-                available_platforms = ["twitter", "instagram", "linkedin"]
-            else:
-                log.info("RAPIDAPI_KEY not set — skipping multi-platform scan")
-
-            if available_platforms:
-                platform_result = run_platform_scan(
-                    db,
-                    proj,
-                    platforms=available_platforms,
-                    limit_per_platform=50,
-                    min_score=10,
-                )
-                platform_opp_found = platform_result.get("opportunities_found", 0)
-                platform_error = platform_result.get("error")
-                if platform_error:
-                    log.warning("Platform scan returned error (non-fatal): %s", platform_error)
-                else:
-                    log.info(
-                        "Multi-platform scan complete — %d opportunities from %s",
-                        platform_opp_found,
-                        ", ".join(available_platforms),
-                    )
-        except Exception as e:
-            log.warning("Multi-platform scan failed (non-fatal, continuing): %s\n%s", e, traceback.format_exc())
-
-        total_opp_found = opp_found + platform_opp_found
         update_auto_pipeline(db, pipeline_id, {
             "opportunities_found": total_opp_found,
             "progress": 80,
-            "current_step": f"Found {total_opp_found} opportunities ({opp_found} Reddit + {platform_opp_found} social)",
+            "current_step": f"Found {total_opp_found} opportunities across all platforms",
         })
 
         # ── Step 5c: Check Opportunities (80→85%) ────────────────

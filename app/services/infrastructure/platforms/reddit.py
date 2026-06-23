@@ -46,12 +46,17 @@ class RedditAdapter(PlatformAdapter):
 
     def __init__(self, api_host: str | None = None):
         self.api_host = api_host or DEFAULT_REDDIT_API_HOST
+        self._subreddits: list[str] = []
         try:
             self.client = RapidAPIClient(self.api_host)
             self._available = True
         except ValueError:
             logger.warning("RapidAPI key not configured — Reddit adapter using fallback mode")
             self._available = False
+
+    def set_subreddits(self, subreddits: list[str]) -> None:
+        """Set the list of subreddits to browse during search_and_enrich."""
+        self._subreddits = list(subreddits)
 
     def _parse_post(self, raw: dict[str, Any]) -> UnifiedPost:
         """Convert a reddit34 API response item to UnifiedPost.
@@ -187,6 +192,61 @@ class RedditAdapter(PlatformAdapter):
 
         logger.info("[reddit] Search for %d keywords returned %d posts", len(keywords), len(posts))
         return posts
+
+    async def search_and_enrich(
+        self,
+        keywords: list[str],
+        *,
+        limit: int = 50,
+        fetch_comments: bool = False,
+        comments_per_post: int = 10,
+    ) -> list[UnifiedPost]:
+        """Browse all monitored subreddits + fetch comments.
+
+        When ``_subreddits`` is set (via :meth:`set_subreddits`), this method
+        browses each subreddit with ``getPostsBySubreddit`` and also fetches
+        comments for the top posts.  This gives much better coverage than the
+        generic ``search_posts`` (which only calls ``getPopularPosts``).
+        """
+        if not self._available:
+            return []
+
+        if not self._subreddits:
+            # Fallback: no subreddits configured → use base behaviour
+            return await super().search_and_enrich(
+                keywords, limit=limit, fetch_comments=fetch_comments,
+                comments_per_post=comments_per_post,
+            )
+
+        all_posts: list[UnifiedPost] = []
+        posts_per_sub = max(limit // max(len(self._subreddits), 1), 10)
+
+        for subreddit in self._subreddits:
+            try:
+                sub_posts = await self.get_subreddit_posts(
+                    subreddit, sort="new", limit=posts_per_sub,
+                )
+                logger.info("[reddit] r/%s → %d posts", subreddit, len(sub_posts))
+                all_posts.extend(sub_posts)
+            except Exception as exc:
+                logger.warning("[reddit] Failed to browse r/%s: %s", subreddit, exc)
+
+        # Fetch comments for the top posts (by engagement)
+        comment_budget = min(len(all_posts), 15)  # max 15 posts get comments
+        sorted_posts = sorted(all_posts, key=lambda p: p.upvotes + p.comments_count, reverse=True)
+        for post in sorted_posts[:comment_budget]:
+            if not post.url:
+                continue
+            try:
+                comments = await self.get_post_comments(post.url, limit=comments_per_post)
+                post.raw_data["comments"] = [c.model_dump() for c in comments]
+                post.comments_count = max(post.comments_count, len(comments))
+                logger.debug("[reddit] Fetched %d comments for '%s'", len(comments), post.title[:40])
+            except Exception as exc:
+                logger.debug("[reddit] Comment fetch failed for %s: %s", post.external_id, exc)
+
+        logger.info("[reddit] Total: %d posts from %d subreddits", len(all_posts), len(self._subreddits))
+        return all_posts
 
     async def get_subreddit_posts(
         self,
