@@ -365,13 +365,57 @@ def run_auto_pipeline_background(
             "current_step": f"Found {total_opp_found} opportunities across all platforms",
         })
 
-        # ── Step 5c: Check Opportunities (80→85%) ────────────────
+        # ── Step 5c: Check Opportunities (80→83%) ────────────────
         log.info("Step 5c/8: Checking opportunities")
         update_auto_pipeline(db, pipeline_id, {
             "status": "checking_opportunities",
             "progress": 82,
             "current_step": f"Checking {total_opp_found} opportunities for relevance...",
         })
+
+        # ── Step 5d: Competitor Intelligence (83→85%) ─────────────
+        log.info("Step 5d/8: Competitor intelligence scan")
+        update_auto_pipeline(db, pipeline_id, {
+            "progress": 83,
+            "current_step": "Analyzing competitor mentions...",
+        })
+        try:
+            import asyncio
+
+            from app.services.product.competitor_intel import (
+                get_project_competitors,
+                process_competitor_opportunities,
+            )
+
+            competitors = get_project_competitors(db, project_id)
+            if competitors:
+                # Build post dicts from the scanned opportunities for competitor detection
+                opps_for_comp = list_opportunities_for_project(db, project_id, limit=100)
+                post_dicts = [
+                    {
+                        "title": o.get("title", ""),
+                        "body": o.get("body_text", ""),
+                        "selftext": o.get("body_text", ""),
+                        "platform": o.get("platform", "reddit"),
+                        "url": o.get("reddit_post_url") or o.get("post_url", ""),
+                        "opportunity_id": o.get("id"),
+                    }
+                    for o in opps_for_comp
+                ]
+                comp_mentions = asyncio.get_event_loop().run_until_complete(
+                    process_competitor_opportunities(db, project_id, post_dicts, competitors)
+                )
+                log.info("Competitor intel: %d mentions detected", len(comp_mentions))
+                update_auto_pipeline(db, pipeline_id, {
+                    "progress": 85,
+                    "current_step": f"Found {len(comp_mentions)} competitor mentions",
+                })
+            else:
+                log.info("No competitors configured — skipping competitor intel")
+                update_auto_pipeline(db, pipeline_id, {"progress": 85})
+        except Exception as e:
+            log.warning("Competitor intel step failed (non-fatal): %s", e)
+            update_auto_pipeline(db, pipeline_id, {"progress": 85})
 
         # ── Step 6: Generate Drafts (85→95%) ────────────────────
         log.info("Step 6/8: Generating reply drafts")

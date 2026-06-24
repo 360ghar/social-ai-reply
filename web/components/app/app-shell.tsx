@@ -53,6 +53,7 @@ import {
   Settings,
   Check,
   BarChart2,
+  Crosshair,
 } from "lucide-react";
 import { MobileNav } from "@/components/shared/mobile-nav";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -96,6 +97,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/app/company", label: "Company Setup", icon: UserCircle },
       { href: "/app/brand-brain", label: "Brand Brain", icon: Palette },
+      { href: "/app/competitors", label: "Competitor Intel", icon: Crosshair },
       { href: "/app/sources", label: "Sources", icon: Search },
     ],
   },
@@ -132,6 +134,7 @@ const PATH_TITLES: Record<string, string> = {
   "/app/analytics": "Overview / Analytics",
   "/app/company": "Intelligence / Company Setup",
   "/app/brand-brain": "Intelligence / Brand Brain",
+  "/app/competitors": "Intelligence / Competitor Intel",
   "/app/sources": "Intelligence / Sources",
   "/app/agents": "Opportunities / Agents Feed",
   "/app/discovery": "Opportunities / Social Radar",

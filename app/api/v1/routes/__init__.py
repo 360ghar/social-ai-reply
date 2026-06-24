@@ -18,6 +18,7 @@ from app.api.v1.routes.brands import router as brands_router
 from app.api.v1.routes.campaigns import router as campaigns_router
 from app.api.v1.routes.citations import router as citations_router
 from app.api.v1.routes.company import router as company_router
+from app.api.v1.routes.competitors import router as competitors_router
 from app.api.v1.routes.discovery import router as discovery_router
 from app.api.v1.routes.drafts import router as drafts_router
 from app.api.v1.routes.feed import router as feed_router
@@ -59,6 +60,7 @@ router.include_router(brands_router)
 router.include_router(campaigns_router)
 router.include_router(citations_router)
 router.include_router(company_router)
+router.include_router(competitors_router)
 router.include_router(discovery_router)
 router.include_router(drafts_router)
 router.include_router(feed_router)
