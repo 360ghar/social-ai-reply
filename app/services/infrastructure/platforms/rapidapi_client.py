@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 # Simple in-memory rate limiter
 _request_timestamps: dict[str, list[float]] = {}
 
+# Circuit breaker: once a host returns 429, skip all further requests
+# for that host for this process lifetime (quota is exhausted).
+_circuit_broken_hosts: dict[str, float] = {}
+_CIRCUIT_BREAK_DURATION = 300  # 5 minutes before retrying a broken host
+
 
 class RapidAPIError(Exception):
     """Raised when a RapidAPI call fails."""
@@ -32,7 +37,7 @@ class RapidAPIClient:
     """
 
     BASE_URL = "https://{host}"
-    MAX_RETRIES = 3           # 3 retries with exponential backoff
+    MAX_RETRIES = 1           # 1 retry only (fail fast on quota exhaustion)
     RETRY_DELAY = 2.0         # base delay for retries
     REQUESTS_PER_MINUTE = 10  # safety throttle per host
 
@@ -71,6 +76,18 @@ class RapidAPIClient:
 
         _request_timestamps[key].append(now)
 
+    def _is_circuit_broken(self) -> bool:
+        """Check if this host's circuit breaker is active."""
+        broken_at = _circuit_broken_hosts.get(self.api_host)
+        if broken_at is None:
+            return False
+        if time.monotonic() - broken_at > _CIRCUIT_BREAK_DURATION:
+            # Circuit breaker expired — allow retrying
+            del _circuit_broken_hosts[self.api_host]
+            logger.info("Circuit breaker reset for %s — retrying", self.api_host)
+            return False
+        return True
+
     async def get(
         self,
         endpoint: str,
@@ -89,6 +106,10 @@ class RapidAPIClient:
         Raises:
             RapidAPIError: On non-200 responses after retries.
         """
+        # Circuit breaker: immediately fail if host is known to be exhausted
+        if self._is_circuit_broken():
+            raise RapidAPIError(429, "API quota exhausted (circuit breaker active)", self.api_host)
+
         await self._throttle()
 
         url = f"https://{self.api_host}{endpoint}"
@@ -105,10 +126,18 @@ class RapidAPIClient:
                     return response.json()
 
                 if response.status_code == 429:  # Rate limited
-                    wait = self.RETRY_DELAY * (2 ** attempt)
-                    logger.warning("Rate limited by %s, waiting %.1fs (attempt %d)", self.api_host, wait, attempt + 1)
-                    await asyncio.sleep(wait)
-                    continue
+                    if attempt < self.MAX_RETRIES:
+                        wait = self.RETRY_DELAY * (2 ** attempt)
+                        logger.warning("Rate limited by %s, waiting %.1fs (attempt %d)", self.api_host, wait, attempt + 1)
+                        await asyncio.sleep(wait)
+                        continue
+                    # Exhausted retries — trip the circuit breaker
+                    _circuit_broken_hosts[self.api_host] = time.monotonic()
+                    logger.warning(
+                        "Circuit breaker tripped for %s — skipping all requests for %ds",
+                        self.api_host, _CIRCUIT_BREAK_DURATION,
+                    )
+                    raise RapidAPIError(429, "Rate limited — circuit breaker tripped", self.api_host)
 
                 if response.status_code >= 500:  # Server error, retry
                     wait = self.RETRY_DELAY * (2 ** attempt)
@@ -128,3 +157,4 @@ class RapidAPIClient:
                 raise RapidAPIError(0, str(e), self.api_host) from e
 
         raise RapidAPIError(0, f"Max retries exceeded: {last_error}", self.api_host)
+

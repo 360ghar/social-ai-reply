@@ -56,12 +56,22 @@ class RedditAdapter(PlatformAdapter):
 
     # ── HTTP helpers ─────────────────────────────────────────────
 
+    _reddapi_circuit_broken: float | None = None  # class-level circuit breaker
+
     async def _api_get(
         self,
         endpoint: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Make a GET request to ReddAPI."""
+        # Circuit breaker: skip if quota is known to be exhausted
+        if RedditAdapter._reddapi_circuit_broken is not None:
+            import time
+            if time.monotonic() - RedditAdapter._reddapi_circuit_broken < 300:
+                raise Exception("ReddAPI quota exhausted (circuit breaker active)")  # noqa: TRY002
+            RedditAdapter._reddapi_circuit_broken = None
+            logger.info("ReddAPI circuit breaker reset — retrying")
+
         headers = {
             "x-rapidapi-key": self._api_key,
             "x-rapidapi-host": REDDAPI_HOST,
@@ -71,8 +81,10 @@ class RedditAdapter(PlatformAdapter):
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(url, headers=headers, params=params)
             if resp.status_code == 429:
+                import time
                 remaining = resp.headers.get("x-ratelimit-requests-remaining", "?")
-                logger.warning("ReddAPI rate limited (remaining=%s)", remaining)
+                logger.warning("ReddAPI rate limited (remaining=%s) — circuit breaker tripped", remaining)
+                RedditAdapter._reddapi_circuit_broken = time.monotonic()
                 raise Exception(f"ReddAPI rate limited (remaining={remaining})")  # noqa: TRY002
             resp.raise_for_status()
             return resp.json()
