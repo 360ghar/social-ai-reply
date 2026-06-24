@@ -99,6 +99,7 @@ async def _async_platform_scan(
     search_keywords: list[str],
     limit_per_platform: int = 25,
     subreddits: list[str] | None = None,
+    time_filter: str = "week",
 ) -> list[UnifiedPost]:
     """Run the PlatformRouter search asynchronously."""
     # If Reddit is included and we have subreddits, configure the adapter
@@ -114,6 +115,7 @@ async def _async_platform_scan(
         keywords=search_keywords,
         limit_per_platform=limit_per_platform,
         fetch_comments=True,
+        time_filter=time_filter,
     )
 
 
@@ -125,6 +127,7 @@ def run_platform_scan(
     scan_run_id: str | None = None,
     limit_per_platform: int = 25,
     min_score: int = 15,
+    time_filter: str = "week",
 ) -> dict[str, Any]:
     """Scan platforms for opportunities using RapidAPI adapters.
 
@@ -174,7 +177,7 @@ def run_platform_scan(
         with _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="platform_scan") as pool:
             future = pool.submit(
                 asyncio.run,
-                _async_platform_scan(platforms, search_keywords, limit_per_platform, subreddits=subreddits),
+                _async_platform_scan(platforms, search_keywords, limit_per_platform, subreddits=subreddits, time_filter=time_filter),
             )
             posts = future.result(timeout=total_timeout_seconds)
     except _cf.TimeoutError:

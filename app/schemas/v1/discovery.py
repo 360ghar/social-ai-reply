@@ -81,6 +81,11 @@ class ScanRequest(BaseModel):
         default_factory=list,
         description="Additional platforms to scan alongside the primary platform (e.g., ['twitter', 'linkedin'])",
     )
+    time_filter: str = Field(
+        default="week",
+        pattern="^(day|week|month|year|all)$",
+        description="How far back to search (day, week, month, year, all)",
+    )
 
 
 class ScanRunResponse(BaseModel):

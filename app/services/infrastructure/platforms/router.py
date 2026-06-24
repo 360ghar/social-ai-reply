@@ -76,6 +76,7 @@ class PlatformRouter:
         *,
         limit_per_platform: int = 25,
         fetch_comments: bool = False,
+        time_filter: str = "week",
     ) -> list[UnifiedPost]:
         """Search across all configured platforms and merge results.
 
@@ -100,6 +101,7 @@ class PlatformRouter:
                     keywords,
                     limit=limit_per_platform,
                     fetch_comments=fetch_comments,
+                    time_filter=time_filter,
                 ),
                 timeout=per_platform_timeout,
             )

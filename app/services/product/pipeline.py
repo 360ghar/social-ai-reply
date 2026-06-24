@@ -62,6 +62,7 @@ def run_auto_pipeline_background(
     project_id: int,
     workspace_id: int,
     user_id: int,
+    time_filter: str = "week",
 ):
     from app.db.supabase_client import get_supabase_client
     db = get_supabase_client()
@@ -339,6 +340,7 @@ def run_auto_pipeline_background(
                 platforms=available_platforms,
                 limit_per_platform=50,
                 min_score=10,
+                time_filter=time_filter,
             )
             total_opp_found = platform_result.get("opportunities_found", 0)
             platform_error = platform_result.get("error")

@@ -353,6 +353,7 @@ class RedditAdapter(PlatformAdapter):
         limit: int = 50,
         fetch_comments: bool = False,
         comments_per_post: int = 10,
+        time_filter: str = "week",
     ) -> list[UnifiedPost]:
         """Efficient Reddit scanning using keyword search.
 
@@ -393,6 +394,7 @@ class RedditAdapter(PlatformAdapter):
                         "query": query,
                         "limit": str(min(limit, 100)),
                         "sort": "new",
+                        "time": time_filter,
                     },
                 )
                 posts_raw = data.get("posts", [])
@@ -422,6 +424,7 @@ class RedditAdapter(PlatformAdapter):
                     params={
                         "query": comment_query,
                         "limit": "25",
+                        "time": time_filter,
                     },
                 )
                 comments_raw = data.get("comments", [])

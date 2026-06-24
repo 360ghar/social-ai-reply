@@ -337,3 +337,14 @@ CREATE INDEX IF NOT EXISTS idx_competitor_mentions_project ON competitor_mention
 CREATE INDEX IF NOT EXISTS idx_competitor_mentions_competitor ON competitor_mentions(competitor_name);
 CREATE INDEX IF NOT EXISTS idx_competitor_mentions_sentiment ON competitor_mentions(project_id, sentiment);
 CREATE INDEX IF NOT EXISTS idx_competitor_mentions_detected ON competitor_mentions(project_id, detected_at DESC);
+
+-- User API Keys (BYOK — Bring Your Own Key)
+CREATE TABLE IF NOT EXISTS user_api_keys (
+    id BIGSERIAL PRIMARY KEY,
+    workspace_id BIGINT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    key_type TEXT NOT NULL,
+    encrypted_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(workspace_id, key_type)
+);

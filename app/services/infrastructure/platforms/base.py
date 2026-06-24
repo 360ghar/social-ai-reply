@@ -67,13 +67,14 @@ class PlatformAdapter(ABC):
         limit: int = 50,
         fetch_comments: bool = False,
         comments_per_post: int = 10,
+        time_filter: str = "week",
     ) -> list[UnifiedPost]:
         """Search posts and optionally fetch top comments for each.
 
         This is a convenience method that combines search + comment fetching.
         Subclasses can override for more efficient batch operations.
         """
-        posts = await self.search_posts(keywords, limit=limit)
+        posts = await self.search_posts(keywords, limit=limit, time_filter=time_filter)
 
         if fetch_comments:
             for post in posts:

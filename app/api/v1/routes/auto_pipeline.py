@@ -67,6 +67,9 @@ def start_auto_pipeline(
 
     website_url = payload.get("website_url")
     project_id = payload.get("project_id")
+    time_filter = payload.get("time_filter", "week")
+    if time_filter not in {"day", "week", "month", "year", "all"}:
+        time_filter = "week"
 
     if not website_url:
         raise HTTPException(400, "website_url is required.")
@@ -96,6 +99,7 @@ def start_auto_pipeline(
         proj["id"],
         workspace["id"],
         current_user["id"],
+        time_filter,
     )
 
     return {

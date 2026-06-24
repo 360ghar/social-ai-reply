@@ -87,9 +87,11 @@ export async function startPipelineRun(
   token: string | null,
   websiteUrl: string,
   projectId?: number | null,
+  timeFilter?: string,
 ): Promise<PipelineRun> {
   const body: Record<string, unknown> = { website_url: websiteUrl };
   if (projectId) body.project_id = projectId;
+  if (timeFilter) body.time_filter = timeFilter;
   return apiRequest<PipelineRun>(
     "/v1/auto-pipeline/run",
     { method: "POST", body: JSON.stringify(body) },

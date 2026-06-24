@@ -112,7 +112,7 @@ def generate_keywords(
     return generated
 
 
-_VALID_CATEGORIES = {"pain_point", "solution_seeking", "competitor_alternative", "general_buyer_seller"}
+_VALID_CATEGORIES = {"pain_point", "solution_seeking", "competitor_alternative", "general_buyer_seller", "user_intent"}
 
 
 def _llm_keywords_structured(
@@ -140,7 +140,7 @@ def _llm_keywords_structured(
     system_prompt = (
         "You are a keyword strategist for social media opportunity discovery on Reddit and Twitter.\n"
         "Generate keywords that REAL HUMANS actually type — conversational, long-tail phrases.\n\n"
-        "KEYWORD CATEGORIES — you MUST generate keywords for ALL 4 buckets:\n"
+        "KEYWORD CATEGORIES — you MUST generate keywords for ALL 5 buckets:\n"
         "1. **pain_point** — what people say when frustrated with a problem this product solves\n"
         '   (e.g., "tired of blurry property photos", "no time for house visits")\n'
         "2. **solution_seeking** — actively looking for a tool/service like this\n"
@@ -148,7 +148,19 @@ def _llm_keywords_structured(
         "3. **competitor_alternative** — comparing products or seeking alternatives\n"
         '   (e.g., "matterport alternative india", "magicbricks vs 99acres")\n'
         "4. **general_buyer_seller** — broader market queries from the target audience\n"
-        '   (e.g., "NRI buying property in India", "how to inspect house remotely")\n\n'
+        '   (e.g., "NRI buying property in India", "how to inspect house remotely")\n'
+        "5. **user_intent** — what the product's END USERS would naturally post online\n"
+        "   when they have the exact need this product solves. NOT about the product\n"
+        "   itself — about the USER'S SITUATION or request. Think: what would someone\n"
+        "   type on Reddit/Twitter when they need this service?\n"
+        '   (e.g., for a real estate app: "looking for flatmate in Gurugram",\n'
+        '   "need 2BHK near metro", "room available sector 56",\n'
+        '   "anyone know of flats in DLF Phase 5")\n'
+        '   (e.g., for a design tool: "need to make a poster by tomorrow",\n'
+        '   "how to design a logo without hiring a designer")\n'
+        '   (e.g., for a support tool: "customers keep emailing directly",\n'
+        '   "need a ticketing system for small team")\n'
+        "   This is the HIGHEST VOLUME category — generate ~40% of keywords here.\n\n"
         "PRIORITY SCORING:\n"
         "  90-100 = extreme buying intent (ready to purchase/switch)\n"
         "  70-89 = high intent (actively researching solutions)\n"
@@ -161,7 +173,8 @@ def _llm_keywords_structured(
         "- Include competitor names if you can infer them from the domain\n"
         "- If the brand context mentions specific locations, cities, or regions, include\n"
         "  location-qualified keywords naturally (people in those areas search with location terms)\n"
-        f"- Generate exactly {count} keywords, spread across all 4 categories\n\n"
+        f"- Generate exactly {count} keywords, spread across all 5 categories\n"
+        f"- At least {max(count * 2 // 5, 3)} keywords MUST be user_intent\n\n"
         "Return ONLY a JSON array:\n"
         '[{"keyword": "...", "rationale": "...", "priority_score": N, "category": "..."}]'
     )

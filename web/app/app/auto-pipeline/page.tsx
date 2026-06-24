@@ -95,6 +95,7 @@ export default function AutoPipelinePage() {
 
   // State
   const [urlInput, setUrlInput] = useState("");
+  const [timeFilter, setTimeFilter] = useState("week");
   const [activeRun, setActiveRun] = useState<PipelineRun | null>(null);
   const [previousRuns, setPreviousRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,7 +199,7 @@ export default function AutoPipelinePage() {
       }
       // project_id is optional — the backend will resolve or create a
       // default project when it is omitted or null.
-      const run = await startPipelineRun(token, url, selectedProjectId);
+      const run = await startPipelineRun(token, url, selectedProjectId, timeFilter);
       setActiveRun(run);
       setUrlInput("");
     } catch (error: unknown) {
@@ -258,6 +259,22 @@ export default function AutoPipelinePage() {
               placeholder="https://example.com"
               className="h-12 px-5 text-base rounded-xl"
             />
+            <div className="grid gap-1.5">
+              <label htmlFor="scan-period" className="text-xs font-medium text-muted-foreground">
+                Scan period
+              </label>
+              <select
+                id="scan-period"
+                value={timeFilter}
+                onChange={(e) => setTimeFilter(e.target.value)}
+                className="h-10 w-full rounded-xl border border-input bg-background px-4 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="day">Last 24 hours</option>
+                <option value="week">Last 7 days</option>
+                <option value="month">Last 30 days</option>
+                <option value="all">All time</option>
+              </select>
+            </div>
             <Button
               disabled={launching}
               onClick={handleLaunch}

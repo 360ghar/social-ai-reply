@@ -40,6 +40,7 @@ from app.api.v1.routes.seo import router as seo_router
 from app.api.v1.routes.sources import router as sources_router
 from app.api.v1.routes.technical_seo import router as technical_seo_router
 from app.api.v1.routes.ugc import router as ugc_router
+from app.api.v1.routes.user_keys import router as user_keys_router
 from app.api.v1.routes.visibility import router as visibility_router
 from app.api.v1.routes.voice_profiles import router as voice_profiles_router
 from app.api.v1.routes.webhooks import router as webhooks_router
@@ -83,6 +84,7 @@ router.include_router(seo_router)
 router.include_router(sources_router)
 router.include_router(technical_seo_router)
 router.include_router(ugc_router)
+router.include_router(user_keys_router)
 router.include_router(visibility_router)
 router.include_router(voice_profiles_router)
 router.include_router(webhooks_router)

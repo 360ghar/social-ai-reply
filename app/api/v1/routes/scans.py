@@ -41,6 +41,7 @@ def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_r
             scan_run_id=scan_run_id,
             limit_per_platform=payload.max_posts_per_subreddit,
             min_score=payload.min_score,
+            time_filter=payload.time_filter,
         )
     except Exception:
         logger.exception("Background scan %s failed", scan_run_id)
@@ -170,7 +171,7 @@ def create_platform_scan(
         "started_at": datetime.now(UTC).isoformat(),
     })
 
-    def _run_platform_scan_bg(db: Client, project: dict, platforms: list[str], scan_run_id: str, limit: int) -> None:
+    def _run_platform_scan_bg(db: Client, project: dict, platforms: list[str], scan_run_id: str, limit: int, time_filter: str = "week") -> None:
         try:
             from app.services.product.platform_scanner import run_platform_scan
             result = run_platform_scan(
@@ -178,6 +179,7 @@ def create_platform_scan(
                 platforms=platforms,
                 scan_run_id=scan_run_id,
                 limit_per_platform=limit,
+                time_filter=time_filter,
             )
             from app.db.tables.discovery import update_scan_run
             update_scan_run(db, scan_run_id, {
@@ -200,7 +202,7 @@ def create_platform_scan(
 
     background_tasks.add_task(
         _run_platform_scan_bg,
-        supabase, proj, payload.platforms, run["id"], payload.limit_per_platform,
+        supabase, proj, payload.platforms, run["id"], payload.limit_per_platform, payload.time_filter,
     )
     return {"scan_run_id": run["id"], "platforms": payload.platforms, "status": "running"}
 
