@@ -62,6 +62,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SheetPanel } from "@/components/shared/sheet-panel";
 import { ScoreBadge } from "@/components/shared/score-badge";
+import { sourceLabel, sourcePlatform } from "@/lib/opportunity";
 import { redditUrl, copyText } from "@/lib/reddit";
 import { setStoredProjectId } from "@/lib/project";
 import { postToReddit as apiPostToReddit } from "@/lib/api/reddit";
@@ -530,9 +531,9 @@ export default function ContentPage() {
                   <CardContent className="flex items-center gap-4 py-4">
                     {/* Left section */}
                     <div className="flex items-center gap-2 shrink-0">
-                      <PlatformIcon platform="reddit" />
+                      <PlatformIcon platform={draft.platform || "reddit"} />
                       {draft.opportunity_subreddit && (
-                        <Badge variant="outline">r/{draft.opportunity_subreddit}</Badge>
+                        <Badge variant="outline">{sourceLabel({ platform: draft.platform, subreddit_name: draft.platform === "reddit" || !draft.platform ? draft.opportunity_subreddit : undefined, source_name: draft.opportunity_subreddit })}</Badge>
                       )}
                       <Badge variant="secondary">v{draft.version}</Badge>
                     </div>
@@ -707,10 +708,10 @@ export default function ContentPage() {
                 <Card key={`reply-${draft.id}`}>
                   <CardContent className="flex items-center gap-4 py-4">
                     <div className="flex items-center gap-2 shrink-0">
-                      <PlatformIcon platform="reddit" />
+                      <PlatformIcon platform={draft.platform || "reddit"} />
                       <StatusBadge variant="success">Posted</StatusBadge>
                       {draft.opportunity_subreddit && (
-                        <Badge variant="outline">r/{draft.opportunity_subreddit}</Badge>
+                        <Badge variant="outline">{sourceLabel({ platform: draft.platform, subreddit_name: draft.platform === "reddit" || !draft.platform ? draft.opportunity_subreddit : undefined, source_name: draft.opportunity_subreddit })}</Badge>
                       )}
                     </div>
 
@@ -745,7 +746,7 @@ export default function ContentPage() {
                     <div className="flex items-center gap-2 shrink-0">
                       <PlatformIcon platform="reddit" />
                       <StatusBadge variant="success">{post.status}</StatusBadge>
-                      <Badge variant="outline">r/{post.subreddit}</Badge>
+                      <Badge variant="outline">{post.subreddit?.startsWith("r/") ? post.subreddit : `r/${post.subreddit}`}</Badge>
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -844,7 +845,7 @@ export default function ContentPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     {selectedReply.opportunity_subreddit && (
                       <Badge variant="secondary" className="font-mono text-xs">
-                        r/{selectedReply.opportunity_subreddit}
+                        {sourceLabel({ platform: selectedReply.platform, subreddit_name: selectedReply.platform === "reddit" || !selectedReply.platform ? selectedReply.opportunity_subreddit : undefined, source_name: selectedReply.opportunity_subreddit })}
                       </Badge>
                     )}
                     {typeof selectedReply.score === "number" && (
