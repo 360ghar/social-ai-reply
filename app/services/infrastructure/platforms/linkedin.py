@@ -115,29 +115,41 @@ class LinkedInAdapter(PlatformAdapter):
         if not self._available:
             return []
 
-        query = " ".join(keywords)
-        try:
-            data = await self._get(
-                "/api/v1/search/posts",
-                params={"keyword": query, "page": "1"},
-            )
-        except Exception as e:
-            logger.warning("[linkedin] Search failed: %s", e)
-            return []
+        all_posts: list[UnifiedPost] = []
+        seen_ids: set[str] = set()
 
-        results = data.get("data", [])
-        if not isinstance(results, list):
-            return []
-
-        posts = []
-        for item in results[:limit]:
+        # Search top 5 keywords individually for broader coverage
+        for keyword in keywords[:5]:
+            query = keyword.strip()
+            if not query:
+                continue
             try:
-                posts.append(self._parse_post(item))
+                data = await self._get(
+                    "/api/v1/search/posts",
+                    params={"keyword": query, "page": "1"},
+                )
             except Exception as e:
-                logger.debug("[linkedin] Failed to parse post: %s", e)
+                logger.warning("[linkedin] Search failed for '%s': %s", query[:40], e)
+                continue
 
-        logger.info("[linkedin] Search '%s' returned %d posts", query[:40], len(posts))
-        return posts
+            results = data.get("data", [])
+            if not isinstance(results, list):
+                continue
+
+            for item in results[:limit]:
+                try:
+                    post = self._parse_post(item)
+                    if post.external_id not in seen_ids:
+                        seen_ids.add(post.external_id)
+                        all_posts.append(post)
+                except Exception as e:
+                    logger.debug("[linkedin] Failed to parse post: %s", e)
+
+            if len(all_posts) >= limit:
+                break
+
+        logger.info("[linkedin] Search across %d keywords returned %d posts", min(len(keywords), 5), len(all_posts))
+        return all_posts[:limit]
 
     async def get_post_comments(
         self,

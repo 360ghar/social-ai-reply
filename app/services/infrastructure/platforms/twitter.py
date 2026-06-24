@@ -207,11 +207,22 @@ class TwitterAdapter(PlatformAdapter):
     def _build_query(keywords: list[str]) -> str:
         """Build a Twitter search query from keywords.
 
-        Joins keywords and appends ``-is:retweet lang:en`` to filter out
-        retweets and restrict to English tweets.
+        Joins keywords with OR to match tweets containing ANY keyword,
+        then appends ``-is:retweet lang:en`` to filter retweets and
+        restrict to English tweets.
         """
-        base = " ".join(keywords)
-        return f"{base} -is:retweet lang:en"
+        # Quote multi-word keywords so they're treated as phrases
+        parts = []
+        for kw in keywords:
+            kw = kw.strip()
+            if not kw:
+                continue
+            if " " in kw:
+                parts.append(f'"{kw}"')
+            else:
+                parts.append(kw)
+        base = " OR ".join(parts)
+        return f"({base}) -is:retweet lang:en"
 
     # ------------------------------------------------------------------
     # PlatformAdapter interface
@@ -227,81 +238,67 @@ class TwitterAdapter(PlatformAdapter):
     ) -> list[UnifiedPost]:
         """Search Twitter for tweets matching *keywords*.
 
+        Batches keywords into groups of 5 (to keep queries under Twitter's
+        length limits), searches each batch, and deduplicates results.
+
         Uses ``POST /search/search`` with ``section="top"`` for
         high-quality, engagement-sorted results.
         """
         if not self._available:
             return []
 
-        query = self._build_query(keywords)
-        # twitter154 caps at ~20 per page; clamp limit
+        # Batch keywords into groups of 5 to avoid overly long queries
+        batch_size = 5
+        kw_batches = [keywords[i:i + batch_size] for i in range(0, len(keywords), batch_size)]
+        # Cap at 4 batches (20 keywords) to stay within rate limits
+        kw_batches = kw_batches[:4]
+
+        all_posts: list[UnifiedPost] = []
+        seen_ids: set[str] = set()
         per_page = min(limit, 20)
 
-        try:
-            data = await self._post(
-                "/search/search",
-                body={
-                    "query": query,
-                    "section": "top",
-                    "limit": per_page,
-                },
-            )
-        except RapidAPIError as e:
-            logger.warning("Twitter search failed for '%s': %s", query[:60], e)
-            return []
+        for batch in kw_batches:
+            query = self._build_query(batch)
 
-        results: list[dict[str, Any]] = []
-        if isinstance(data, dict):
-            results = data.get("results", [])
-        elif isinstance(data, list):
-            results = data
-
-        posts: list[UnifiedPost] = []
-        for item in results[:limit]:
-            if not isinstance(item, dict):
-                continue
-            # Skip retweets that slipped through the query filter
-            if item.get("retweet"):
-                continue
-            with contextlib.suppress(Exception):
-                post = self._parse_tweet(item)
-                post.compute_engagement_score()
-                posts.append(post)
-
-        # Fetch additional pages if we need more results
-        continuation_token = data.get("continuation_token") if isinstance(data, dict) else None
-        while len(posts) < limit and continuation_token:
             try:
                 data = await self._post(
-                    "/search/search/continuation",
+                    "/search/search",
                     body={
                         "query": query,
                         "section": "top",
                         "limit": per_page,
-                        "continuation_token": continuation_token,
                     },
                 )
-            except RapidAPIError:
-                break
+            except RapidAPIError as e:
+                logger.warning("Twitter search failed for '%s': %s", query[:60], e)
+                continue
 
-            page_results = data.get("results", []) if isinstance(data, dict) else []
-            if not page_results:
-                break
+            results: list[dict[str, Any]] = []
+            if isinstance(data, dict):
+                results = data.get("results", [])
+            elif isinstance(data, list):
+                results = data
 
-            for item in page_results:
-                if len(posts) >= limit:
-                    break
-                if not isinstance(item, dict) or item.get("retweet"):
+            for item in results[:per_page]:
+                if not isinstance(item, dict):
                     continue
+                # Skip retweets that slipped through the query filter
+                if item.get("retweet"):
+                    continue
+                tweet_id = str(item.get("tweet_id", ""))
+                if tweet_id in seen_ids:
+                    continue
+                seen_ids.add(tweet_id)
                 with contextlib.suppress(Exception):
                     post = self._parse_tweet(item)
                     post.compute_engagement_score()
-                    posts.append(post)
+                    all_posts.append(post)
 
-            continuation_token = data.get("continuation_token") if isinstance(data, dict) else None
+            if len(all_posts) >= limit:
+                break
 
-        logger.info("[twitter] Search '%s' returned %d tweets", query[:50], len(posts))
-        return posts
+        logger.info("[twitter] Search across %d batches returned %d tweets", len(kw_batches), len(all_posts))
+        return all_posts[:limit]
 
     async def get_post_comments(
         self,
