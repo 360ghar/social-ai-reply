@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS company_profiles (
     extracted_pain_points JSONB DEFAULT '[]',
     extracted_competitors JSONB DEFAULT '[]',
     is_active BOOLEAN DEFAULT TRUE,
+    last_analyzed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

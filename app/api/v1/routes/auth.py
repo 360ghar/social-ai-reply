@@ -328,7 +328,7 @@ def logout(
     raw_token = credentials.credentials
     # Revoke tokens locally
     update_data = {
-        "tokens_invalid_before": utc_now().replace(microsecond=0),
+        "tokens_invalid_before": utc_now().replace(microsecond=0).isoformat(),
         "revoked_access_token_hash": hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
     }
     update_user(supabase, current_user["id"], update_data)
