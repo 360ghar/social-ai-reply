@@ -314,3 +314,26 @@ CREATE INDEX IF NOT EXISTS idx_sources_company_id ON sources(company_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_company_id ON agent_runs(company_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_company_id ON feedback(company_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_company_id ON analytics_events(company_id);
+
+-- Competitor Intelligence
+CREATE TABLE IF NOT EXISTS competitor_mentions (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    opportunity_id BIGINT REFERENCES opportunities(id) ON DELETE SET NULL,
+    competitor_name TEXT NOT NULL,
+    sentiment TEXT NOT NULL DEFAULT 'negative',
+    sentiment_score REAL DEFAULT 0.0,
+    complaint_category TEXT,
+    complaint_detail TEXT,
+    source_platform TEXT DEFAULT 'reddit',
+    source_url TEXT,
+    post_title TEXT,
+    post_body TEXT,
+    detected_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_competitor_mentions_project ON competitor_mentions(project_id);
+CREATE INDEX IF NOT EXISTS idx_competitor_mentions_competitor ON competitor_mentions(competitor_name);
+CREATE INDEX IF NOT EXISTS idx_competitor_mentions_sentiment ON competitor_mentions(project_id, sentiment);
+CREATE INDEX IF NOT EXISTS idx_competitor_mentions_detected ON competitor_mentions(project_id, detected_at DESC);
