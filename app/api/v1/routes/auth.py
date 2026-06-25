@@ -20,6 +20,7 @@ from app.api.v1.deps import (
     get_current_user,
     workspace_summary,
 )
+from app.core.log_events import log_event
 from app.db.supabase_client import get_supabase
 from app.db.tables import (
     create_membership,
@@ -149,6 +150,7 @@ def register(payload: AuthRegisterRequest, supabase: Client = Depends(get_supaba
             logger.error("Failed to clean up Supabase user %s after local provisioning failure", sb_user.id)
         raise
 
+    log_event("auth.register.ok", user_id=user["id"], workspace_id=workspace["id"])
     return AuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -305,6 +307,7 @@ def oauth_complete(
     # Provision workspace
     workspace = _provision_workspace(supabase, user, payload.workspace_name)
 
+    log_event("auth.login.ok", user_id=user["id"], workspace_id=workspace["id"], method="oauth")
     return JSONResponse(
         content=AuthResponse(
             access_token="",
@@ -342,4 +345,5 @@ def logout(
         logger.error("Unexpected error during sign_out for user %s", current_user["id"], exc_info=True)
         raise HTTPException(status_code=502, detail="Remote sign-out failed.") from exc
 
+    log_event("auth.logout", user_id=current_user["id"])
     return {"ok": True}

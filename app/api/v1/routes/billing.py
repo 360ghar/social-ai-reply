@@ -10,6 +10,7 @@ from app.api.v1.deps import (
     get_current_workspace,
     subscription_response,
 )
+from app.core.log_events import log_event
 from app.db.supabase_client import get_supabase
 from app.schemas.v1.billing import (
     BillingUpgradeRequest,
@@ -57,7 +58,13 @@ def upgrade_billing(
     if payload.plan_code not in valid_codes:
         raise HTTPException(status_code=400, detail=f"Invalid plan code '{payload.plan_code}'. Valid options: {sorted(valid_codes)}")
     subscription = get_or_create_subscription(supabase, workspace)
+    previous_plan = subscription.get("plan_code")
     update_subscription(supabase, subscription["id"], {"plan_code": payload.plan_code})
+    log_event(
+        "subscription.upgraded",
+        plan_code=payload.plan_code,
+        previous_plan=previous_plan,
+    )
     return subscription_response(supabase, workspace)
 
 
@@ -70,6 +77,7 @@ def redeem_code(
 ) -> RedemptionResponse:
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     _ = payload.code
+    log_event("redemption.redeemed", plan_code="internal")
     return RedemptionResponse(
         success=True,
         plan_code="internal",

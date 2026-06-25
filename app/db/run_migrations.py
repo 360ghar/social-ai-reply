@@ -35,6 +35,60 @@ def _collect_migrations() -> list[Path]:
     return files
 
 
+def _split_statements(sql: str) -> list[str]:
+    """Split SQL text into individual statements, respecting dollar-quoting.
+
+    Naive ``split(";")`` breaks PL/pgSQL blocks like ``DO $$ BEGIN … END $$``
+    or ``CREATE FUNCTION ... LANGUAGE plpgsql AS $body$ ... $body$``
+    because the semicolons *inside* the block get treated as statement
+    delimiters. This splitter tracks dollar-quote tags (``$$``, ``$body$``,
+    ``$function$``, etc.) so semicolons inside dollar-quoted regions are
+    preserved.
+    """
+    import re
+
+    statements: list[str] = []
+    current: list[str] = []
+    dollar_tag: str | None = None  # None = not inside a dollar-quoted block
+    i = 0
+    while i < len(sql):
+        if sql[i] == "$":
+            # Try to match a dollar-quote tag: $<tag>$ where tag is [a-zA-Z_]* (may be empty for $$)
+            m = re.match(r"\$([a-zA-Z_]*)\$", sql[i:])
+            if m:
+                tag = m.group(0)  # e.g. "$$", "$body$", "$function$"
+                if dollar_tag is None:
+                    # Opening tag
+                    dollar_tag = tag
+                    current.append(tag)
+                    i += len(tag)
+                    continue
+                elif tag == dollar_tag:
+                    # Closing tag — must match the opening tag
+                    current.append(tag)
+                    dollar_tag = None
+                    i += len(tag)
+                    continue
+            # Not a dollar-quote tag (or mismatched) — treat as regular char
+            current.append(sql[i])
+            i += 1
+            continue
+        if sql[i] == ";" and dollar_tag is None:
+            stmt = "".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+            i += 1
+            continue
+        current.append(sql[i])
+        i += 1
+    # trailing statement without semicolon
+    stmt = "".join(current).strip()
+    if stmt:
+        statements.append(stmt)
+    return statements
+
+
 def run_migrations() -> list[str]:
     """Execute all pending migration files.
 
@@ -58,8 +112,9 @@ def run_migrations() -> list[str]:
         return []
 
     applied: list[str] = []
-    conn = psycopg2.connect(dsn)
+    conn = None
     try:
+        conn = psycopg2.connect(dsn)
         with conn.cursor() as cur:
             for path in files:
                 name = f"{path.parent.name}/{path.name}"
@@ -67,7 +122,7 @@ def run_migrations() -> list[str]:
                 if not content:
                     continue
 
-                statements = [s.strip() for s in content.split(";") if s.strip()]
+                statements = _split_statements(content)
                 try:
                     for stmt in statements:
                         if stmt.upper().startswith("NOTIFY"):
@@ -79,8 +134,11 @@ def run_migrations() -> list[str]:
                 except Exception:
                     conn.rollback()
                     logger.exception("Migration FAILED: %s — continuing", name)
+    except Exception:
+        logger.exception("Migration runner could not connect to database (DATABASE_URL is set)")
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
     return applied
 

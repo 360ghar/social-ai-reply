@@ -71,6 +71,8 @@ from app.db.tables.content import (
 # Discovery
 from app.db.tables.discovery import (
     bulk_create_opportunities,
+    count_active_personas_for_project,
+    count_monitored_subreddits_for_project,
     count_opportunities_for_project,
     create_discovery_keyword,
     create_monitored_subreddit,
@@ -358,6 +360,8 @@ __all__ = [
     "update_opportunity",
     "delete_opportunity",
     "bulk_create_opportunities",
+    "count_active_personas_for_project",
+    "count_monitored_subreddits_for_project",
     "count_opportunities_for_project",
     "list_personas_for_project",
     "list_discovery_keywords_for_project",
