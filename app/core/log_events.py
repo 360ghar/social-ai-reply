@@ -55,15 +55,21 @@ def event_logger(name: str) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)
 
 
+_VALID_LEVELS = frozenset({"debug", "info", "warning", "error", "critical"})
+
+
 def log_event(event: str, level: int | str = "info", **fields: Any) -> None:
     """Emit a single structured event.
 
     ``level`` may be a stdlib level int or a level name string ("info",
-    "warning", "error", "debug"). The event string becomes the record's
-    message key; all ``fields`` are attached as top-level JSON keys.
+    "warning", "error", "debug", "critical"). The event string becomes the
+    record's message key; all ``fields`` are attached as top-level JSON keys.
     """
     log: structlog.stdlib.BoundLogger = structlog.get_logger()
     level_name = level if isinstance(level, str) else logging.getLevelName(level).lower()
+    if level_name not in _VALID_LEVELS:
+        log.warning("log_event.invalid_level", requested_level=level_name, event=event)
+        level_name = "info"
     getattr(log, level_name)(event, **fields)
 
 
@@ -85,7 +91,7 @@ def timed(name: str, **fields: Any) -> Iterator[structlog.stdlib.BoundLogger]:
     ``user_id``/``workspace_id``/``project_id``/``request_id``/``route``.
     """
     log: structlog.stdlib.BoundLogger = structlog.get_logger().bind(event_prefix=name, **fields)
-    log.info(name + ".start", **fields)
+    log.info(name + ".start")
     start = time.perf_counter()
     try:
         yield log

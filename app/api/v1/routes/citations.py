@@ -110,6 +110,7 @@ def source_gaps(
                 "domain": g["domain"],
                 "citation_count": g.get("citation_count", 0),
                 "gap_type": g.get("gap_type", ""),
+                "discovered_at": g.get("discovered_at") or g.get("created_at"),
                 "created_at": g.get("created_at"),
             }
             for g in gaps

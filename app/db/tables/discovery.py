@@ -424,6 +424,7 @@ def _prepare_scan_run_payload(db: Client, payload: dict[str, Any]) -> dict[str, 
         if key == "completed_at" and "completed_at" not in _KNOWN_SCAN_RUN_COLUMNS and "finished_at" in _KNOWN_SCAN_RUN_COLUMNS:
             target_key = "finished_at"
         if target_key not in _KNOWN_SCAN_RUN_COLUMNS:
+            logger.warning("scan_run payload key %r not in _KNOWN_SCAN_RUN_COLUMNS — dropped (update the set if this is a new column)", key)
             continue
         prepared[target_key] = value
     return prepared
@@ -506,11 +507,13 @@ def _prepare_opportunity_payload(db: Client, payload: dict[str, Any]) -> dict[st
     if "reddit_post_id" not in prepared or prepared["reddit_post_id"] is None:
         prepared.setdefault("reddit_post_id", None)
 
-    return {
-        key: value
-        for key, value in prepared.items()
-        if key in _KNOWN_OPPORTUNITY_COLUMNS
-    }
+    result: dict[str, Any] = {}
+    for key, value in prepared.items():
+        if key in _KNOWN_OPPORTUNITY_COLUMNS:
+            result[key] = value
+        else:
+            logger.warning("opportunity payload key %r not in _KNOWN_OPPORTUNITY_COLUMNS — dropped (update the set if this is a new column)", key)
+    return result
 
 
 def _normalize_opportunity_record(record: dict[str, Any]) -> dict[str, Any]:

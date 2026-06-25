@@ -86,7 +86,7 @@ def start_auto_pipeline_v2(
     """Start the full multi-agent pipeline from just a website URL."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
-    from app.db.tables.company import get_company_by_workspace
+    from app.db.tables.company import get_company_by_workspace, update_company
 
     existing_company = get_company_by_workspace(supabase, workspace["id"])
 
@@ -104,6 +104,9 @@ def start_auto_pipeline_v2(
     if existing_company:
         company_id = existing_company["id"]
         company = existing_company
+        # Persist new URL if user provided one that differs from the stored one.
+        if payload.website_url and payload.website_url != existing_company.get("website_url"):
+            update_company(supabase, company_id, {"website_url": website_url})
     else:
         name = payload.name or website_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0].split(".")[0]
         name = name.replace("-", " ").replace("_", " ").title() or "My Company"

@@ -31,8 +31,9 @@ router = APIRouter(prefix="/v1", tags=["telemetry"])
 # ── Sanitization constants ───────────────────────────────────────
 
 # Keys whose values are dropped entirely (never logged).
-# Word-boundary anchors prevent false positives on keys like session_id, auth_method.
-_SECRET_KEY_RE = re.compile(r"(?i)\b(?:password|token|secret|authorization|api_key|apikey|auth|cookie|session)\b")
+# Optional [_-]? after each keyword lets \b fire at underscore boundaries,
+# catching compound keys like access_token, refresh_token, id_token.
+_SECRET_KEY_RE = re.compile(r"(?i)\b(?:password|token|secret|authorization|api[_-]?key|auth|cookie|session)[_-]?")
 _MAX_PROP_KEYS = 20
 _MAX_PROP_VALUE_LEN = 500
 _MAX_MESSAGE_LEN = 2000

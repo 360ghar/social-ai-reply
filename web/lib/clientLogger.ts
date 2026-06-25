@@ -43,8 +43,9 @@ const MAX_URL_LEN = 500;
 const SESSION_STORAGE_KEY = "rf_client_log_session_id";
 
 // Secret-shaped KEYS are stripped before send (server re-sanitizes too).
-// Word-boundary anchors prevent false positives on values like "authenticated".
-const SECRET_KEY_RE = /\b(?:password|token|secret|authorization|api[_-]?key|auth|cookie|session)\b/i;
+// Optional [_-]? after each keyword lets \b fire at underscore boundaries,
+// catching compound keys like access_token, refresh_token, id_token.
+const SECRET_KEY_RE = /\b(?:password|token|secret|authorization|api[_-]?key|auth|cookie|session)[_-]?/i;
 
 type ClientLogLevel = "debug" | "info" | "warning" | "error";
 

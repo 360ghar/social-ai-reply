@@ -132,6 +132,7 @@ def get_current_user(
 
 
 def get_current_user_optional(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     supabase: Client = Depends(get_supabase),
 ) -> dict | None:
@@ -152,6 +153,8 @@ def get_current_user_optional(
         return None
     if _is_token_revoked(user, payload, credentials.credentials):
         return None
+    log_context.bind_user_context(user_id=user["id"])
+    request.state.user_id = user["id"]
     return user
 
 

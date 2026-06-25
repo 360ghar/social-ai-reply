@@ -16,7 +16,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["scans"])
 
 
-def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_run_id: str) -> None:
+def _run_scan_background(
+    db: Client, project: dict, payload: ScanRequest, scan_run_id: str, _log_ctx: dict | None = None,
+) -> None:
+    import structlog.contextvars as _cv
+
+    if _log_ctx:
+        _cv.bind_contextvars(**{k: v for k, v in _log_ctx.items() if v is not None})
     from app.db.tables.discovery import get_scan_run_by_id, update_scan_run
 
     # Determine which platforms to scan
@@ -132,7 +138,14 @@ def create_scan(
         time_filter=payload.time_filter,
         max_posts=payload.max_posts_per_subreddit,
     )
-    background_tasks.add_task(_run_scan_background, supabase, proj, payload, run["id"])
+    # Snapshot request context before the middleware's finally block clears it.
+    import structlog.contextvars as _cv
+
+    _bg_ctx = _cv.get_contextvars()
+    _bg_ctx.setdefault("project_id", proj["id"])
+    _bg_ctx.setdefault("user_id", current_user["id"])
+    _bg_ctx.setdefault("workspace_id", workspace["id"])
+    background_tasks.add_task(_run_scan_background, supabase, proj, payload, run["id"], _bg_ctx)
     return ScanRunResponse.model_validate(run)
 
 

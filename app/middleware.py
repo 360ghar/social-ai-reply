@@ -207,11 +207,15 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
         start = time.time()
         try:
             response = await call_next(request)
-            # Identity fields (user_id/workspace_id/project_id) are bound onto
-            # request.state by deps (get_current_user / get_current_workspace /
-            # get_active_project). They are NOT read from contextvars here
-            # because values bound inside the handler do not propagate back
-            # through BaseHTTPMiddleware's call_next.
+            # Identity fields (user_id/workspace_id) are bound onto request.state
+            # by deps (get_current_user / get_current_workspace). project_id is
+            # bound onto contextvars by get_active_project; contextvars propagate
+            # through BaseHTTPMiddleware's call_next since both run in the same
+            # asyncio task. Read project_id from contextvars with request.state
+            # as a fallback.
+            import structlog.contextvars as _ctxvars
+
+            _cv = _ctxvars.get_contextvars()
             log.info(
                 "request.complete",
                 method=request.method,
@@ -220,7 +224,7 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
                 latency_ms=round((time.time() - start) * 1000, 2),
                 user_id=getattr(request.state, "user_id", None),
                 workspace_id=getattr(request.state, "workspace_id", None),
-                project_id=getattr(request.state, "project_id", None),
+                project_id=_cv.get("project_id") or getattr(request.state, "project_id", None),
             )
             response.headers["X-Request-ID"] = request_id
             return response
