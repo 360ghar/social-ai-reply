@@ -64,6 +64,7 @@ class OpenAIProvider:
                     messages=messages,
                     temperature=temperature,
                     response_format={"type": "json_object"},
+                    max_tokens=4000,
                 ),
                 provider_name="OpenAI",
             )
