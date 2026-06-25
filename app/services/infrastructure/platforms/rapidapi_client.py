@@ -41,11 +41,11 @@ class RapidAPIClient:
     RETRY_DELAY = 2.0         # base delay for retries
     REQUESTS_PER_MINUTE = 10  # safety throttle per host
 
-    def __init__(self, api_host: str, *, timeout: float = 12.0):
+    def __init__(self, api_host: str, *, api_key: str | None = None, timeout: float = 12.0):
         self.api_host = api_host
         self.timeout = timeout
         settings = get_settings()
-        self._api_key = settings.rapidapi_key
+        self._api_key = api_key or settings.rapidapi_key
         if not self._api_key:
             raise ValueError(
                 "RAPIDAPI_KEY is not set. Get a free key at https://rapidapi.com "

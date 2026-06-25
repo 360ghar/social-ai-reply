@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from app.schemas.v1.posts import UnifiedComment, UnifiedPost
+from app.services.infrastructure.platforms.models import UnifiedComment, UnifiedPost
 from app.services.infrastructure.llm.agents import _build_model
 from app.services.infrastructure.platforms.base import PlatformAdapter
 from app.services.infrastructure.platforms.rapidapi_client import RapidAPIClient, RapidAPIError
@@ -81,8 +81,8 @@ class DynamicAdapter(PlatformAdapter):
         self.platform = config["platform"]
         self.api_host = config["api_host"]
         self.api_key = config.get("api_key")
-        self._available = bool(self.api_key)
-        self.client = RapidAPIClient(self.api_key, self.api_host) if self.api_key else None
+        self._available = True # Always available, will fallback to global RAPIDAPI_KEY if needed
+        self.client = RapidAPIClient(self.api_host, api_key=self.api_key)
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         if not self._available or not self.client:
