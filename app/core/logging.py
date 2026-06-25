@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from app.core.config import Settings
 
 # Re-exported so legacy importers (e.g. app.services.product) keep working.
-__all__ = ["setup_logging", "logger"]
+__all__ = ["logger", "setup_logging"]
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def _resolve_format(log_format: str, environment: str) -> str:
     if fmt not in _VALID_FORMATS:
         fmt = DEFAULT_LOG_FORMAT
     if fmt == "auto":
-        return "console" if environment != "production" else "json"
+        return "console" if environment.strip().lower() != "production" else "json"
     return fmt
 
 

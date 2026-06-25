@@ -23,6 +23,7 @@ from app.db.tables.visibility import (
     create_prompt_run,
     list_prompt_runs_for_prompt_set,
     list_prompt_sets_for_project,
+    update_prompt_run,
 )
 from app.db.tables.visibility import (
     create_prompt_set as create_prompt_set_db,
@@ -128,8 +129,8 @@ def run_prompt_set(
     detector = MentionDetector()
     extractor = CitationExtractor()
 
-    target_models = ps.get("target_models", ["chatgpt"])
-    prompts_list = ps.get("prompts", [])
+    target_models = ps.get("target_models") or ["chatgpt"]
+    prompts_list = ps.get("prompts") or []
     results = []
     with timed("visibility.run", prompt_set_id=ps["id"],
                model_count=len(target_models), prompt_count=len(prompts_list)) as tlog:
@@ -148,7 +149,6 @@ def run_prompt_set(
                 response_text = runner.run_prompt(prompt_text, model)
                 if response_text:
                     # Update prompt run as complete
-                    from app.db.tables.visibility import update_prompt_run
                     update_prompt_run(
                         supabase,
                         pr["id"],

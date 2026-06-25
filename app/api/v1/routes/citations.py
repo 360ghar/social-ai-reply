@@ -1,7 +1,7 @@
 """Citation, source domain, and source gap endpoints."""
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
@@ -30,7 +30,7 @@ def list_citations(
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
-        raise HTTPException(404, "No active project found.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No active project found.")
 
     # Get all prompt sets for project
     prompt_sets = list_prompt_sets_for_project(supabase, proj["id"])
@@ -81,7 +81,7 @@ def source_domains(
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
-        raise HTTPException(404, "No active project found.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No active project found.")
 
     results = list_source_domains_for_project(supabase, proj["id"], limit=limit)
 
@@ -99,7 +99,7 @@ def source_gaps(
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     proj = get_active_project(supabase, workspace["id"], project_id)
     if not proj:
-        raise HTTPException(404, "No active project found.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No active project found.")
 
     gaps = list_source_gaps_for_project(supabase, proj["id"])
     return {

@@ -388,7 +388,13 @@ def get_visibility_summary(db: Client, project_id: int) -> dict:
         .execute()
     )
     all_ai = ai_result.data or []
-    ai_ids = [r["id"] for r in all_ai]
+
+    complete_runs = [r for r in all_runs if r.get("status") == "complete"]
+    total_runs = len(complete_runs)
+    complete_run_ids = {r["id"] for r in complete_runs}
+
+    # Only count citations from complete runs to avoid overstating totals.
+    ai_ids = [r["id"] for r in all_ai if r.get("prompt_run_id") in complete_run_ids]
 
     total_citations = 0
     if ai_ids:
@@ -400,9 +406,6 @@ def get_visibility_summary(db: Client, project_id: int) -> dict:
         )
         total_citations = int(cit_result.count or 0)
 
-    complete_runs = [r for r in all_runs if r.get("status") == "complete"]
-    total_runs = len(complete_runs)
-    complete_run_ids = {r["id"] for r in complete_runs}
     total_mentioned = sum(
         1 for r in all_ai if r.get("prompt_run_id") in complete_run_ids and r.get("brand_mentioned")
     )

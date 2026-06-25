@@ -165,7 +165,7 @@ export default function CompanyPage() {
   async function handleAutoPipeline(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     if (!token) return;
-    const url = autoUrl.trim() || company?.website_url;
+    const url = company?.website_url?.trim() || autoUrl.trim();
     if (!url) {
       error("Auto Pipeline", "Enter a website URL or save one in the company profile first.");
       return;
@@ -319,7 +319,7 @@ export default function CompanyPage() {
           <p className="text-xs text-muted-foreground mt-2">
             {company.website_url
               ? "Click the button above to run the full pipeline with your saved website URL."
-              : "Paste your website URL and we&apos;ll automatically analyze it, generate keywords, and run all 9 agents."}
+              : "Paste your website URL and we’ll automatically analyze it, generate keywords, and run all 9 agents."}
           </p>
         </CardContent>
       </Card>

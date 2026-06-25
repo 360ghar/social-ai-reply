@@ -65,7 +65,8 @@ def _run_scan_background(
             # Emit completion counts from the final scan_run row. posts_scanned /
             # opportunities_found are populated by run_platform_scan via
             # update_scan_run; if it crashed before writing, they default to 0.
-            final = current or get_scan_run_by_id(db, scan_run_id)
+            # Always re-fetch after the status update to get the latest snapshot.
+            final = get_scan_run_by_id(db, scan_run_id)
             if final:
                 log_event(
                     "scan.complete",

@@ -1,12 +1,14 @@
 """Email service for transactional emails."""
-import logging
+import contextlib
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import structlog
+
 from app.core.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _mask_email(email: str) -> str:
@@ -54,12 +56,14 @@ class EmailService:
             return False
         try:
             server.sendmail(sender, [to_email], msg.as_string())
-            server.quit()
             logger.info("email_sent", to=_mask_email(to_email), subject=subject)
             return True
         except Exception as e:
             logger.error("email_send_failed", to=_mask_email(to_email), error=str(e))
             return False
+        finally:
+            with contextlib.suppress(Exception):
+                server.quit()
 
     @staticmethod
     def send_password_reset(to_email: str, reset_token: str, user_name: str = ""):

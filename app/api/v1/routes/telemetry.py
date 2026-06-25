@@ -132,13 +132,13 @@ def record_client_event(
     # be large); it is appended to ``client_message`` only at warning/error
     # level so it is searchable alongside the error description.
     emit: dict[str, Any] = {
+        **sanitized,
         "client_event": payload.event,
         "level": payload.level,
         "client_message": message,
         "client_url": client_url,
         "session_id": payload.session_id,
         "user_id": current_user["id"] if current_user else None,
-        **sanitized,
     }
 
     if payload.level in ("warning", "error") and payload.stack:

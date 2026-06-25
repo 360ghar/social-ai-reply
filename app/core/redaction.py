@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-__all__ = ["redact", "_redact"]
+__all__ = ["_redact", "redact"]
 
 _REDACTED = "[REDACTED]"
 
