@@ -1,0 +1,4 @@
+# Read by Nixpacks' Python provider at plan time to set NIXPACKS_UV_VERSION.
+# Keep in sync with the uv version pinned in nixpacks.toml's install phase
+# and the local uv used to regenerate uv.lock.
+uv 0.9.17
