@@ -33,3 +33,25 @@ class CustomScraperResponse(BaseModel):
     updated_at: datetime
     
     # We do NOT return the api_key for security reasons, unless explicitly needed.
+
+
+class ScraperTestRequest(BaseModel):
+    """Payload for testing a scraper configuration."""
+    api_host: str = Field(min_length=1)
+    api_key: str | None = Field(default=None)
+    search_endpoint: str = Field(min_length=1)
+    search_param_name: str = Field(min_length=1)
+    items_json_path: str = Field(default="")
+    test_query: str = Field(default="test", max_length=100)
+
+
+class ScraperTestResponse(BaseModel):
+    """Response from testing a scraper configuration."""
+    success: bool
+    status_code: int = 0
+    error: str | None = None
+    sample_keys: list[str] = Field(default_factory=list, description="Top-level keys in the response")
+    suggested_json_path: str | None = Field(default=None, description="Auto-detected path to the items array")
+    items_found: int = 0
+    warnings: list[str] = Field(default_factory=list)
+

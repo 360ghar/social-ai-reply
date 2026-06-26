@@ -43,18 +43,33 @@ def _get_adapter(platform: str, *, workspace_id: int | None = None, db: Any = No
     if normalized == "x":
         normalized = "twitter"
 
-    # Check for a custom scraper configuration (DB-driven DynamicAdapter)
+    # Check for a custom scraper configuration (DB-driven adapter)
     if workspace_id is not None and db is not None:
         try:
             from app.db.tables.custom_scrapers import get_custom_scraper_by_platform
             custom = get_custom_scraper_by_platform(db, workspace_id, normalized)
             if custom:
-                from app.services.infrastructure.platforms.dynamic_adapter import DynamicAdapter
-                logger.info(
-                    "Using custom scraper for %s (host=%s, endpoint=%s)",
-                    normalized, custom.get("api_host"), custom.get("search_endpoint"),
-                )
-                return DynamicAdapter(custom)
+                api_host = custom.get("api_host", "")
+                # Use platform-aware adapters for known platforms/APIs
+                if normalized == "reddit" and "reddit3" in api_host:
+                    from app.services.infrastructure.platforms.reddit3_adapter import Reddit3Adapter
+                    logger.info(
+                        "Using Reddit3 smart adapter (host=%s)", api_host,
+                    )
+                    return Reddit3Adapter(custom)
+                elif normalized == "instagram":
+                    from app.services.infrastructure.platforms.instagram_enhanced import InstagramEnhancedAdapter
+                    logger.info(
+                        "Using Instagram enhanced adapter (host=%s)", api_host,
+                    )
+                    return InstagramEnhancedAdapter(custom)
+                else:
+                    from app.services.infrastructure.platforms.dynamic_adapter import DynamicAdapter
+                    logger.info(
+                        "Using dynamic scraper for %s (host=%s, endpoint=%s)",
+                        normalized, api_host, custom.get("search_endpoint"),
+                    )
+                    return DynamicAdapter(custom)
         except Exception as exc:
             logger.warning("Failed to load custom scraper for %s: %s", normalized, exc)
 

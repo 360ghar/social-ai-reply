@@ -105,13 +105,16 @@ async def _async_platform_scan(
     db: Any = None,
 ) -> list[UnifiedPost]:
     """Run the PlatformRouter search asynchronously."""
-    # If Reddit is included and we have subreddits, configure the adapter
-    # to browse them instead of just fetching popular posts.
+    # If Reddit is included and we have subreddits, configure whichever
+    # adapter will actually be used (built-in, Reddit3, or Dynamic).
     if subreddits and "reddit" in platforms:
         from app.services.infrastructure.platforms.router import _get_adapter
 
-        reddit_adapter = _get_adapter("reddit")
-        reddit_adapter.set_subreddits(subreddits)
+        reddit_adapter = _get_adapter("reddit", workspace_id=workspace_id, db=db)
+        if hasattr(reddit_adapter, "set_subreddits"):
+            reddit_adapter.set_subreddits(subreddits)
+            logger.info("Configured Reddit adapter (%s) with %d subreddits",
+                        type(reddit_adapter).__name__, len(subreddits))
 
     router = PlatformRouter(platforms=platforms, workspace_id=workspace_id, db=db)
     return await router.search_all(

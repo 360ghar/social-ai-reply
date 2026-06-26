@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState, useRef } from "react";
-import { Loader2, Globe, MessageSquare, Send, Save, Trash2, Plus } from "lucide-react";
+import { Loader2, Globe, MessageSquare, Send, Save, Trash2, Plus, Zap, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
@@ -18,7 +18,11 @@ import {
   createOrUpdateScraper,
   deleteScraper,
   chatWithAssistant,
+  testScraper,
+  getPresets,
   type CustomScraper,
+  type ScraperTestResponse,
+  type ScraperPreset,
 } from "@/lib/api/scrapers";
 
 interface ChatMessage {
@@ -58,9 +62,20 @@ export default function ScrapersPage() {
   const [isChatting, setIsChatting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Test connection state
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ScraperTestResponse | null>(null);
+
+  // Presets state
+  const [presets, setPresets] = useState<Record<string, ScraperPreset[]>>({});
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
+
   useEffect(() => {
     if (!token) return;
     loadScrapers();
+    if (!presetsLoaded) {
+      getPresets(token).then(setPresets).catch(() => {}).finally(() => setPresetsLoaded(true));
+    }
   }, [token]);
 
   useEffect(() => {
@@ -98,6 +113,49 @@ export default function ScrapersPage() {
   function handleNewScraper() {
     setActiveScraper(null);
     setFormData(DEFAULT_FORM);
+    setTestResult(null);
+  }
+
+  function handleApplyPreset(preset: ScraperPreset) {
+    setFormData(prev => ({
+      ...prev,
+      api_host: preset.api_host,
+      search_endpoint: preset.search_endpoint,
+      search_param_name: preset.search_param_name,
+      items_json_path: preset.items_json_path,
+      comments_endpoint: preset.comments_endpoint || "",
+      comments_param_name: preset.comments_param_name || "",
+    }));
+    setTestResult(null);
+    success("Preset applied", `Applied ${preset.name} configuration. Don't forget to add your API key!`);
+  }
+
+  async function handleTestConnection() {
+    if (!token || !formData.api_host || !formData.search_endpoint) return;
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const result = await testScraper(token, {
+        api_host: formData.api_host,
+        api_key: formData.api_key || null,
+        search_endpoint: formData.search_endpoint,
+        search_param_name: formData.search_param_name,
+        items_json_path: formData.items_json_path,
+      });
+      setTestResult(result);
+      if (result.success) {
+        success("Connection OK", `API responded with ${result.items_found} items.`);
+        // Auto-suggest JSON path if user's is wrong
+        if (result.suggested_json_path && result.warnings.length > 0) {
+          setFormData(prev => ({ ...prev, items_json_path: result.suggested_json_path! }));
+        }
+      } else {
+        error("Connection failed", result.error || "API did not respond.");
+      }
+    } catch (err) {
+      error("Test failed", err instanceof Error ? err.message : "Unknown error");
+    }
+    setIsTesting(false);
   }
 
   async function handleSave(e: FormEvent) {
@@ -206,8 +264,27 @@ export default function ScrapersPage() {
 
           <Card className="flex-1">
             <CardHeader>
-              <CardTitle>{activeScraper ? `Edit ${activeScraper.platform} Scraper` : "New Scraper Configuration"}</CardTitle>
-              <CardDescription>Define the API endpoints and JSON paths for the RapidAPI host.</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>{activeScraper ? `Edit ${activeScraper.platform} Scraper` : "New Scraper Configuration"}</CardTitle>
+                  <CardDescription>Define the API endpoints and JSON paths for the RapidAPI host.</CardDescription>
+                </div>
+                {presets[formData.platform]?.length > 0 && (
+                  <Select onValueChange={(v) => {
+                    const preset = presets[formData.platform]?.find(p => p.name === v);
+                    if (preset) handleApplyPreset(preset);
+                  }}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Use a preset..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {presets[formData.platform]?.map(p => (
+                        <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               <form id="scraper-form" onSubmit={handleSave} className="space-y-4">
@@ -311,13 +388,47 @@ export default function ScrapersPage() {
                 </div>
               </form>
             </CardContent>
+            {/* Test result + warnings */}
+            {testResult && (
+              <div className={`mx-4 mb-2 p-3 rounded-md text-sm border ${testResult.success ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                <div className="flex items-center gap-2 font-medium mb-1">
+                  {testResult.success
+                    ? <><CheckCircle2 className="w-4 h-4 text-emerald-500" /> Connected — {testResult.items_found} items found</>
+                    : <><XCircle className="w-4 h-4 text-red-500" /> Failed ({testResult.status_code}): {testResult.error?.slice(0, 100)}</>
+                  }
+                </div>
+                {testResult.suggested_json_path && (
+                  <p className="text-xs text-muted-foreground">Suggested JSON path: <code className="bg-muted px-1 rounded">{testResult.suggested_json_path}</code></p>
+                )}
+                {testResult.sample_keys.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Response keys: <code className="bg-muted px-1 rounded">{testResult.sample_keys.join(', ')}</code></p>
+                )}
+                {testResult.warnings.map((w, i) => (
+                  <div key={i} className="flex items-start gap-1.5 mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <CardFooter className="flex justify-between border-t p-4 bg-muted/20">
-              {activeScraper ? (
-                <Button variant="destructive" size="sm" onClick={() => handleDelete(activeScraper.id)}>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete
+              <div className="flex gap-2">
+                {activeScraper && (
+                  <Button variant="destructive" size="sm" onClick={() => handleDelete(activeScraper.id)}>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete
+                  </Button>
+                )}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleTestConnection} 
+                  disabled={isTesting || !formData.api_host || !formData.search_endpoint}
+                >
+                  {isTesting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+                  Test Connection
                 </Button>
-              ) : <div />}
+              </div>
               <Button type="submit" form="scraper-form" disabled={isSaving}>
                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                 Save Configuration

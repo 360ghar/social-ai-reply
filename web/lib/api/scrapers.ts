@@ -69,3 +69,57 @@ export async function chatWithAssistant(
     token
   );
 }
+
+export interface ScraperTestRequest {
+  api_host: string;
+  api_key?: string | null;
+  search_endpoint: string;
+  search_param_name: string;
+  items_json_path: string;
+  test_query?: string;
+}
+
+export interface ScraperTestResponse {
+  success: boolean;
+  status_code: number;
+  error: string | null;
+  sample_keys: string[];
+  suggested_json_path: string | null;
+  items_found: number;
+  warnings: string[];
+}
+
+export interface ScraperPreset {
+  name: string;
+  api_host: string;
+  search_endpoint: string;
+  search_param_name: string;
+  items_json_path: string;
+  comments_endpoint?: string;
+  comments_param_name?: string;
+}
+
+export async function testScraper(
+  token: string,
+  payload: ScraperTestRequest
+): Promise<ScraperTestResponse> {
+  return apiRequest<ScraperTestResponse>(
+    "/v1/scrapers/test",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export async function getPresets(
+  token: string
+): Promise<Record<string, ScraperPreset[]>> {
+  return apiRequest<Record<string, ScraperPreset[]>>(
+    "/v1/scrapers/presets",
+    {},
+    token
+  );
+}
+
