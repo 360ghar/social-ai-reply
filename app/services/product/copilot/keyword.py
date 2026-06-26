@@ -151,8 +151,8 @@ def _llm_keywords_structured(
         persona_context += f"  - {p.get('name', 'Unknown')}: {p.get('role', '')} — pain points: {pain_points}\n"
 
     llm = LLMClient()
-    short_count = max(count * 2 // 5, 5)  # ~40% short
-    long_count = count - short_count        # ~60% long
+    short_count = max(count * 6 // 10, 5)  # ~60% short (2-3 words)
+    long_count = count - short_count        # ~40% long (conversational)
     system_prompt = (
         "You are a keyword strategist for social media opportunity discovery on Reddit and Twitter.\n"
         "Generate keywords that REAL HUMANS actually type.\n\n"

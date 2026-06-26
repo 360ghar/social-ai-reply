@@ -35,6 +35,7 @@ from app.api.v1.routes.projects import router as projects_router
 from app.api.v1.routes.prompts import router as prompts_router
 from app.api.v1.routes.reddit_posting import router as reddit_posting_router
 from app.api.v1.routes.scans import router as scans_router
+from app.api.v1.routes.scrapers import router as scrapers_router
 from app.api.v1.routes.secrets import router as secrets_router
 from app.api.v1.routes.seo import router as seo_router
 from app.api.v1.routes.sources import router as sources_router
@@ -79,6 +80,7 @@ router.include_router(projects_router)
 router.include_router(prompts_router)
 router.include_router(reddit_posting_router)
 router.include_router(scans_router)
+router.include_router(scrapers_router)
 router.include_router(secrets_router)
 router.include_router(seo_router)
 router.include_router(sources_router)

@@ -41,11 +41,11 @@ class RapidAPIClient:
     RETRY_DELAY = 2.0         # base delay for retries
     REQUESTS_PER_MINUTE = 10  # safety throttle per host
 
-    def __init__(self, api_host: str, *, timeout: float = 12.0):
+    def __init__(self, api_host: str, *, api_key: str | None = None, timeout: float = 12.0):
         self.api_host = api_host
         self.timeout = timeout
         settings = get_settings()
-        self._api_key = settings.rapidapi_key
+        self._api_key = api_key or settings.rapidapi_key
         if not self._api_key:
             raise ValueError(
                 "RAPIDAPI_KEY is not set. Get a free key at https://rapidapi.com "
@@ -58,10 +58,17 @@ class RapidAPIClient:
             "x-rapidapi-host": self.api_host,
         }
 
+    @property
+    def _cache_key(self) -> str:
+        """Unique key for rate limits and circuit breakers (host + key)."""
+        # Obfuscate key in memory, just need it to be unique per credential
+        key_suffix = f"{self._api_key[-4:]}" if self._api_key else "none"
+        return f"{self.api_host}:{key_suffix}"
+
     async def _throttle(self) -> None:
         """Simple rate limiter: max N requests per minute per host."""
         now = time.monotonic()
-        key = self.api_host
+        key = self._cache_key
         if key not in _request_timestamps:
             _request_timestamps[key] = []
 
@@ -77,14 +84,15 @@ class RapidAPIClient:
         _request_timestamps[key].append(now)
 
     def _is_circuit_broken(self) -> bool:
-        """Check if this host's circuit breaker is active."""
-        broken_at = _circuit_broken_hosts.get(self.api_host)
+        """Check if this host+key circuit breaker is active."""
+        key = self._cache_key
+        broken_at = _circuit_broken_hosts.get(key)
         if broken_at is None:
             return False
         if time.monotonic() - broken_at > _CIRCUIT_BREAK_DURATION:
             # Circuit breaker expired — allow retrying
-            del _circuit_broken_hosts[self.api_host]
-            logger.info("Circuit breaker reset for %s — retrying", self.api_host)
+            del _circuit_broken_hosts[key]
+            logger.info("Circuit breaker reset for %s — retrying", key)
             return False
         return True
 
@@ -132,10 +140,11 @@ class RapidAPIClient:
                         await asyncio.sleep(wait)
                         continue
                     # Exhausted retries — trip the circuit breaker
-                    _circuit_broken_hosts[self.api_host] = time.monotonic()
+                    key = self._cache_key
+                    _circuit_broken_hosts[key] = time.monotonic()
                     logger.warning(
                         "Circuit breaker tripped for %s — skipping all requests for %ds",
-                        self.api_host, _CIRCUIT_BREAK_DURATION,
+                        key, _CIRCUIT_BREAK_DURATION,
                     )
                     raise RapidAPIError(429, "Rate limited — circuit breaker tripped", self.api_host)
 
