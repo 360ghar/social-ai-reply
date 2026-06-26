@@ -152,7 +152,7 @@ def run_platform_scan(
         platforms = ["twitter"]
 
     brand = get_brand_profile_by_project(db, project["id"])
-    search_keywords = get_project_search_keywords(db, project, limit=30)
+    search_keywords = get_project_search_keywords(db, project, limit=60)
 
     if not search_keywords:
         return {"error": "No active keywords found", "opportunities_found": 0}
