@@ -129,8 +129,8 @@ def run_prompt_set(
     detector = MentionDetector()
     extractor = CitationExtractor()
 
-    target_models = ps.get("target_models") or ["chatgpt"]
-    prompts_list = ps.get("prompts") or []
+    target_models = ps.get("target_models") if ps.get("target_models") is not None else ["chatgpt"]
+    prompts_list = ps.get("prompts") if ps.get("prompts") is not None else []
     results = []
     with timed("visibility.run", prompt_set_id=ps["id"],
                model_count=len(target_models), prompt_count=len(prompts_list)) as tlog:

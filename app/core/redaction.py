@@ -101,12 +101,40 @@ def redact(
         else:
             return {}
 
+    return _redact_dict(event_dict)
+
+
+def _redact_dict(d: dict[str, Any], _depth: int = 0) -> dict[str, Any]:
+    """Redact secrets from a dict, recursing into nested dicts/lists (max 5 levels)."""
+    if _depth > 5:
+        return d
     out: dict[str, Any] = {}
-    for key, val in event_dict.items():
+    for key, val in d.items():
         if isinstance(val, str):
             out[key] = _redact_string(val)
+        elif isinstance(val, dict):
+            out[key] = _redact_dict(val, _depth + 1)
+        elif isinstance(val, list):
+            out[key] = _redact_list(val, _depth + 1)
         else:
             out[key] = val
+    return out
+
+
+def _redact_list(lst: list, _depth: int) -> list:
+    """Redact secrets from list elements, recursing into nested dicts/lists."""
+    if _depth > 5:
+        return lst
+    out: list = []
+    for item in lst:
+        if isinstance(item, str):
+            out.append(_redact_string(item))
+        elif isinstance(item, dict):
+            out.append(_redact_dict(item, _depth + 1))
+        elif isinstance(item, list):
+            out.append(_redact_list(item, _depth + 1))
+        else:
+            out.append(item)
     return out
 
 

@@ -171,6 +171,15 @@ class Settings(BaseSettings):
             raise ValueError(f"log_format must be one of {sorted(allowed)} (got {v!r})")
         return normalized
 
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, v: str) -> str:
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        normalized = v.strip().upper()
+        if normalized not in allowed:
+            raise ValueError(f"log_level must be one of {sorted(allowed)} (got {v!r})")
+        return normalized
+
     @model_validator(mode="after")
     def hydrate_local_supabase_settings(self) -> "Settings":
         self.supabase_url = _normalize_placeholder(self.supabase_url)

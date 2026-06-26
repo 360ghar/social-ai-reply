@@ -43,9 +43,10 @@ const MAX_URL_LEN = 500;
 const SESSION_STORAGE_KEY = "rf_client_log_session_id";
 
 // Secret-shaped KEYS are stripped before send (server re-sanitizes too).
-// Optional [_-]? after each keyword lets \b fire at underscore boundaries,
-// catching compound keys like access_token, refresh_token, id_token.
-const SECRET_KEY_RE = /\b(?:password|token|secret|authorization|api[_-]?key|auth|cookie|session)[_-]?/i;
+// Anchored to full key segments to avoid false positives on words like
+// "authenticated" or "sessionStorage". Matches compound keys like
+// access_token, refresh_token, id_token, apiKey, accessToken.
+const SECRET_KEY_RE = /(?:^|[_-])(?:password|token|secret|authorization|api[_-]?key|auth|cookie|session)(?:[_-]|$)/i;
 
 type ClientLogLevel = "debug" | "info" | "warning" | "error";
 
@@ -69,7 +70,7 @@ function getSessionId(): string | null {
     const id = newSessionId();
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, id);
     return id;
-  } catch {
+  } catch (_error: unknown) {
     return null;
   }
 }
@@ -79,7 +80,7 @@ function newSessionId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
     }
-  } catch {
+  } catch (_error: unknown) {
     // fall through to fallback
   }
   // RFC4122-ish fallback (not cryptographically strong, fine for correlation).
@@ -111,7 +112,7 @@ function sanitizeProps(props: Record<string, unknown> | undefined): Record<strin
     } else {
       try {
         out[key] = String(value).slice(0, 500);
-      } catch {
+      } catch (_error: unknown) {
         continue;
       }
     }
@@ -127,7 +128,7 @@ function errorToStack(error: unknown): string | null {
       return [error.name, error.message, error.stack].filter(Boolean).join("\n") || null;
     }
     return String(error);
-  } catch {
+  } catch (_error: unknown) {
     return null;
   }
 }
@@ -138,7 +139,7 @@ function errorToMessage(error: unknown): string | null {
     if (error instanceof Error) return error.message || error.name || null;
     if (typeof error === "string") return error;
     return String(error);
-  } catch {
+  } catch (_error: unknown) {
     return null;
   }
 }
@@ -159,7 +160,7 @@ function scheduleFlush(): void {
       flushTimer = null;
       void flush();
     }, FLUSH_INTERVAL_MS);
-  } catch {
+  } catch (_error: unknown) {
     // setTimeout can throw in some environments — swallow.
   }
 }
@@ -173,7 +174,7 @@ async function flush(): Promise<void> {
   if (queue.length > 0) scheduleFlush();
   try {
     await sendBatch(batch);
-  } catch {
+  } catch (_error: unknown) {
     // Send failed — events are lost. Never retry-storm. Could re-queue a
     // capped subset, but for client logs dropping is acceptable.
   } finally {
@@ -196,7 +197,7 @@ async function sendBatch(batch: ClientEvent[]): Promise<void> {
           // No credentials/Authorization — works pre-login, no PII.
           credentials: "omit",
         });
-      } catch {
+      } catch (_error: unknown) {
         unsent.push(evt);
       }
     }
@@ -213,14 +214,20 @@ async function sendBatch(batch: ClientEvent[]): Promise<void> {
       try {
         const blob = new Blob([JSON.stringify(evt)], { type: "application/json" });
         navigator.sendBeacon(ENDPOINT, blob);
-      } catch {
+      } catch (_error: unknown) {
         // give up on this event
       }
     }
   }
 }
 
+const MAX_QUEUE_SIZE = FLUSH_BATCH_SIZE * 5;
+
 function enqueue(event: ClientEvent): void {
+  // Drop oldest events if queue is full to prevent unbounded memory growth.
+  if (queue.length >= MAX_QUEUE_SIZE) {
+    queue = queue.slice(queue.length - MAX_QUEUE_SIZE + 1);
+  }
   queue.push(event);
   if (queue.length >= FLUSH_BATCH_SIZE) {
     void flush();
@@ -258,7 +265,7 @@ export function logClientEvent(
       props: sanitizeProps(props),
     };
     enqueue(evt);
-  } catch {
+  } catch (_error: unknown) {
     // never throw
   }
 }
@@ -284,7 +291,7 @@ export function logClientError(
       props: sanitizeProps(props),
     };
     enqueue(evt);
-  } catch {
+  } catch (_error: unknown) {
     // never throw
   }
 }
@@ -318,7 +325,7 @@ function installGlobalHooks(): void {
         };
         enqueue(evt);
       }
-    } catch {
+    } catch (_error: unknown) {
       // never throw
     }
   });
@@ -328,7 +335,7 @@ function installGlobalHooks(): void {
     try {
       const reason = ev.reason;
       logClientError("window.unhandledrejection", reason);
-    } catch {
+    } catch (_error: unknown) {
       // never throw
     }
   });
@@ -359,13 +366,13 @@ function installGlobalHooks(): void {
           props: null,
         };
         enqueue(evt);
-      } catch {
+      } catch (_error: unknown) {
         // ignore
       } finally {
         wrappedActive = false;
       }
     };
-  } catch {
+  } catch (_error: unknown) {
     // ignore
   }
 
@@ -378,13 +385,13 @@ function installGlobalHooks(): void {
           try {
             const blob = new Blob([JSON.stringify(evt)], { type: "application/json" });
             navigator.sendBeacon(ENDPOINT, blob);
-          } catch {
+          } catch (_error: unknown) {
             // give up on this event
           }
         }
         queue = [];
       }
-    } catch {
+    } catch (_error: unknown) {
       // never throw
     }
   });
@@ -395,10 +402,10 @@ function safeStringify(value: unknown): string {
     return typeof value === "object" && value !== null
       ? JSON.stringify(value, safeReplacer)
       : String(value);
-  } catch {
+  } catch (_error: unknown) {
     try {
       return String(value);
-    } catch {
+    } catch (_error2: unknown) {
       return "[unserializable]";
     }
   }
@@ -423,7 +430,7 @@ export function initClientLogger(): void {
   initialized = true;
   try {
     installGlobalHooks();
-  } catch {
+  } catch (_error: unknown) {
     // never throw
   }
 }

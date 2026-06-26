@@ -216,10 +216,13 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
             import structlog.contextvars as _ctxvars
 
             _cv = _ctxvars.get_contextvars()
+            # Prefer the matched route template over raw path to avoid
+            # high-cardinality / user-controlled path segments in logs.
+            route = getattr(request.scope.get("route"), "path", request.url.path)
             log.info(
                 "request.complete",
                 method=request.method,
-                path=request.url.path,
+                path=route,
                 status_code=response.status_code,
                 latency_ms=round((time.time() - start) * 1000, 2),
                 user_id=getattr(request.state, "user_id", None),

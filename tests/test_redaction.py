@@ -212,3 +212,20 @@ def test_processor_scrubs_full_jwt():
     structlog.get_logger("test.jwt").info("debug", value=jwt)
     obj = json.loads(buf.getvalue().strip())
     assert obj["value"] == "[REDACTED]", f"full JWT must be redacted, got: {obj['value'][:60]}"
+
+
+def test_processor_redacts_nested_structures():
+    """Secrets inside nested dicts and lists must be scrubbed, not just top-level strings."""
+    buf = _capture(_settings(log_format="json"))
+    structlog.get_logger("test.nested").info(
+        "debug",
+        metadata={"api_key": "sk-deadbeef12345678901234567890ab", "name": "safe"},
+        tags=["Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJ", "ok"],
+    )
+    obj = json.loads(buf.getvalue().strip())
+    # Nested dict: secret string value is redacted, safe value preserved.
+    assert obj["metadata"]["api_key"] == "[REDACTED]"
+    assert obj["metadata"]["name"] == "safe"
+    # Nested list: Bearer token is redacted, plain string preserved.
+    assert obj["tags"][0] == "[REDACTED]"
+    assert obj["tags"][1] == "ok"

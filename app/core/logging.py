@@ -108,12 +108,14 @@ def setup_logging(settings: Settings | str | None = None, level: str | None = No
 
     # Processors applied to BOTH structlog-native records and foreign (stdlib)
     # records via foreign_pre_chain. Order matters: merge contextvars first so
-    # everything downstream sees the bound fields.
+    # everything downstream sees the bound fields. format_exc_info is included
+    # so stdlib logger.exception() calls reliably render tracebacks.
     shared_meta = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.CallsiteParameterAdder(parameters=_CALLSITE_PARAMS),
         structlog.processors.TimeStamper(fmt="iso", utc=True),
+        structlog.processors.format_exc_info,
     ]
 
     structlog.configure(

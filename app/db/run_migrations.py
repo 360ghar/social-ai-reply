@@ -54,7 +54,7 @@ def _split_statements(sql: str) -> list[str]:
     while i < len(sql):
         if sql[i] == "$":
             # Try to match a dollar-quote tag: $<tag>$ where tag is [a-zA-Z_]* (may be empty for $$)
-            m = re.match(r"\$([a-zA-Z_]*)\$", sql[i:])
+            m = re.match(r"\$([a-zA-Z_][a-zA-Z0-9_]*)?\$", sql[i:])
             if m:
                 tag = m.group(0)  # e.g. "$$", "$body$", "$function$"
                 if dollar_tag is None:
