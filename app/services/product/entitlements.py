@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from supabase import Client
 
 from app.core.config import get_settings
+from app.core.log_events import log_event
 from app.db.tables.workspaces import (
     create_subscription,
     get_entitlement,
@@ -129,11 +130,27 @@ def enforce_limit(supabase: Client, workspace: dict, feature_key: str, current_c
     if not get_settings().enforce_plan_limits:
         return
     limit = get_limit(supabase, workspace, feature_key)
+    plan_code = (get_subscription_by_workspace(supabase, workspace["id"]) or {}).get("plan_code") or "free"
     if current_count >= limit:
+        log_event(
+            "entitlement.denied",
+            level="warning",
+            plan_code=plan_code,
+            feature=feature_key,
+            limit=limit,
+            current_count=current_count,
+        )
         raise HTTPException(
             status_code=402,
             detail=f"Plan limit reached for {feature_key} ({limit}). Upgrade your plan to add more.",
         )
+    log_event(
+        "entitlement.enforced",
+        plan_code=plan_code,
+        feature=feature_key,
+        limit=limit,
+        current_count=current_count,
+    )
 
 
 def count_projects(supabase: Client, workspace_id: int) -> int:

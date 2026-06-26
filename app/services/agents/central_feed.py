@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Any
 from app.db.tables.company import get_company_by_id
 from app.db.tables.content import list_reply_drafts_for_opportunity
 from app.db.tables.discovery import (
+    _KNOWN_OPPORTUNITY_COLUMNS,
     OPPORTUNITIES_TABLE,
     _normalize_opportunity_record,
-    _supports_column,
 )
 from app.db.tables.projects import list_projects_for_workspace
 from app.schemas.v1.discovery import OpportunityResponse
@@ -22,8 +22,6 @@ if TYPE_CHECKING:
     from supabase import Client
 
 logger = logging.getLogger(__name__)
-
-_OPP_COLUMN_CACHE: dict[str, bool] = {}
 
 
 class FeedSort(Enum):
@@ -51,10 +49,6 @@ class FeedResult:
     total: int = 0
     filters_applied: FeedFilters = field(default_factory=FeedFilters)
     debug_info: dict[str, Any] | None = None
-
-
-def _opp_supports_column(db: Client, column: str) -> bool:
-    return _supports_column(db, OPPORTUNITIES_TABLE, _OPP_COLUMN_CACHE, column)
 
 
 class CentralFeedService:
@@ -116,20 +110,20 @@ class CentralFeedService:
         if sort == FeedSort.RELEVANCE:
             query = query.order("score", desc=True)
         elif sort == FeedSort.NEWEST:
-            if _opp_supports_column(db, "post_created_at"):
+            if "post_created_at" in _KNOWN_OPPORTUNITY_COLUMNS:
                 query = query.order("post_created_at", desc=True)
             else:
                 query = query.order("created_at", desc=True)
         elif sort == FeedSort.ENGAGEMENT:
-            if _opp_supports_column(db, "engagement_score"):
+            if "engagement_score" in _KNOWN_OPPORTUNITY_COLUMNS:
                 query = query.order("engagement_score", desc=True)
-            elif _opp_supports_column(db, "upvotes"):
+            elif "upvotes" in _KNOWN_OPPORTUNITY_COLUMNS:
                 query = query.order("upvotes", desc=True)
             else:
                 query = query.order("score", desc=True)
         elif sort == FeedSort.PRIORITY:
             query = query.order("score", desc=True)
-            if _opp_supports_column(db, "upvotes"):
+            if "upvotes" in _KNOWN_OPPORTUNITY_COLUMNS:
                 query = query.order("upvotes", desc=True)
         return query
 
@@ -168,7 +162,7 @@ class CentralFeedService:
                 "sort": sort.value,
                 "limit": limit,
                 "offset": offset,
-                "query_columns_checked": dict(_OPP_COLUMN_CACHE),
+                "query_columns_checked": list(_KNOWN_OPPORTUNITY_COLUMNS),
             }
 
         return FeedResult(

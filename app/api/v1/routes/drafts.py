@@ -12,6 +12,7 @@ from app.api.v1.deps import (
     get_current_workspace,
     get_project,
 )
+from app.core.log_events import timed
 from app.db.supabase_client import get_supabase
 from app.db.tables.content import (
     count_reply_drafts_for_project,
@@ -106,68 +107,71 @@ def generate_reply_draft(
     # Resolve effective platform: explicit override > opportunity's platform > "reddit"
     effective_platform = payload.platform or opportunity.get("platform") or "reddit"
 
-    if payload.variants > 1:
-        # Multi-variant generation
-        from app.services.product.copilot.reply import generate_reply_variants
+    with timed("draft.generate", opportunity_id=opportunity["id"],
+               variant_count=payload.variants, draft_type="reply",
+               platform=effective_platform):
+        if payload.variants > 1:
+            # Multi-variant generation
+            from app.services.product.copilot.reply import generate_reply_variants
 
-        variants = generate_reply_variants(
+            variants = generate_reply_variants(
+                opportunity,
+                project.get("brand_profile"),
+                prompts,
+                voice_profile=voice_profile,
+                subreddit_tone_rules=subreddit_tone_rules,
+                platform=effective_platform,
+                count=payload.variants,
+            )
+            if not variants:
+                raise HTTPException(status_code=500, detail="Failed to generate any reply variants.")
+
+            # Save all variants as drafts, return the first one
+            first_draft = None
+            for i, (content, rationale, source_prompt) in enumerate(variants):
+                draft = create_reply_draft(
+                    supabase,
+                    {
+                        "project_id": project["id"],
+                        "opportunity_id": opportunity["id"],
+                        "content": content,
+                        "rationale": rationale,
+                        "source_prompt": source_prompt,
+                        "version": i + 1,
+                    },
+                )
+                if first_draft is None:
+                    first_draft = draft
+
+            update_opportunity(supabase, opportunity["id"], {"status": "drafting"})
+            return ReplyDraftResponse.model_validate(first_draft)
+
+        # Single reply (default path — unchanged behavior)
+        content, rationale, source_prompt = generate_reply(
             opportunity,
             project.get("brand_profile"),
             prompts,
             voice_profile=voice_profile,
             subreddit_tone_rules=subreddit_tone_rules,
             platform=effective_platform,
-            count=payload.variants,
         )
-        if not variants:
-            raise HTTPException(status_code=500, detail="Failed to generate any reply variants.")
 
-        # Save all variants as drafts, return the first one
-        first_draft = None
-        for i, (content, rationale, source_prompt) in enumerate(variants):
-            draft = create_reply_draft(
-                supabase,
-                {
-                    "project_id": project["id"],
-                    "opportunity_id": opportunity["id"],
-                    "content": content,
-                    "rationale": rationale,
-                    "source_prompt": source_prompt,
-                    "version": i + 1,
-                },
-            )
-            if first_draft is None:
-                first_draft = draft
+        draft = create_reply_draft(
+            supabase,
+            {
+                "project_id": project["id"],
+                "opportunity_id": opportunity["id"],
+                "content": content,
+                "rationale": rationale,
+                "source_prompt": source_prompt,
+                "version": 1,
+            },
+        )
 
+        # Update opportunity status
         update_opportunity(supabase, opportunity["id"], {"status": "drafting"})
-        return ReplyDraftResponse.model_validate(first_draft)
 
-    # Single reply (default path — unchanged behavior)
-    content, rationale, source_prompt = generate_reply(
-        opportunity,
-        project.get("brand_profile"),
-        prompts,
-        voice_profile=voice_profile,
-        subreddit_tone_rules=subreddit_tone_rules,
-        platform=effective_platform,
-    )
-
-    draft = create_reply_draft(
-        supabase,
-        {
-            "project_id": project["id"],
-            "opportunity_id": opportunity["id"],
-            "content": content,
-            "rationale": rationale,
-            "source_prompt": source_prompt,
-            "version": 1,
-        },
-    )
-
-    # Update opportunity status
-    update_opportunity(supabase, opportunity["id"], {"status": "drafting"})
-
-    return ReplyDraftResponse.model_validate(draft)
+        return ReplyDraftResponse.model_validate(draft)
 
 
 @router.get("/drafts/replies")
@@ -293,26 +297,27 @@ def generate_post_draft(
     ensure_default_prompts(supabase, project["id"])
     prompts = list_prompt_templates_for_project(supabase, project["id"])
 
-    title, body, rationale = ProductCopilot().generate_post(project.get("brand_profile"), prompts)
+    with timed("draft.generate", project_id=project["id"], draft_type="post"):
+        title, body, rationale = ProductCopilot().generate_post(project.get("brand_profile"), prompts)
 
-    # Get next version - batch query
-    existing_drafts = list_post_drafts_for_project(supabase, project["id"])
-    version = (max((d["version"] for d in existing_drafts), default=0)) + 1
+        # Get next version - batch query
+        existing_drafts = list_post_drafts_for_project(supabase, project["id"])
+        version = (max((d["version"] for d in existing_drafts), default=0)) + 1
 
-    post_prompts = [p for p in prompts if p.get("prompt_type") == "post"]
-    source_prompt = "\n".join(p.get("instructions", "") for p in post_prompts)
+        post_prompts = [p for p in prompts if p.get("prompt_type") == "post"]
+        source_prompt = "\n".join(p.get("instructions", "") for p in post_prompts)
 
-    draft = create_post_draft(
-        supabase,
-        {
-            "project_id": project["id"],
-            "title": title,
-            "body": body,
-            "rationale": rationale,
-            "source_prompt": source_prompt,
-            "version": version,
-        },
-    )
+        draft = create_post_draft(
+            supabase,
+            {
+                "project_id": project["id"],
+                "title": title,
+                "body": body,
+                "rationale": rationale,
+                "source_prompt": source_prompt,
+                "version": version,
+            },
+        )
     return PostDraftResponse.model_validate(draft)
 
 

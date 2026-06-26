@@ -12,6 +12,7 @@ from app.api.v1.deps import (
     get_current_workspace,
     get_project,
 )
+from app.core.log_events import timed
 from app.db.supabase_client import get_supabase
 from app.db.tables.projects import get_brand_profile_by_project
 from app.db.tables.system import create_activity_log
@@ -22,6 +23,7 @@ from app.db.tables.visibility import (
     create_prompt_run,
     list_prompt_runs_for_prompt_set,
     list_prompt_sets_for_project,
+    update_prompt_run,
 )
 from app.db.tables.visibility import (
     create_prompt_set as create_prompt_set_db,
@@ -127,100 +129,108 @@ def run_prompt_set(
     detector = MentionDetector()
     extractor = CitationExtractor()
 
+    target_models = ps.get("target_models") if ps.get("target_models") is not None else ["chatgpt"]
+    prompts_list = ps.get("prompts") if ps.get("prompts") is not None else []
     results = []
-    for prompt_text in ps.get("prompts", []):
-        for model in ps.get("target_models", ["chatgpt"]):
-            pr = create_prompt_run(
-                supabase,
-                {
-                    "prompt_set_id": ps["id"],
-                    "model_name": model,
-                    "prompt_text": prompt_text,
-                    "status": "running",
-                },
-            )
-
-            response_text = runner.run_prompt(prompt_text, model)
-            if response_text:
-                # Update prompt run as complete
-                from app.db.tables.visibility import update_prompt_run
-                update_prompt_run(
-                    supabase,
-                    pr["id"],
-                    {
-                        "status": "complete",
-                        "completed_at": datetime.now(UTC).isoformat(),
-                    },
-                )
-
-                mentions = detector.detect_mentions(response_text, brand_name, competitors)
-                citations = extractor.extract_citations(response_text)
-
-                ai_resp = create_ai_response(
+    with timed("visibility.run", prompt_set_id=ps["id"],
+               model_count=len(target_models), prompt_count=len(prompts_list)) as tlog:
+        for prompt_text in prompts_list:
+            for model in target_models:
+                pr = create_prompt_run(
                     supabase,
                     {
-                        "prompt_run_id": pr["id"],
+                        "prompt_set_id": ps["id"],
                         "model_name": model,
-                        "raw_response": response_text,
+                        "prompt_text": prompt_text,
+                        "status": "running",
+                    },
+                )
+
+                response_text = runner.run_prompt(prompt_text, model)
+                if response_text:
+                    # Update prompt run as complete
+                    update_prompt_run(
+                        supabase,
+                        pr["id"],
+                        {
+                            "status": "complete",
+                            "completed_at": datetime.now(UTC).isoformat(),
+                        },
+                    )
+
+                    mentions = detector.detect_mentions(response_text, brand_name, competitors)
+                    citations = extractor.extract_citations(response_text)
+
+                    ai_resp = create_ai_response(
+                        supabase,
+                        {
+                            "prompt_run_id": pr["id"],
+                            "model_name": model,
+                            "raw_response": response_text,
+                            "brand_mentioned": mentions["brand_mentioned"],
+                            "competitor_mentions": mentions["competitor_mentions"],
+                            "sentiment": mentions["sentiment"],
+                            "response_length": len(response_text),
+                        },
+                    )
+
+                    if mentions["brand_mentioned"]:
+                        create_brand_mention(
+                            supabase,
+                            {
+                                "ai_response_id": ai_resp["id"],
+                                "entity_name": brand_name,
+                                "mention_type": "brand",
+                                "context_snippet": response_text[:200],
+                            },
+                        )
+                    for comp in mentions["competitor_mentions"]:
+                        create_brand_mention(
+                            supabase,
+                            {
+                                "ai_response_id": ai_resp["id"],
+                                "entity_name": comp["name"],
+                                "mention_type": "competitor",
+                            },
+                        )
+                    for cit in citations:
+                        create_citation(
+                            supabase,
+                            {
+                                "ai_response_id": ai_resp["id"],
+                                "url": cit["url"],
+                                "domain": cit["domain"],
+                                "content_type": cit["content_type"],
+                            },
+                        )
+
+                    results.append({
+                        "prompt": prompt_text[:80],
+                        "model": model,
                         "brand_mentioned": mentions["brand_mentioned"],
-                        "competitor_mentions": mentions["competitor_mentions"],
-                        "sentiment": mentions["sentiment"],
-                        "response_length": len(response_text),
-                    },
-                )
-
-                if mentions["brand_mentioned"]:
-                    create_brand_mention(
+                        "citations": len(citations),
+                    })
+                else:
+                    update_prompt_run(
                         supabase,
+                        pr["id"],
                         {
-                            "ai_response_id": ai_resp["id"],
-                            "entity_name": brand_name,
-                            "mention_type": "brand",
-                            "context_snippet": response_text[:200],
+                            "status": "failed",
+                            "error_message": "No response from model",
                         },
                     )
-                for comp in mentions["competitor_mentions"]:
-                    create_brand_mention(
-                        supabase,
-                        {
-                            "ai_response_id": ai_resp["id"],
-                            "entity_name": comp["name"],
-                            "mention_type": "competitor",
-                        },
-                    )
-                for cit in citations:
-                    create_citation(
-                        supabase,
-                        {
-                            "ai_response_id": ai_resp["id"],
-                            "url": cit["url"],
-                            "domain": cit["domain"],
-                            "content_type": cit["content_type"],
-                        },
-                    )
-
-                results.append({
-                    "prompt": prompt_text[:80],
-                    "model": model,
-                    "brand_mentioned": mentions["brand_mentioned"],
-                    "citations": len(citations),
-                })
-            else:
-                update_prompt_run(
-                    supabase,
-                    pr["id"],
-                    {
-                        "status": "failed",
-                        "error_message": "No response from model",
-                    },
-                )
-                results.append({
-                    "prompt": prompt_text[:80],
-                    "model": model,
-                    "brand_mentioned": False,
-                    "citations": 0,
-                    "error": True,
-                })
+                    results.append({
+                        "prompt": prompt_text[:80],
+                        "model": model,
+                        "brand_mentioned": False,
+                        "citations": 0,
+                        "error": True,
+                    })
+        mentions_found = sum(1 for r in results if r.get("brand_mentioned"))
+        citations_found = sum(r.get("citations", 0) for r in results)
+        tlog.info("visibility.run.results",
+                  runs=len(results), mentions_found=mentions_found,
+                  citations_found=citations_found)
 
     create_activity_log(
         supabase,
@@ -248,37 +258,9 @@ def visibility_summary(
     if not proj:
         raise HTTPException(404, "No active project found.")
 
-    from app.db.tables.visibility import (
-        count_ai_responses_with_brand_mention_for_project,
-        count_ai_responses_with_model_and_mention,
-        count_citations_for_project,
-        count_prompt_runs_for_project,
-        count_prompt_runs_with_model,
-    )
+    from app.db.tables.visibility import get_visibility_summary
 
-    # N+1 FIX: Batch count queries instead of N+1 queries
-    total_runs = count_prompt_runs_for_project(supabase, proj["id"])
-    total_mentioned = count_ai_responses_with_brand_mention_for_project(supabase, proj["id"])
-    total_citations = count_citations_for_project(supabase, proj["id"])
-    sov = round((total_mentioned / total_runs * 100), 1) if total_runs > 0 else 0.0
-
-    models = {}
-    for model in ["chatgpt", "perplexity", "gemini", "claude"]:
-        m_total = count_prompt_runs_with_model(supabase, proj["id"], model)
-        m_mentioned = count_ai_responses_with_model_and_mention(supabase, proj["id"], model)
-        models[model] = {
-            "total_runs": m_total,
-            "brand_mentioned": m_mentioned,
-            "share_of_voice": round((m_mentioned / m_total * 100), 1) if m_total > 0 else 0.0,
-        }
-
-    return {
-        "total_runs": total_runs,
-        "brand_mentioned": total_mentioned,
-        "share_of_voice": sov,
-        "total_citations": total_citations,
-        "models": models,
-    }
+    return get_visibility_summary(supabase, proj["id"])
 
 
 @router.get("/visibility/prompts")

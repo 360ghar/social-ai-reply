@@ -6,11 +6,15 @@ Pydantic AI RunResult.usage() and provides aggregated stats.
 
 from __future__ import annotations
 
-import logging
 import time
 from dataclasses import dataclass, field
 
-logger = logging.getLogger(__name__)
+import structlog
+
+# Structured logger for telemetry metrics. stdlib logger.info(..., extra=...)
+# attributes are NOT surfaced by structlog's ProcessorFormatter, so per-call
+# metrics must be emitted as kv pairs here to land as top-level JSON fields.
+slog = structlog.get_logger("app.services.infrastructure.llm.llm_telemetry")
 
 # Approximate cost per 1M tokens (input/output) as of 2026-05.
 # These are rough estimates; adjust as pricing changes.
@@ -89,17 +93,16 @@ _telemetry = LLMTelemetry()
 def record_call(call: LLMCallRecord) -> None:
     """Record a call to the global telemetry."""
     _telemetry.record(call)
-    logger.info(
-        "llm_call agent=%s provider=%s model=%s latency=%.0fms "
-        "tokens_in=%d tokens_out=%d cost=$%.6f success=%s",
-        call.agent_name,
-        call.provider,
-        call.model,
-        call.latency_ms,
-        call.request_tokens,
-        call.response_tokens,
-        call.cost_usd,
-        call.success,
+    slog.info(
+        "llm_call",
+        llm_agent=call.agent_name,
+        llm_provider=call.provider,
+        llm_model=call.model,
+        latency_ms=call.latency_ms,
+        tokens_in=call.request_tokens,
+        tokens_out=call.response_tokens,
+        cost_usd=float(call.cost_usd),
+        llm_success=call.success,
     )
 
 

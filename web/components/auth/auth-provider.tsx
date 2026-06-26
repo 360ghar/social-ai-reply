@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import "@/lib/clientLogger-init"; // installs global client-side error capture (idempotent, SSR-safe)
 import {
   apiRequest,
   isAuthError,

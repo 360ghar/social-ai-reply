@@ -2,7 +2,7 @@ import base64
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.constants.app import (
@@ -10,6 +10,8 @@ from app.core.constants.app import (
     DEFAULT_GEMINI_API_URL,
     DEFAULT_GEMINI_MODEL,
     DEFAULT_LLM_PROVIDER,
+    DEFAULT_LOG_FORMAT,
+    DEFAULT_LOG_LEVEL,
     DEFAULT_OPENAI_MODEL,
     DEFAULT_PERPLEXITY_MODEL,
 )
@@ -65,6 +67,10 @@ class Settings(BaseSettings):
     # When True, plan limits from plan_entitlements (with PLAN_CATALOG fallback)
     # are enforced via HTTP 402. Off by default: the product is currently free.
     enforce_plan_limits: bool = False
+
+    # Structured logging — "auto" picks console (dev) or json (production).
+    log_level: str = DEFAULT_LOG_LEVEL
+    log_format: str = DEFAULT_LOG_FORMAT
 
     frontend_url: str = "http://localhost:3000"
     cors_origins_raw: str = "http://localhost:3000,http://127.0.0.1:3000"
@@ -155,6 +161,24 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
 
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("log_format")
+    @classmethod
+    def _validate_log_format(cls, v: str) -> str:
+        allowed = {"auto", "console", "json"}
+        normalized = v.strip().lower()
+        if normalized not in allowed:
+            raise ValueError(f"log_format must be one of {sorted(allowed)} (got {v!r})")
+        return normalized
+
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, v: str) -> str:
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        normalized = v.strip().upper()
+        if normalized not in allowed:
+            raise ValueError(f"log_level must be one of {sorted(allowed)} (got {v!r})")
+        return normalized
 
     @model_validator(mode="after")
     def hydrate_local_supabase_settings(self) -> "Settings":

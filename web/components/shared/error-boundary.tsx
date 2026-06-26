@@ -3,6 +3,7 @@
 import { Component, type ReactNode, type ErrorInfo } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
+import { logClientError } from "@/lib/clientLogger";
 
 type Props = { children: ReactNode };
 type State = { hasError: boolean; message: string };
@@ -18,6 +19,11 @@ export class ErrorBoundary extends Component<Props, State> {
     // Log error to error reporting service (e.g., Sentry, LogRocket)
     // eslint-disable-next-line no-console
     console.error("ErrorBoundary caught error:", error, errorInfo);
+    // Ship to backend as a structured client event (sampled/dropped if
+    // NEXT_PUBLIC_CLIENT_LOGGING=0). componentStack is truncated server-side.
+    logClientError("ui.error_boundary", error, {
+      component_stack: errorInfo.componentStack,
+    });
   }
 
   render() {
