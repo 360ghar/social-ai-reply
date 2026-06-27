@@ -257,6 +257,37 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
         # Kept opportunities queued for the optional LLM buying-stage pass.
         stage_refine_queue: list[dict[str, Any]] = []
 
+        # ── Free supplemental sources (HN + GitHub, no API key needed) ──────────
+        # Run these in the background alongside the Reddit subreddit scan.
+        # Posts are scored by the same RelevanceEngine and merged into opportunities.
+        free_source_futures: list[Any] = []
+        try:
+            import concurrent.futures as _cf_free
+            from app.scrapers.free_sources import scrape_hackernews, scrape_github
+            from app.core.config import get_settings as _gs
+
+            _settings = _gs()
+            _hn_enabled = getattr(_settings, "enable_hn_scraper", True)
+            _gh_enabled = getattr(_settings, "enable_github_scraper", True)
+            _gh_token   = getattr(_settings, "github_token", None)
+
+            _kw_strs = [k.get("keyword", "") for k in active_keywords if k.get("keyword")][:8]
+
+            _free_executor = _cf_free.ThreadPoolExecutor(max_workers=2, thread_name_prefix="free_src")
+            if _hn_enabled:
+                free_source_futures.append(
+                    (_free_executor.submit(scrape_hackernews, _kw_strs, payload.search_window_hours), "hackernews")
+                )
+            if _gh_enabled:
+                free_source_futures.append(
+                    (_free_executor.submit(scrape_github, _kw_strs, payload.search_window_hours, 15, _gh_token), "github")
+                )
+            logger.info("Free source scrapers queued: HN=%s GitHub=%s", _hn_enabled, _gh_enabled)
+        except Exception as _free_err:
+            logger.warning("Could not start free source scrapers: %s", _free_err)
+            free_source_futures = []
+            _free_executor = None
+
         def _scan_one_subreddit(subreddit: dict[str, Any]) -> _SubredditScanResult:
             name = subreddit["name"]
             local_reddit = RedditDiscoveryService()
@@ -517,7 +548,58 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
 
         # Update scan run with results
         completed_at = datetime.now(UTC).isoformat()
-        update_scan_run(db, run["id"], {
+        # ── Merge free-source results (HN, GitHub) ───────────────────────────────
+        if free_source_futures:
+            try:
+                for future, src_name in free_source_futures:
+                    try:
+                        free_posts = future.result(timeout=25)
+                        logger.info("Free source %r returned %d posts", src_name, len(free_posts))
+                        for fp in free_posts:
+                            fp_dict = fp.to_dict()
+                            candidate = CandidatePost(
+                                title=fp_dict.get("title", ""),
+                                body=fp_dict.get("body", ""),
+                                platform=src_name,
+                                source_name=fp_dict.get("subreddit", src_name),
+                                upvotes=fp_dict.get("score", 0),
+                                comments_count=fp_dict.get("num_comments", 0),
+                                created_at=fp.created_at,
+                                author=fp_dict.get("author", ""),
+                                post_url=fp_dict.get("url", ""),
+                            )
+                            posts_scanned += 1
+                            if comment_engine:
+                                result: RelevanceResult = comment_engine.score(
+                                    candidate, engine_brand, engine_kw
+                                )
+                                if result.score >= effective_min_score:
+                                    ext_id = fp.external_id or fp.id
+                                    create_opportunity(db, {
+                                        "project_id": project["id"],
+                                        "workspace_id": project.get("workspace_id"),
+                                        "platform": src_name,
+                                        "external_id": ext_id,
+                                        "title": fp_dict.get("title", ""),
+                                        "body": fp_dict.get("body", ""),
+                                        "url": fp_dict.get("url", ""),
+                                        "author": fp_dict.get("author", ""),
+                                        "source_name": src_name,
+                                        "relevance_score": result.relevance_score,
+                                        "status": "new",
+                                    })
+                                    opportunities_found += 1
+                    except Exception as _fe:
+                        logger.warning("Free source %r merge error: %s", src_name, _fe)
+            except Exception as _free_merge_err:
+                logger.warning("Free source merge failed: %s", _free_merge_err)
+            finally:
+                try:
+                    _free_executor.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
+
+                update_scan_run(db, run["id"], {
             "status": "completed",
             "posts_scanned": posts_scanned,
             "opportunities_found": opportunities_found,

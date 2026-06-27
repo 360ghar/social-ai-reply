@@ -160,29 +160,70 @@ export function StepLaunch({ token, projectId, readiness, onStatusChange }: Prop
       {/* Platform picker */}
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Scan Platforms</p>
-        <div className="flex flex-wrap gap-2">
-          {["reddit", "twitter", "linkedin", "instagram"].map((p) => (
-            <button
-              key={p}
-              onClick={() =>
-                setPlatforms((prev) =>
-                  prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-                )
-              }
-              className={cn(
-                "capitalize text-xs rounded-full border px-3 py-1 transition-colors",
-                platforms.includes(p)
-                  ? "bg-primary/10 border-primary/30 text-primary"
-                  : "bg-card border-border text-muted-foreground hover:border-primary/30"
-              )}
-            >
-              {p}
-            </button>
-          ))}
+
+        {/* Free sources (always available) */}
+        <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Free Sources</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "reddit",      label: "Reddit",       note: "JSON API, no auth" },
+              { id: "hackernews",  label: "Hacker News",  note: "Algolia API, free" },
+              { id: "github",      label: "GitHub",       note: "REST API, 60 req/hr" },
+            ].map(({ id, label, note }) => (
+              <button
+                key={id}
+                onClick={() =>
+                  setPlatforms((prev) =>
+                    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                  )
+                }
+                title={note}
+                className={cn(
+                  "text-xs rounded-full border px-3 py-1 transition-colors",
+                  platforms.includes(id)
+                    ? "bg-primary/10 border-primary/30 text-primary"
+                    : "bg-card border-border text-muted-foreground hover:border-primary/30"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Reddit uses free public API. Other platforms use RapidAPI scrapers (requires RAPIDAPI_KEY).
-        </p>
+
+        {/* Paid/proxy sources */}
+        <div className="rounded-lg border bg-muted/10 p-3 space-y-2 opacity-70">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Paid Sources <span className="normal-case font-normal">(requires RAPIDAPI_KEY or proxy)</span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "twitter",   label: "X / Twitter" },
+              { id: "linkedin",  label: "LinkedIn" },
+              { id: "instagram", label: "Instagram" },
+            ].map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() =>
+                  setPlatforms((prev) =>
+                    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                  )
+                }
+                className={cn(
+                  "text-xs rounded-full border px-3 py-1 transition-colors",
+                  platforms.includes(id)
+                    ? "bg-primary/10 border-primary/30 text-primary"
+                    : "bg-card border-border text-muted-foreground"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Consider ScraperAPI ($29/mo) or ScrapFly ($29/mo) for X and LinkedIn — more reliable than RapidAPI free tier.
+          </p>
+        </div>
       </div>
 
       {/* Scan status */}

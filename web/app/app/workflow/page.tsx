@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Zap, CheckCircle2 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
-import { useWorkflowStore, STEP_ORDER, STEP_META, type StepId, type StepStatus } from "@/stores/workflow-store";
+import { useWorkflowStore, STEP_ORDER, STEP_META, type StepId } from "@/stores/workflow-store";
 import { WorkflowNode } from "@/components/workflow/workflow-node";
+import { PipelineTerminal } from "@/components/workflow/pipeline-terminal";
 import { StepCompany } from "@/components/workflow/steps/step-company";
 import { StepBrand } from "@/components/workflow/steps/step-brand";
 import { StepPersonas } from "@/components/workflow/steps/step-personas";
@@ -17,18 +18,16 @@ import { StepLaunch } from "@/components/workflow/steps/step-launch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { startPipelineRun, getPipelineRun } from "@/lib/api/pipeline";
-import { useToast } from "@/stores/toast";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export default function WorkflowPage() {
   const { token } = useAuth();
   const router = useRouter();
-  const toast = useToast();
   const selectedProjectId = useSelectedProjectId();
 
   const { activeStep, statuses, toggleStep, openStep, setStatus } = useWorkflowStore();
 
-  // Human-readable summaries for collapsed step headers
   const [summaries, setSummaries] = useState<Record<StepId, string>>({
     company:     "Not configured",
     brand:       "No keywords",
@@ -38,14 +37,14 @@ export default function WorkflowPage() {
     launch:      "Ready to scan",
   });
 
-  // Quick-launch pipeline
-  const [quickUrl, setQuickUrl] = useState("");
-  const [quickRunning, setQuickRunning] = useState(false);
-  const [quickProgress, setQuickProgress] = useState(0);
+  // Zero-input enrichment
+  const [enrichUrl, setEnrichUrl] = useState("");
+  const [terminalActive, setTerminalActive] = useState(false);
+  const [terminalEndpoint, setTerminalEndpoint] = useState("");
 
-  function updateSummary(id: StepId, summary: string) {
+  const updateSummary = useCallback((id: StepId, summary: string) => {
     setSummaries((prev) => ({ ...prev, [id]: summary }));
-  }
+  }, []);
 
   function advanceTo(id: StepId) {
     const idx = STEP_ORDER.indexOf(id);
@@ -54,41 +53,49 @@ export default function WorkflowPage() {
   }
 
   const readiness = [
-    { label: "Company Setup",  ok: statuses.company     !== "empty", href: "#" },
-    { label: "Brand Keywords", ok: statuses.brand        !== "empty", href: "#" },
-    { label: "Personas",       ok: statuses.personas     !== "empty", href: "#" },
-    { label: "Communities",    ok: statuses.communities  !== "empty", href: "#" },
+    { label: "Company Setup",   ok: statuses.company     !== "empty", href: "#" },
+    { label: "Brand Keywords",  ok: statuses.brand        !== "empty", href: "#" },
+    { label: "Personas",        ok: statuses.personas     !== "empty", href: "#" },
+    { label: "Communities",     ok: statuses.communities  !== "empty", href: "#" },
     { label: "Competitor Intel",ok: statuses.competitors !== "empty", href: "#" },
   ];
   const doneCount = readiness.filter((r) => r.ok).length;
 
-  async function runQuickPipeline() {
-    if (!quickUrl.trim() || !token) return;
-    setQuickRunning(true);
-    setQuickProgress(5);
-    try {
-      let url = quickUrl.trim();
-      if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-      const run = await startPipelineRun(token, url, selectedProjectId, "week");
-      const iv = setInterval(async () => {
-        try {
-          const updated = await getPipelineRun(token, run.id);
-          setQuickProgress(updated.progress ?? 0);
-          if (updated.status === "ready" || updated.status === "executed" || updated.status === "failed") {
-            clearInterval(iv);
-            setQuickRunning(false);
-            if (updated.status === "failed") {
-              toast.error("Pipeline failed", updated.error_message ?? "Unknown error");
-            } else {
-              toast.success("Pipeline complete!", `${updated.drafts_count} draft replies ready.`);
-              router.push(`/app/content?project_id=${updated.project_id}`);
-            }
-          }
-        } catch { /* ignore */ }
-      }, 2000);
-    } catch (err) {
-      toast.error("Failed to launch", err instanceof Error ? err.message : "Unknown error");
-      setQuickRunning(false);
+  function startEnrichment() {
+    if (!enrichUrl.trim() || !token) return;
+    let url = enrichUrl.trim();
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    const endpoint = `${API_BASE}/v1/analyze/stream?url=${encodeURIComponent(url)}`;
+    setTerminalEndpoint(endpoint);
+    setTerminalActive(true);
+  }
+
+  function handleTerminalComplete(data: Record<string, unknown>) {
+    // Auto-update summaries from enrichment results
+    if (data.name) {
+      const nameStr = String(data.name);
+      const urlStr = data.website_url ? ` · ${String(data.website_url)}` : "";
+      updateSummary("company", `${nameStr}${urlStr}`);
+      setStatus("company", "done");
+    }
+    const comps = data.competitors as string[] | undefined;
+    if (comps && comps.length > 0) {
+      updateSummary("competitors", `${comps.length} competitors found`);
+      setStatus("competitors", "partial");
+    }
+    // Open next incomplete step
+    const nextEmpty = STEP_ORDER.find((id) => statuses[id] === "empty");
+    if (nextEmpty) openStep(nextEmpty);
+  }
+
+  function handleTerminalData(key: string, value: unknown) {
+    if (key === "keywords_count" && Number(value) > 0) {
+      updateSummary("brand", `${value} keywords`);
+      setStatus("brand", "done");
+    }
+    if (key === "personas_count" && Number(value) > 0) {
+      updateSummary("personas", `${value} personas`);
+      setStatus("personas", "done");
     }
   }
 
@@ -107,80 +114,81 @@ export default function WorkflowPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Pipeline Setup</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Configure your brand once — then scan social for opportunities on demand.
+          Drop a URL to auto-analyze your brand, or configure each step manually below.
         </p>
       </div>
 
-      {/* Quick-launch panel */}
-      <div className="rounded-xl border bg-card p-5 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <Zap className="h-4 w-4 text-primary" />
+      {/* Zero-input enrichment */}
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <Zap className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Auto-Analyze URL</p>
+              <p className="text-xs text-muted-foreground">
+                Paste your product URL — we crawl it, extract brand intelligence, generate keywords and personas automatically
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold">Full Auto-Pilot</p>
-            <p className="text-xs text-muted-foreground">
-              Drop a URL — we'll analyze, build keywords, discover communities, and generate reply drafts
-            </p>
-          </div>
-        </div>
 
-        <div className="flex gap-2">
-          <Input
-            value={quickUrl}
-            onChange={(e) => setQuickUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void runQuickPipeline()}
-            placeholder="https://yourproduct.com"
-            className="flex-1 h-10"
-            disabled={quickRunning}
-          />
-          <Button onClick={runQuickPipeline} disabled={quickRunning || !quickUrl.trim()} className="shrink-0">
-            {quickRunning ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                {quickProgress > 0 ? `${quickProgress}%` : "Running…"}
-              </>
-            ) : (
-              <>
-                <Zap className="h-3.5 w-3.5 mr-1" />
-                Launch
-              </>
-            )}
-          </Button>
-        </div>
-
-        {quickRunning && (
-          <div className="h-1 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all duration-500 rounded-full"
-              style={{ width: `${quickProgress}%` }}
+          <div className="flex gap-2">
+            <Input
+              value={enrichUrl}
+              onChange={(e) => setEnrichUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && startEnrichment()}
+              placeholder="https://yourproduct.com"
+              className="flex-1 h-10"
+              disabled={terminalActive}
             />
+            <Button
+              onClick={startEnrichment}
+              disabled={terminalActive || !enrichUrl.trim()}
+              className="shrink-0"
+            >
+              <Zap className="h-3.5 w-3.5 mr-1" />
+              Analyze
+            </Button>
           </div>
-        )}
 
-        {/* Pipeline health dots */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            {readiness.map((item) => (
-              <div
-                key={item.label}
-                title={`${item.label}: ${item.ok ? "configured" : "not set up"}`}
-                className={cn(
-                  "h-1.5 w-8 rounded-full transition-colors",
-                  item.ok ? "bg-primary" : "bg-muted"
-                )}
-              />
-            ))}
+          {/* Pipeline health dots */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              {readiness.map((item) => (
+                <div
+                  key={item.label}
+                  title={`${item.label}: ${item.ok ? "configured" : "not set up"}`}
+                  className={cn(
+                    "h-1.5 w-8 rounded-full transition-colors",
+                    item.ok ? "bg-primary" : "bg-muted"
+                  )}
+                />
+              ))}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {doneCount}/{readiness.length} configured
+              {doneCount === readiness.length && (
+                <span className="ml-1.5 text-primary inline-flex items-center gap-0.5">
+                  <CheckCircle2 className="h-3 w-3" /> Ready
+                </span>
+              )}
+            </span>
           </div>
-          <span className="text-xs text-muted-foreground">
-            {doneCount}/{readiness.length} configured
-            {doneCount === readiness.length && (
-              <span className="ml-1.5 text-primary inline-flex items-center gap-0.5">
-                <CheckCircle2 className="h-3 w-3" /> Ready
-              </span>
-            )}
-          </span>
         </div>
+
+        {/* Terminal — renders below the input when active */}
+        {terminalActive && (
+          <PipelineTerminal
+            endpointUrl={terminalEndpoint}
+            token={token}
+            active={terminalActive}
+            onComplete={handleTerminalComplete}
+            onData={handleTerminalData}
+            onClose={() => setTerminalActive(false)}
+            className="rounded-none border-0 border-t"
+          />
+        )}
       </div>
 
       {/* Divider */}
@@ -218,7 +226,6 @@ export default function WorkflowPage() {
                   onContinue={() => advanceTo("company")}
                 />
               )}
-
               {stepId === "brand" && (
                 <StepBrand
                   token={token}
@@ -228,7 +235,6 @@ export default function WorkflowPage() {
                   onContinue={() => advanceTo("brand")}
                 />
               )}
-
               {stepId === "personas" && (
                 <StepPersonas
                   token={token}
@@ -238,7 +244,6 @@ export default function WorkflowPage() {
                   onContinue={() => advanceTo("personas")}
                 />
               )}
-
               {stepId === "communities" && (
                 <StepCommunities
                   token={token}
@@ -248,7 +253,6 @@ export default function WorkflowPage() {
                   onContinue={() => advanceTo("communities")}
                 />
               )}
-
               {stepId === "competitors" && (
                 <StepCompetitors
                   token={token}
@@ -257,7 +261,6 @@ export default function WorkflowPage() {
                   onContinue={() => advanceTo("competitors")}
                 />
               )}
-
               {stepId === "launch" && (
                 <StepLaunch
                   token={token}
