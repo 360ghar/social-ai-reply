@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import quote_plus
 
 import httpx
 

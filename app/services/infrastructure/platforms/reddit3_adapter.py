@@ -44,14 +44,14 @@ class Reddit3Adapter(PlatformAdapter):
         self.api_host = config.get("api_host", "reddit3.p.rapidapi.com")
         self.search_endpoint = config.get("search_endpoint", "/v1/reddit/search")
         self.search_param_name = config.get("search_param_name", "search")
-        
+
         # Derive subreddit endpoint from search endpoint (e.g., /v1/reddit/search -> /v1/reddit/subreddit/popular)
         base_path = self.search_endpoint.rsplit("/", 1)[0]  # /v1/reddit
         self.subreddit_endpoint = f"{base_path}/subreddit/popular"
-        
+
         self.comments_endpoint = config.get("comments_endpoint")
         self.comments_param_name = config.get("comments_param_name", "post_id")
-        
+
         api_key = config.get("api_key")
         self._subreddits: list[str] = []
         try:

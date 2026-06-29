@@ -1,24 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+import httpx
+from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
 from supabase import Client
 
-from app.api.v1.deps import get_current_user, get_current_workspace, ensure_workspace_membership
+from app.api.v1.deps import ensure_workspace_membership, get_current_user, get_current_workspace
 from app.db.supabase_client import get_supabase
 from app.db.tables.custom_scrapers import (
+    delete_custom_scraper,
     list_custom_scrapers_for_workspace,
     upsert_custom_scraper,
-    delete_custom_scraper,
 )
-from pydantic import BaseModel
 from app.schemas.v1.scrapers import (
-    CustomScraperResponse,
     CustomScraperCreateRequest,
+    CustomScraperResponse,
     ScraperTestRequest,
     ScraperTestResponse,
 )
 from app.services.infrastructure.llm.service import LLMService
-
-import httpx
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +57,10 @@ def create_scraper_endpoint(
 ) -> CustomScraperResponse:
     """Create or update a custom scraper configuration for a specific platform."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
-    
+
     data = payload.model_dump()
     data["workspace_id"] = workspace["id"]
-    
+
     scraper = upsert_custom_scraper(supabase, data)
     return CustomScraperResponse.model_validate(scraper)
 
@@ -280,12 +280,12 @@ def scrapers_chat_endpoint(
     for msg in payload.history:
         role_label = "Assistant" if msg.role == "assistant" else "User"
         prompt_lines.append(f"{role_label}: {msg.content}")
-    
+
     prompt_lines.append(f"User: {payload.message}")
     prompt_lines.append("Assistant:")
-    
+
     final_prompt = "\n\n".join(prompt_lines)
-    
+
     llm = LLMService()
     reply = llm.call_text(
         prompt=final_prompt,
@@ -294,7 +294,7 @@ def scrapers_chat_endpoint(
     )
     if not reply:
         reply = "Sorry, I couldn't process that right now."
-        
+
     return ChatResponse(reply=reply)
 
 

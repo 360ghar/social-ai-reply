@@ -1,8 +1,9 @@
 import asyncio
 import json
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from app.db.tables.company import get_company_by_workspace
+from app.db.tables.company import get_company_by_url
 from app.db.tables.projects import list_projects_for_workspace
 from app.services.product.brand_brain import BrandBrain
 from app.services.product.docs import generate_markdown_report
@@ -33,10 +34,12 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     yield _log(f"Starting master pipeline for {url}…")
     yield _log("Step 1: Auto-Enrichment via URL")
 
-    # Load or create company profile
+    # Load or create company profile based on the URL
     try:
-        company_profile = get_company_by_workspace(supabase, workspace["id"])
-    except Exception:
+        from app.db.tables.company import get_company_by_url
+        company_profile = get_company_by_url(supabase, workspace["id"], url)
+    except Exception as exc:
+        yield _log(f"Error fetching company profile: {exc}", "warn")
         company_profile = None
 
     if not company_profile:
@@ -95,7 +98,7 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     if competitor_list:
         for comp in competitor_list[:3]:
             yield _log(f"Found competitor: {comp}", "success")
-            
+
     # Keywords & Personas
     yield _section("Generating Personas & Keywords")
     projects = list_projects_for_workspace(supabase, workspace["id"])
@@ -105,8 +108,8 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     personas_list = []
 
     if project:
-        from app.services.product.discovery import get_project_search_keywords
         from app.db.tables.discovery import list_personas_for_project
+        from app.services.product.discovery import get_project_search_keywords
         personas_list = list_personas_for_project(supabase, project["id"]) or []
         kws_db = get_project_search_keywords(supabase, project, limit=10)
     else:
@@ -126,7 +129,7 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
         )
         yield _log(f"Generated {len(personas_list)} personas.", "success")
         yield _data("personas_count", len(personas_list))
-    
+
     if not kws_db:
         yield _log("Generating search keywords…")
         from app.services.product.copilot import generate_keywords
@@ -138,7 +141,10 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
                 "product_summary": enriched.get("description", ""),
             }, personas_list),
         )
-        kws_list = [{"keyword": kw, "type": "core"} for kw in generated]
+        kws_list = [
+            {"keyword": kw.keyword if hasattr(kw, "keyword") else str(kw), "type": getattr(kw, "category", "core"), "priority": getattr(kw, "priority_score", 5)}
+            for kw in generated
+        ]
         yield _log(f"Generated {len(kws_list)} keywords.", "success")
         yield _data("keywords_count", len(kws_list))
     else:
@@ -146,43 +152,96 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
 
     # 2. Parallel Scraping
     yield _section("Parallel Free Source Discovery")
-    from app.scrapers.free_sources import scrape_hackernews, scrape_github, scrape_reddit_json, find_competitors_ddg
+    from app.scrapers.free_sources import find_competitors_ddg
     from app.services.product.platform_scanner import _async_platform_scan
 
-    keywords_flat = [(k["keyword"] if isinstance(k, dict) else k) for k in kws_list] if kws_list else [company_name]
+    def _kw_str(k):
+        if isinstance(k, dict):
+            v = k.get("keyword", "")
+            return v.keyword if hasattr(v, "keyword") else str(v)
+        return k.keyword if hasattr(k, "keyword") else str(k)
+    keywords_flat = [_kw_str(k) for k in kws_list if _kw_str(k)] if kws_list else [company_name]
     yield _log(f"Scraping using {len(keywords_flat)} keywords across platforms…")
 
     import concurrent.futures
     all_posts = []
-    
+
     # 2a. Determine Reddit subreddits
     yield _log("Determining relevant subreddits…")
     from app.services.infrastructure.llm.service import LLMService
     llm = LLMService()
-    subreddit_prompt = f"Suggest 3 popular, active subreddits where people would discuss a product like '{company_name}' which does '{enriched.get('description', '')}'. Return ONLY a comma-separated list of subreddit names without the 'r/'. Example: SaaS,EntrepreneurRideAlong,marketing"
+    # Build a smarter domain-aware fallback in case LLM fails or returns garbage
+    def _domain_fallback_subreddits(company_nm: str, description: str) -> list[str]:
+        """Return contextually appropriate fallback subreddits based on company domain."""
+        desc_lower = (description or "").lower()
+        name_lower = (company_nm or "").lower()
+        combined = f"{name_lower} {desc_lower}"
+
+        # Map domain signals → subreddits
+        domain_map = [
+            (["ecommerce", "shopping", "india", "flipkart", "meesho", "myntra", "delivery", "grocery"],
+             ["india", "IndiaShipping", "OnlineShopping", "IndianFinance", "InstacartShoppers"]),
+            (["saas", "software", "b2b", "api", "developer", "devtool"],
+             ["SaaS", "startups", "webdev", "programming"]),
+            (["health", "fitness", "wellness", "medical"],
+             ["health", "fitness", "nutrition", "loseit"]),
+            (["finance", "fintech", "payment", "banking", "invest"],
+             ["personalfinance", "investing", "FinancialPlanning", "IndiaInvestments"]),
+            (["real estate", "property", "mortgage", "housing"],
+             ["realestate", "RealEstateInvesting", "FirstTimeHomeBuyer"]),
+            (["education", "edtech", "learning", "course", "tutor"],
+             ["education", "learnprogramming", "OnlineLearning"]),
+            (["food", "restaurant", "delivery", "recipe"],
+             ["food", "recipes", "mealprep", "MealPrepSunday"]),
+        ]
+        for signals, subs in domain_map:
+            if any(sig in combined for sig in signals):
+                return subs[:3]
+        # Generic fallback
+        return ["startups", "smallbusiness", "Entrepreneur"]
+
+    fallback_subs = _domain_fallback_subreddits(company_name, enriched.get("description", ""))
+
+    subreddit_prompt = (
+        f"You are a Reddit community expert. Suggest exactly 3 active subreddits where people would "
+        f"discuss or ask about a product like '{company_name}' which does: '{enriched.get('description', '')}'. "
+        f"Return ONLY a comma-separated list of subreddit names WITHOUT r/ prefix and WITHOUT any explanation. "
+        f"Example format: india,OnlineShopping,IndiaFinance"
+    )
     try:
         subreddits_response = await loop.run_in_executor(None, lambda: llm.generate(subreddit_prompt))
-        subreddits = [s.strip() for s in subreddits_response.split(",") if s.strip()][:3]
-        if not subreddits:
-            subreddits = ["SaaS", "EntrepreneurRideAlong", "marketing"]
+        # Clean up the response — strip markdown, backticks, bullets etc.
+        clean = subreddits_response.strip().strip("`").replace("\n", ",").replace(";", ",")
+        # Remove any "r/" prefix the LLM may have added
+        subreddits = [s.strip().lstrip("r/").strip() for s in clean.split(",") if s.strip()]
+        # Validate: each name must look like a real subreddit (no spaces, no long sentences)
+        subreddits = [s for s in subreddits if s and " " not in s and len(s) < 40][:3]
+        if len(subreddits) < 2:
+            subreddits = fallback_subs
     except Exception:
-        subreddits = ["SaaS", "EntrepreneurRideAlong", "marketing"]
+        subreddits = fallback_subs
     yield _log(f"Selected subreddits: {', '.join(subreddits)}", "info")
-    
+
     # Run all platforms (including new free native scrapers) via PlatformRouter asynchronously
     router_platforms = ["twitter", "linkedin", "instagram", "hackernews", "github", "reddit", "indiehackers"]
-    router_results = await _async_platform_scan(
-        platforms=router_platforms,
-        search_keywords=keywords_flat[:3],
-        limit_per_platform=10,
-        subreddits=subreddits,
-        workspace_id=workspace["id"],
-        db=supabase
-    )
-    if router_results:
-        yield _log(f"Found {len(router_results)} posts via alternative scrapers", "success")
-        all_posts.extend(router_results)
-    
+    try:
+        router_results = await _async_platform_scan(
+            platforms=router_platforms,
+            search_keywords=keywords_flat[:3],
+            limit_per_platform=10,
+            subreddits=subreddits,
+            workspace_id=workspace["id"],
+            db=supabase
+        )
+        if router_results:
+            yield _log(f"Found {len(router_results)} posts across platforms", "success")
+            all_posts.extend(router_results)
+        else:
+            yield _log("Platform scan returned 0 posts — keywords or subreddits may need tuning", "warn")
+    except Exception as scan_err:
+        yield _log(f"Platform scan error (non-fatal): {scan_err}", "warn")
+        router_results = []
+
     # Still use DuckDuckGo for competitor discovery
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         try:
@@ -198,19 +257,32 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     # 3. AI Scoring
     yield _section("AI Relevance Scoring")
     from app.services.product.relevance_v2 import RelevanceEngine
-    from app.services.product.scanner import CandidatePost, _result_payload
-    from app.db.tables.discovery import create_opportunity
-    
+    from app.services.product.scanner import CandidatePost
+
     engine = RelevanceEngine()
     engine_brand = {
+        "name": company_name,
         "brand_name": company_name,
+        "description": enriched.get("extracted_summary") or enriched.get("description", ""),
         "product_summary": enriched.get("extracted_summary", ""),
+        "target_audience": enriched.get("target_audience", ""),
+        "category": enriched.get("category", ""),
+        "pain_points": [],   # populated from personas if available
         "competitors": competitor_list,
     }
-    
+    # Merge persona pain points for better relevance scoring
+    if personas_list:
+        all_pain_points = []
+        for p in personas_list[:3]:
+            pts = p.get("pain_points", []) if isinstance(p, dict) else []
+            if isinstance(pts, list):
+                all_pain_points.extend(str(pt) for pt in pts if pt)
+        engine_brand["pain_points"] = list(dict.fromkeys(all_pain_points))[:15]
+
     scored_opps = []
     if not all_posts:
-        yield _log("No posts found to score.", "warn")
+        yield _log("No posts found to score — try broader keywords or different subreddits", "warn")
+        yield _log("Tip: Reddit blocks direct API calls from server IPs. Use the manual Subreddits page to add communities, then run a scan from the Discovery page.", "info")
     else:
         yield _log(f"Scoring {len(all_posts)} posts against brand profile…")
         for i, fp in enumerate(all_posts[:20]): # Limit to top 20 to save time in UI stream
@@ -219,7 +291,7 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
                 is_free_post = hasattr(fp, "source")
                 upvotes = getattr(fp, "score", getattr(fp, "upvotes", 0))
                 source_name = getattr(fp, "subreddit", None) or getattr(fp, "source", fp.platform)
-                
+
                 candidate = CandidatePost(
                     title=fp.title or "",
                     body=fp.body or "",
@@ -231,14 +303,16 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
                     author=fp.author,
                     post_url=fp.url,
                 )
-                
-                # Assign a pseudo keyword for scoring
-                engine_kw = {"keyword": keywords_flat[0] if keywords_flat else "", "type": "core"}
+
+                # Build keyword list for scoring — use all flat keywords as dicts
+                engine_kws = [{"keyword": kw, "type": "core", "weight": 1.0} for kw in keywords_flat[:10]]
+                if not engine_kws:
+                    engine_kws = [{"keyword": company_name, "type": "core", "weight": 1.0}]
                 result = await loop.run_in_executor(
                     None,
-                    lambda: engine.score(candidate, engine_brand, [engine_kw])
+                    lambda c=candidate, kws=engine_kws: engine.score(c, engine_brand, kws)
                 )
-                
+
                 if result.relevance_score >= 50:
                     yield _log(f"High-value opportunity on {fp.platform} (Score: {result.relevance_score})", "success")
                     # Optionally save to DB here...
@@ -256,17 +330,17 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     # 4. Generate Document
     yield _section("Generating Final Report")
     yield _log("Compiling living document…")
-    
+
     report_md = generate_markdown_report(
         company=enriched,
         keywords=kws_list,
         personas=personas_list,
         opportunities=scored_opps,
     )
-    
+
     yield _data("report", report_md)
     yield _log("Report ready.", "success")
-    
+
     yield _event({
         "type": "complete",
         "company": enriched,

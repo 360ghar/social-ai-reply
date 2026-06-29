@@ -211,7 +211,7 @@ class TwitterAdapter(PlatformAdapter):
         then appends ``-is:retweet lang:en`` to filter retweets and
         restrict to English tweets.
         """
-        # Relax multi-word keywords: do not wrap in quotes so that Twitter can match 
+        # Relax multi-word keywords: do not wrap in quotes so that Twitter can match
         # individual words in the phrase, yielding more results for long LLM-generated keywords.
         parts = []
         for kw in keywords:

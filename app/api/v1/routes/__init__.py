@@ -6,10 +6,10 @@ Each domain router lives in its own module under this package.
 from fastapi import APIRouter
 
 from app.api.v1.routes.agents import router as agents_router
-from app.api.v1.routes.analyze import router as analyze_router
 from app.api.v1.routes.amplify import router as amplify_router
 from app.api.v1.routes.analytics import router as analytics_router
 from app.api.v1.routes.analytics_v2 import router as analytics_v2_router
+from app.api.v1.routes.analyze import router as analyze_router
 from app.api.v1.routes.articles import router as articles_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.auto_pipeline import router as auto_pipeline_router

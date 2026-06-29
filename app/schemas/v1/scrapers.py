@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -31,7 +32,7 @@ class CustomScraperResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    
+
     # We do NOT return the api_key for security reasons, unless explicitly needed.
 
 

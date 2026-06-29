@@ -5,9 +5,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from app.services.infrastructure.platforms.models import UnifiedComment, UnifiedPost
 from app.services.infrastructure.llm.agents import _build_model
 from app.services.infrastructure.platforms.base import PlatformAdapter
+from app.services.infrastructure.platforms.models import UnifiedComment, UnifiedPost
 from app.services.infrastructure.platforms.rapidapi_client import RapidAPIClient, RapidAPIError
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ class DynamicAdapter(PlatformAdapter):
                     # Skip extremely noisy fields common in social APIs
                     return {k: _truncate_strings(v) for k, v in obj.items() if str(k).lower() not in ("media", "media_metadata", "preview", "images", "video_versions", "candidates")}
                 return obj
-            
+
             items = _truncate_strings(items)
 
             # Use LLM to parse the messy JSON array
@@ -159,7 +159,7 @@ class DynamicAdapter(PlatformAdapter):
                 for parsed in parsed_list.posts:
                     if parsed.external_id not in seen_ids:
                         seen_ids.add(parsed.external_id)
-                        
+
                         post = UnifiedPost(
                             platform=self.platform,
                             external_id=parsed.external_id,
@@ -183,7 +183,7 @@ class DynamicAdapter(PlatformAdapter):
             except Exception as e:
                 logger.warning("Pydantic AI dynamic parsing failed for %s, falling back to legacy: %s", self.platform, e)
                 parsed_list = ParsedPostList(posts=[])
-                
+
             # If Pydantic AI failed, try the legacy fallback via LLMService call_json
             if not parsed_list.posts:
                 try:
@@ -251,7 +251,7 @@ class DynamicAdapter(PlatformAdapter):
                         upvotes = int(item.get("ups", item.get("score", item.get("like_count", 0))) or 0)
                         comments = int(item.get("num_comments", item.get("comment_count", 0)) or 0)
                         url = str(item.get("url", item.get("permalink", "")))
-                        
+
                         post = UnifiedPost(
                             platform=self.platform,
                             external_id=ext_id,
@@ -311,12 +311,12 @@ class DynamicAdapter(PlatformAdapter):
         for item in items[:limit]:
             if not isinstance(item, dict):
                 continue
-            
+
             # Very naive heuristic
             text = item.get("text", item.get("body", item.get("comment", "")))
             if not text:
                 continue
-                
+
             c = UnifiedComment(
                 platform=self.platform,
                 external_id=str(item.get("id", item.get("pk", ""))),

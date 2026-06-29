@@ -1,3 +1,4 @@
+
 """Reddit scanning and opportunity detection service."""
 from __future__ import annotations
 
@@ -63,7 +64,7 @@ def _engine_brand_profile(
     personas: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Map a brand_profiles row onto the dict shape RelevanceEngine expects.
-
+ 
     When ``personas`` are provided, their pain_points are merged into the
     brand profile so the RelevanceEngine can match posts that reference the
     problems our buyers actually describe on social media.
@@ -120,7 +121,7 @@ def _candidate_from_post(post: RedditPost) -> CandidatePost:
 
 def _candidate_from_comment(comment: RedditComment) -> CandidatePost:
     """Wrap a comment as a CandidatePost for scoring.
-
+ 
     Uses the parent post title as context (title) and the comment body
     as the main content, since the scorer weights both.
     """
@@ -172,7 +173,7 @@ class _SubredditScanResult:
 
 def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str | None = None) -> dict:
     """Run a scan for opportunities based on project keywords and subreddits.
-
+ 
     When ``scan_run_id`` is provided (async route), progress is written to that
     existing scan_runs row instead of creating a new one.
     """
@@ -263,8 +264,9 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
         free_source_futures: list[Any] = []
         try:
             import concurrent.futures as _cf_free
-            from app.scrapers.free_sources import scrape_hackernews, scrape_github
+
             from app.core.config import get_settings as _gs
+            from app.scrapers.free_sources import scrape_github, scrape_hackernews
 
             _settings = _gs()
             _hn_enabled = getattr(_settings, "enable_hn_scraper", True)
@@ -599,7 +601,8 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
                 except Exception:
                     pass
 
-                update_scan_run(db, run["id"], {
+        # Persist final scan results (always runs, regardless of free sources)
+        update_scan_run(db, run["id"], {
             "status": "completed",
             "posts_scanned": posts_scanned,
             "opportunities_found": opportunities_found,
@@ -649,7 +652,7 @@ def _safe_subreddit_rules(reddit: RedditDiscoveryService, subreddit_name: str) -
 
 def revalidate_opportunity(db: Client, project: dict, opportunity: dict) -> tuple[bool, int]:
     """Re-score an opportunity to ensure it still meets the threshold.
-
+ 
     Uses stored opportunity data since we don't have real-time Reddit access.
     """
     brand = get_brand_profile_by_project(db, project["id"])
@@ -712,5 +715,4 @@ def _hydrate_scan_run_response(
     hydrated.setdefault("posts_scanned", posts_scanned)
     hydrated.setdefault("opportunities_found", 0)
     if completed_at and not hydrated.get("completed_at"):
-        hydrated["completed_at"] = completed_at
-    return hydrated
+        hydrated["completed_at"]

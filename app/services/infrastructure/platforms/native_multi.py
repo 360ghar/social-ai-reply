@@ -55,7 +55,9 @@ class NativeMultiScraper(PlatformAdapter):
     # -------------------------------------------------------------------------
     async def _scrape_hackernews(self, keywords: list[str], limit: int) -> list[UnifiedPost]:
         query = " OR ".join(keywords)
-        url = f"https://hn.algolia.com/api/v1/search?query={query}&tags=story&hitsPerPage={limit}"
+        import urllib.parse
+        query_encoded = urllib.parse.quote_plus(query)
+        url = f"https://hn.algolia.com/api/v1/search_by_date?query={query_encoded}&tags=story&hitsPerPage={limit}"
         
         async with httpx.AsyncClient() as client:
             try:
@@ -114,7 +116,9 @@ class NativeMultiScraper(PlatformAdapter):
     # -------------------------------------------------------------------------
     async def _search_github_issues(self, keywords: list[str], limit: int) -> list[UnifiedPost]:
         query = " ".join(keywords) + " is:issue"
-        url = f"https://api.github.com/search/issues?q={query}&per_page={limit}&sort=created"
+        import urllib.parse
+        query_encoded = urllib.parse.quote_plus(query)
+        url = f"https://api.github.com/search/issues?q={query_encoded}&per_page={limit}&sort=created"
         headers = {
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'SocialAI-Scraper'
@@ -294,7 +298,15 @@ class NativeMultiScraper(PlatformAdapter):
                 if response.status_code != 200:
                     logger.warning("[indiehackers] Search failed: HTTP %s", response.status_code)
                     return []
-                data = response.json()
+                # Guard against empty body — IH sometimes returns 200 with no content
+                if not response.content or not response.content.strip():
+                    logger.warning("[indiehackers] Empty response body — skipping")
+                    return []
+                try:
+                    data = response.json()
+                except Exception as json_err:
+                    logger.warning("[indiehackers] JSON decode failed: %s", json_err)
+                    return []
             except Exception as e:
                 logger.exception("[indiehackers] API error: %s", e)
                 return []

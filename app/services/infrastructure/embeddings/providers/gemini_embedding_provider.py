@@ -1,6 +1,7 @@
 """Gemini API embedding provider using httpx."""
 
 import logging
+
 import httpx
 
 from app.core.config import get_settings
@@ -15,7 +16,7 @@ class GeminiEmbeddingProvider:
         self.api_key = get_settings().gemini_api_key
         if not self.api_key:
             logger.warning("GEMINI_API_KEY is not set. Embeddings will return empty vectors.")
-        
+
         # https://ai.google.dev/api/rest/v1beta/models/embedContent
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/{self.model_name}:embedContent"
         # https://ai.google.dev/api/rest/v1beta/models/batchEmbedContents
@@ -25,9 +26,9 @@ class GeminiEmbeddingProvider:
         """Embed a single text string."""
         if not self.api_key or not text.strip():
             return []
-            
+
         text = text[:10000]
-        
+
         try:
             with httpx.Client(timeout=10.0) as client:
                 resp = client.post(
@@ -50,7 +51,7 @@ class GeminiEmbeddingProvider:
         """Embed a batch of strings."""
         if not self.api_key or not texts:
             return [[] for _ in texts]
-            
+
         try:
             requests = []
             for text in texts:
@@ -60,7 +61,7 @@ class GeminiEmbeddingProvider:
                         "parts": [{"text": text[:10000]}]
                     }
                 })
-            
+
             with httpx.Client(timeout=30.0) as client:
                 resp = client.post(
                     f"{self.batch_api_url}?key={self.api_key}",
@@ -69,13 +70,13 @@ class GeminiEmbeddingProvider:
                 resp.raise_for_status()
                 data = resp.json()
                 embeddings = data.get("embeddings", [])
-                
+
                 if len(embeddings) == len(texts):
                     return [emb.get("values", []) for emb in embeddings]
-                
+
                 logger.error("Gemini batch embed returned %d embeddings for %d texts", len(embeddings), len(texts))
                 return [[] for _ in texts]
-                    
+
         except Exception as e:
             logger.error("Gemini batch embedding failed: %s", e)
             return [[] for _ in texts]

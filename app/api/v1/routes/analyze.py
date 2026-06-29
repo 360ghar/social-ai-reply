@@ -14,9 +14,8 @@ steps automatically when "complete" arrives.
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, AsyncGenerator, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -26,8 +25,6 @@ if TYPE_CHECKING:
 
 from app.api.v1.deps import get_current_user, get_current_workspace
 from app.db.supabase_client import get_supabase
-from app.db.tables.company import get_company_by_workspace, update_company
-from app.services.product.brand_brain import BrandBrain
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +39,7 @@ async def analyze_stream(
     url: str = Query(..., description="Company website URL to analyze"),
     current_user: dict = Depends(get_current_user),
     workspace: dict = Depends(get_current_workspace),
-    supabase: "Client" = Depends(get_supabase),
+    supabase: Client = Depends(get_supabase),
 ) -> StreamingResponse:
     """Stream brand enrichment events as SSE while analyzing a URL.
 

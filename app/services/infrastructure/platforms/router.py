@@ -74,22 +74,12 @@ def _get_adapter(platform: str, *, workspace_id: int | None = None, db: Any = No
             logger.warning("Failed to load custom scraper for %s: %s", normalized, exc)
 
     if normalized not in _adapters:
-        if normalized in ("hackernews", "github", "indiehackers"):
-            from app.services.infrastructure.platforms.native_multi import NativeMultiScraper
-            _adapters[normalized] = NativeMultiScraper(normalized)
-        elif normalized == "reddit":
-            # Using the native JSON scraper instead of RapidAPI to avoid rate limits
-            from app.services.infrastructure.platforms.native_multi import NativeMultiScraper
-            _adapters[normalized] = NativeMultiScraper("reddit_native")
+        if normalized in ("reddit", "linkedin", "instagram", "hackernews", "github", "indiehackers"):
+            from app.services.infrastructure.platforms.ddg_universal import DDGUniversalAdapter
+            _adapters[normalized] = DDGUniversalAdapter(normalized)
         elif normalized == "twitter":
             from app.services.infrastructure.platforms.twitter import TwitterAdapter
             _adapters[normalized] = TwitterAdapter()
-        elif normalized == "instagram":
-            from app.services.infrastructure.platforms.instagram import InstagramAdapter
-            _adapters[normalized] = InstagramAdapter()
-        elif normalized == "linkedin":
-            from app.services.infrastructure.platforms.linkedin import LinkedInAdapter
-            _adapters[normalized] = LinkedInAdapter()
         else:
             # Unknown platform — check if there's a custom scraper config
             # even without workspace context (best-effort)

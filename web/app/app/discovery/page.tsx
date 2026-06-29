@@ -303,6 +303,7 @@ export default function DiscoveryPage() {
           { id: "instagram", label: "Instagram", icon: "instagram" },
           { id: "hackernews", label: "Hacker News", icon: "hackernews" },
           { id: "github", label: "GitHub", icon: "github" },
+          { id: "indiehackers", label: "IndieHackers", icon: "indiehackers" },
         ].map((tab) => (
           <button
             key={tab.id}
