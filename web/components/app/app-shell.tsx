@@ -36,6 +36,7 @@ import { Card } from "@/components/ui/card";
 import {
   Loader2,
   Bell,
+  Building2,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -80,6 +81,7 @@ const NAV_SECTIONS = [
     icon: LayoutDashboard,
     items: [
       { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/app/company", label: "Company Profile", icon: Building2 },
     ],
   },
   {

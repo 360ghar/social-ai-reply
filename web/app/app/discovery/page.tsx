@@ -301,6 +301,8 @@ export default function DiscoveryPage() {
           { id: "twitter", label: "Twitter/X", icon: "twitter" },
           { id: "linkedin", label: "LinkedIn", icon: "linkedin" },
           { id: "instagram", label: "Instagram", icon: "instagram" },
+          { id: "hackernews", label: "Hacker News", icon: "hackernews" },
+          { id: "github", label: "GitHub", icon: "github" },
         ].map((tab) => (
           <button
             key={tab.id}

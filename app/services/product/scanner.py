@@ -573,7 +573,7 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
                                 result: RelevanceResult = comment_engine.score(
                                     candidate, engine_brand, engine_kw
                                 )
-                                if result.score >= effective_min_score:
+                                if result.relevance_score >= effective_min_score:
                                     ext_id = fp.external_id or fp.id
                                     create_opportunity(db, {
                                         "project_id": project["id"],

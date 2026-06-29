@@ -123,7 +123,7 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
     if not user.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated.")
-    if _is_token_revoked(user, payload, credentials.credentials):
+    if _is_token_revoked(user, payload, token_str):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
     return user
 

@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 
 const PLATFORMS = [
   { id: "reddit", label: "Reddit" },
+  { id: "hackernews", label: "Hacker News" },
+  { id: "github", label: "GitHub" },
+  { id: "indiehackers", label: "IndieHackers" },
   { id: "twitter", label: "Twitter / X" },
   { id: "linkedin", label: "LinkedIn" },
   { id: "instagram", label: "Instagram" },

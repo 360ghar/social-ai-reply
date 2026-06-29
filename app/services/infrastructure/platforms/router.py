@@ -74,9 +74,13 @@ def _get_adapter(platform: str, *, workspace_id: int | None = None, db: Any = No
             logger.warning("Failed to load custom scraper for %s: %s", normalized, exc)
 
     if normalized not in _adapters:
-        if normalized == "reddit":
-            from app.services.infrastructure.platforms.reddit import RedditAdapter
-            _adapters[normalized] = RedditAdapter()
+        if normalized in ("hackernews", "github", "indiehackers"):
+            from app.services.infrastructure.platforms.native_multi import NativeMultiScraper
+            _adapters[normalized] = NativeMultiScraper(normalized)
+        elif normalized == "reddit":
+            # Using the native JSON scraper instead of RapidAPI to avoid rate limits
+            from app.services.infrastructure.platforms.native_multi import NativeMultiScraper
+            _adapters[normalized] = NativeMultiScraper("reddit_native")
         elif normalized == "twitter":
             from app.services.infrastructure.platforms.twitter import TwitterAdapter
             _adapters[normalized] = TwitterAdapter()
@@ -91,7 +95,7 @@ def _get_adapter(platform: str, *, workspace_id: int | None = None, db: Any = No
             # even without workspace context (best-effort)
             raise ValueError(
                 f"Unknown platform: {platform}. "
-                f"Supported: {', '.join(PLATFORM_INFO.keys())}. "
+                f"Supported: {', '.join(PLATFORM_INFO.keys())}, hackernews, github, indiehackers. "
                 f"Or set up a custom scraper for this platform."
             )
     return _adapters[normalized]

@@ -1,280 +1,313 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { Loader2, Zap, CheckCircle2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Zap, CheckCircle2, ArrowRight, Building2, Users, Search, BarChart3, Activity } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 import { useAuth } from "@/components/auth/auth-provider";
-import { useSelectedProjectId } from "@/hooks/use-selected-project";
-import { useWorkflowStore, STEP_ORDER, STEP_META, type StepId } from "@/stores/workflow-store";
-import { WorkflowNode } from "@/components/workflow/workflow-node";
-import { PipelineTerminal } from "@/components/workflow/pipeline-terminal";
-import { StepCompany } from "@/components/workflow/steps/step-company";
-import { StepBrand } from "@/components/workflow/steps/step-brand";
-import { StepPersonas } from "@/components/workflow/steps/step-personas";
-import { StepCommunities } from "@/components/workflow/steps/step-communities";
-import { StepCompetitors } from "@/components/workflow/steps/step-competitors";
-import { StepLaunch } from "@/components/workflow/steps/step-launch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+type PipelineState = "idle" | "running" | "complete" | "error";
+
+interface LogEntry {
+  id: number;
+  text: string;
+  level: "info" | "success" | "warn" | "error";
+  time: Date;
+}
 
 export default function WorkflowPage() {
   const { token } = useAuth();
-  const router = useRouter();
-  const selectedProjectId = useSelectedProjectId();
+  
+  const [url, setUrl] = useState("");
+  const [state, setState] = useState<PipelineState>("idle");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [currentStep, setCurrentStep] = useState<string>("Initializing...");
+  
+  // Data accumulated from the stream
+  const [company, setCompany] = useState<any>(null);
+  const [keywords, setKeywords] = useState<any[]>([]);
+  const [competitors, setCompetitors] = useState<string[]>([]);
+  const [opportunitiesCount, setOpportunitiesCount] = useState<number>(0);
+  const [reportMarkdown, setReportMarkdown] = useState<string | null>(null);
 
-  const { activeStep, statuses, toggleStep, openStep, setStatus } = useWorkflowStore();
+  const sourceRef = useRef<EventSource | null>(null);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
-  const [summaries, setSummaries] = useState<Record<StepId, string>>({
-    company:     "Not configured",
-    brand:       "No keywords",
-    personas:    "None yet",
-    communities: "None yet",
-    competitors: "No data yet",
-    launch:      "Ready to scan",
-  });
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs]);
 
-  // Zero-input enrichment
-  const [enrichUrl, setEnrichUrl] = useState("");
-  const [terminalActive, setTerminalActive] = useState(false);
-  const [terminalEndpoint, setTerminalEndpoint] = useState("");
+  function startAnalysis() {
+    if (!url.trim() || !token) return;
+    
+    // Reset state
+    setState("running");
+    setLogs([]);
+    setCompany(null);
+    setKeywords([]);
+    setCompetitors([]);
+    setOpportunitiesCount(0);
+    setReportMarkdown(null);
+    setCurrentStep("Connecting to SignalFlow...");
 
-  const updateSummary = useCallback((id: StepId, summary: string) => {
-    setSummaries((prev) => ({ ...prev, [id]: summary }));
-  }, []);
+    if (sourceRef.current) {
+      sourceRef.current.close();
+    }
 
-  function advanceTo(id: StepId) {
-    const idx = STEP_ORDER.indexOf(id);
-    const next = STEP_ORDER[idx + 1];
-    if (next) openStep(next);
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const endpoint = `${baseUrl}/v1/analyze/stream?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}`;
+    
+    const es = new EventSource(endpoint);
+    sourceRef.current = es;
+
+    let logId = 0;
+
+    es.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+
+        if (data.type === "log") {
+          setLogs((prev) => [...prev.slice(-49), {
+            id: ++logId,
+            text: data.msg,
+            level: data.level || "info",
+            time: new Date(),
+          }]);
+        } else if (data.type === "section") {
+          setCurrentStep(data.label);
+        } else if (data.type === "data") {
+          // You could track specific data updates here if needed
+        } else if (data.type === "complete") {
+          setCompany(data.company);
+          setKeywords(data.keywords || []);
+          setCompetitors(data.competitors || []);
+          setOpportunitiesCount(data.opportunities_count || 0);
+          setReportMarkdown(data.report);
+          setState("complete");
+          es.close();
+        } else if (data.type === "error") {
+          setState("error");
+          setLogs((prev) => [...prev, {
+            id: ++logId,
+            text: data.msg,
+            level: "error",
+            time: new Date(),
+          }]);
+          es.close();
+        }
+      } catch (err) {
+        console.error("Failed to parse SSE message", err);
+      }
+    };
+
+    es.onerror = () => {
+      setState("error");
+      setLogs((prev) => [...prev, {
+        id: ++logId,
+        text: "Connection lost or server error.",
+        level: "error",
+        time: new Date(),
+      }]);
+      es.close();
+    };
   }
 
-  const readiness = [
-    { label: "Company Setup",   ok: statuses.company     !== "empty", href: "#" },
-    { label: "Brand Keywords",  ok: statuses.brand        !== "empty", href: "#" },
-    { label: "Personas",        ok: statuses.personas     !== "empty", href: "#" },
-    { label: "Communities",     ok: statuses.communities  !== "empty", href: "#" },
-    { label: "Competitor Intel",ok: statuses.competitors !== "empty", href: "#" },
-  ];
-  const doneCount = readiness.filter((r) => r.ok).length;
+  // --- RENDERING ---
 
-  function startEnrichment() {
-    if (!enrichUrl.trim() || !token) return;
-    let url = enrichUrl.trim();
-    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-    const endpoint = `${API_BASE}/v1/analyze/stream?url=${encodeURIComponent(url)}`;
-    setTerminalEndpoint(endpoint);
-    setTerminalActive(true);
-  }
-
-  function handleTerminalComplete(data: Record<string, unknown>) {
-    // Auto-update summaries from enrichment results
-    if (data.name) {
-      const nameStr = String(data.name);
-      const urlStr = data.website_url ? ` · ${String(data.website_url)}` : "";
-      updateSummary("company", `${nameStr}${urlStr}`);
-      setStatus("company", "done");
-    }
-    const comps = data.competitors as string[] | undefined;
-    if (comps && comps.length > 0) {
-      updateSummary("competitors", `${comps.length} competitors found`);
-      setStatus("competitors", "partial");
-    }
-    // Open next incomplete step
-    const nextEmpty = STEP_ORDER.find((id) => statuses[id] === "empty");
-    if (nextEmpty) openStep(nextEmpty);
-  }
-
-  function handleTerminalData(key: string, value: unknown) {
-    if (key === "keywords_count" && Number(value) > 0) {
-      updateSummary("brand", `${value} keywords`);
-      setStatus("brand", "done");
-    }
-    if (key === "personas_count" && Number(value) > 0) {
-      updateSummary("personas", `${value} personas`);
-      setStatus("personas", "done");
-    }
-  }
-
-  if (!token) {
+  if (state === "idle" || state === "error") {
     return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-        Loading…
+      <div className="max-w-3xl mx-auto mt-20 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="text-center space-y-4">
+          <div className="mx-auto h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
+            <Activity className="h-8 w-8 text-primary" />
+          </div>
+          <h1 className="text-4xl font-extrabold tracking-tight">SignalFlow Intelligence</h1>
+          <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+            Zero-input social listening. Just drop a URL and our parallel enrichment agents will build your profile, generate personas, and scan the web for high-intent opportunities.
+          </p>
+        </div>
+
+        <div className="bg-card border rounded-2xl p-2 shadow-sm flex items-center transition-all focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary">
+          <div className="pl-4 pr-2 text-muted-foreground">
+            <Search className="h-5 w-5" />
+          </div>
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && startAnalysis()}
+            placeholder="https://your-startup.com"
+            className="flex-1 border-0 shadow-none focus-visible:ring-0 text-lg h-14"
+            autoFocus
+          />
+          <Button 
+            size="lg" 
+            onClick={startAnalysis}
+            disabled={!url.trim()}
+            className="rounded-xl px-8 h-12 font-medium"
+          >
+            Analyze
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+        
+        {state === "error" && (
+          <div className="text-center text-red-500 font-medium">
+            Analysis failed. Please check the URL and try again.
+          </div>
+        )}
       </div>
     );
   }
 
-  return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Pipeline Setup</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Drop a URL to auto-analyze your brand, or configure each step manually below.
-        </p>
-      </div>
-
-      {/* Zero-input enrichment */}
-      <div className="rounded-xl border bg-card overflow-hidden">
-        <div className="p-5 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-              <Zap className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Auto-Analyze URL</p>
-              <p className="text-xs text-muted-foreground">
-                Paste your product URL — we crawl it, extract brand intelligence, generate keywords and personas automatically
-              </p>
-            </div>
+  if (state === "running") {
+    return (
+      <div className="max-w-2xl mx-auto mt-20 space-y-10 animate-in fade-in duration-500">
+        <div className="text-center space-y-4">
+          <div className="relative mx-auto h-20 w-20 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full border-4 border-primary/20 animate-pulse"></div>
+            <div className="absolute inset-0 rounded-full border-t-4 border-primary animate-spin"></div>
+            <Zap className="h-8 w-8 text-primary" />
           </div>
-
-          <div className="flex gap-2">
-            <Input
-              value={enrichUrl}
-              onChange={(e) => setEnrichUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && startEnrichment()}
-              placeholder="https://yourproduct.com"
-              className="flex-1 h-10"
-              disabled={terminalActive}
-            />
-            <Button
-              onClick={startEnrichment}
-              disabled={terminalActive || !enrichUrl.trim()}
-              className="shrink-0"
-            >
-              <Zap className="h-3.5 w-3.5 mr-1" />
-              Analyze
-            </Button>
-          </div>
-
-          {/* Pipeline health dots */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              {readiness.map((item) => (
-                <div
-                  key={item.label}
-                  title={`${item.label}: ${item.ok ? "configured" : "not set up"}`}
-                  className={cn(
-                    "h-1.5 w-8 rounded-full transition-colors",
-                    item.ok ? "bg-primary" : "bg-muted"
-                  )}
-                />
-              ))}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {doneCount}/{readiness.length} configured
-              {doneCount === readiness.length && (
-                <span className="ml-1.5 text-primary inline-flex items-center gap-0.5">
-                  <CheckCircle2 className="h-3 w-3" /> Ready
-                </span>
-              )}
-            </span>
-          </div>
+          <h2 className="text-2xl font-bold">{currentStep}</h2>
+          <p className="text-muted-foreground">Parallel agents are analyzing the web...</p>
         </div>
 
-        {/* Terminal — renders below the input when active */}
-        {terminalActive && (
-          <PipelineTerminal
-            endpointUrl={terminalEndpoint}
-            token={token}
-            active={terminalActive}
-            onComplete={handleTerminalComplete}
-            onData={handleTerminalData}
-            onClose={() => setTerminalActive(false)}
-            className="rounded-none border-0 border-t"
-          />
-        )}
+        <div className="bg-black/95 rounded-2xl border p-4 shadow-2xl overflow-hidden font-mono text-xs">
+          <div className="flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
+            <div className="flex gap-1.5">
+              <div className="h-3 w-3 rounded-full bg-red-500/80"></div>
+              <div className="h-3 w-3 rounded-full bg-yellow-500/80"></div>
+              <div className="h-3 w-3 rounded-full bg-green-500/80"></div>
+            </div>
+            <span className="text-white/40 ml-2">signalflow-agent-stream</span>
+          </div>
+          <div className="h-64 overflow-y-auto space-y-1.5 pr-2">
+            {logs.map((log) => (
+              <div key={log.id} className="flex gap-3 text-white/80">
+                <span className="text-white/30 shrink-0">
+                  {log.time.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}
+                </span>
+                <span className={cn(
+                  log.level === "success" && "text-emerald-400",
+                  log.level === "warn" && "text-yellow-400",
+                  log.level === "error" && "text-red-400 font-bold",
+                  log.level === "info" && "text-white/80"
+                )}>
+                  {log.text}
+                </span>
+              </div>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // COMPLETE STATE
+  return (
+    <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      
+      {/* Results Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Building2 className="h-5 w-5 text-primary" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {company?.name || "Company Profile"}
+            </h1>
+          </div>
+          <p className="text-muted-foreground max-w-2xl">
+            {company?.description || "Analysis complete. Review the extracted intelligence below."}
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-4 bg-card border rounded-xl p-4 shadow-sm">
+          <div className="text-center px-4 border-r">
+            <p className="text-2xl font-bold text-primary">{opportunitiesCount}</p>
+            <p className="text-xs text-muted-foreground uppercase font-semibold">Opportunities</p>
+          </div>
+          <div className="text-center px-4">
+            <p className="text-2xl font-bold">{keywords.length}</p>
+            <p className="text-xs text-muted-foreground uppercase font-semibold">Keywords</p>
+          </div>
+        </div>
       </div>
 
-      {/* Divider */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-border" />
-        <span className="text-xs text-muted-foreground uppercase tracking-wider">or configure step by step</span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-
-      {/* Step-by-step tree */}
-      <div>
-        {STEP_ORDER.map((stepId, index) => {
-          const meta = STEP_META[stepId];
-          const status = statuses[stepId];
-          const summary = summaries[stepId];
-
-          return (
-            <WorkflowNode
-              key={stepId}
-              stepId={stepId}
-              index={index}
-              label={meta.label}
-              description={meta.description}
-              status={status}
-              isActive={activeStep === stepId}
-              isLast={index === STEP_ORDER.length - 1}
-              onToggle={() => toggleStep(stepId)}
-              summary={<span className="text-xs">{summary}</span>}
-            >
-              {stepId === "company" && (
-                <StepCompany
-                  token={token}
-                  onStatusChange={(s) => setStatus("company", s)}
-                  onSummary={(s) => updateSummary("company", s)}
-                  onContinue={() => advanceTo("company")}
-                />
-              )}
-              {stepId === "brand" && (
-                <StepBrand
-                  token={token}
-                  projectId={selectedProjectId}
-                  onStatusChange={(s) => setStatus("brand", s)}
-                  onSummary={(s) => updateSummary("brand", s)}
-                  onContinue={() => advanceTo("brand")}
-                />
-              )}
-              {stepId === "personas" && (
-                <StepPersonas
-                  token={token}
-                  projectId={selectedProjectId}
-                  onStatusChange={(s) => setStatus("personas", s)}
-                  onSummary={(s) => updateSummary("personas", s)}
-                  onContinue={() => advanceTo("personas")}
-                />
-              )}
-              {stepId === "communities" && (
-                <StepCommunities
-                  token={token}
-                  projectId={selectedProjectId}
-                  onStatusChange={(s) => setStatus("communities", s)}
-                  onSummary={(s) => updateSummary("communities", s)}
-                  onContinue={() => advanceTo("communities")}
-                />
-              )}
-              {stepId === "competitors" && (
-                <StepCompetitors
-                  token={token}
-                  projectId={selectedProjectId}
-                  onStatusChange={(s) => setStatus("competitors", s)}
-                  onContinue={() => advanceTo("competitors")}
-                />
-              )}
-              {stepId === "launch" && (
-                <StepLaunch
-                  token={token}
-                  projectId={selectedProjectId}
-                  readiness={readiness}
-                  onStatusChange={(s) => {
-                    setStatus("launch", s);
-                    if (s === "done") updateSummary("launch", "Scan complete");
-                  }}
-                />
-              )}
-            </WorkflowNode>
-          );
-        })}
+      {/* Tabs */}
+      <Tabs defaultValue="report" className="w-full">
+        <TabsList className="mb-6 w-full justify-start border-b rounded-none pb-px h-auto bg-transparent">
+          <TabsTrigger value="report" className="rounded-b-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none bg-transparent">
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Executive Report
+          </TabsTrigger>
+          <TabsTrigger value="intel" className="rounded-b-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none bg-transparent">
+            <Users className="h-4 w-4 mr-2" />
+            Extracted Intel
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="report" className="mt-0">
+          <div className="rounded-2xl border bg-card p-8 shadow-sm">
+            {reportMarkdown ? (
+              <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-a:text-primary">
+                <ReactMarkdown>{reportMarkdown}</ReactMarkdown>
+              </div>
+            ) : (
+              <div className="text-center text-muted-foreground py-10">
+                Report failed to generate.
+              </div>
+            )}
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="intel" className="mt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Search className="h-5 w-5 text-primary" />
+                Discovered Keywords
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {keywords.map((kw, i) => (
+                  <span key={i} className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-medium">
+                    {kw.keyword}
+                  </span>
+                ))}
+                {keywords.length === 0 && <span className="text-muted-foreground text-sm">No keywords found.</span>}
+              </div>
+            </div>
+            
+            <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                Competitors Identified
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {competitors.map((comp, i) => (
+                  <span key={i} className="px-3 py-1 border border-border bg-background rounded-full text-sm font-medium text-muted-foreground">
+                    {comp}
+                  </span>
+                ))}
+                {competitors.length === 0 && <span className="text-muted-foreground text-sm">No competitors found.</span>}
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+      
+      <div className="text-center pt-8">
+        <Button variant="outline" onClick={() => setState("idle")}>
+          Analyze Another Product
+        </Button>
       </div>
     </div>
   );

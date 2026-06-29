@@ -163,15 +163,67 @@ export default function CompanyPage() {
     event.preventDefault();
     if (!token || !autoUrl.trim()) return;
     setIsAutoRunning(true);
+    
+    // Clear any existing poll before starting a new one
+    if (analysisPollRef.current !== null) {
+      clearInterval(analysisPollRef.current);
+      analysisPollRef.current = null;
+    }
+    
     try {
       const res = await startAutoPipelineV2(token, { website_url: autoUrl.trim() });
       success("Auto Pipeline Started", res.message);
-      // Reload company list to show the newly created one
+      // Reload company list to show the newly created one (which will likely not have summary yet)
       await loadCompany();
+      
+      const tok = token;
+      let attempts = 0;
+      const maxAttempts = 60; // 3 minutes total
+      const stopPolling = () => {
+        if (analysisPollRef.current !== null) {
+          clearInterval(analysisPollRef.current);
+          analysisPollRef.current = null;
+        }
+        setIsAutoRunning(false);
+      };
+      
+      analysisPollRef.current = setInterval(async () => {
+        attempts++;
+        try {
+          const companies = await getCompanies(tok);
+          const updated = companies.find((c) => c.id === res.company_id);
+          if (updated) {
+            // Update company data when extracted_summary changes
+            setCompany((prev) => {
+              if (prev && updated.extracted_summary && updated.extracted_summary !== prev.extracted_summary) {
+                return updated;
+              }
+              // If we didn't have one loaded, load it.
+              if (!prev && updated.extracted_summary) {
+                return updated;
+              }
+              return prev;
+            });
+            // Stop polling once we see extracted data or hit max attempts
+            if (updated.extracted_summary || attempts >= maxAttempts) {
+              stopPolling();
+              if (updated.extracted_summary) {
+                success("Auto Pipeline Initialized", "Company intelligence updated. Agents are running in background.");
+              }
+            }
+          }
+        } catch {
+          // Silently ignore polling errors
+        }
+        if (attempts >= maxAttempts) {
+          stopPolling();
+        }
+      }, 3000);
+      
     } catch (err) {
       error("Auto Pipeline failed", err instanceof Error ? err.message : "Unknown error");
+      setIsAutoRunning(false);
     }
-    setIsAutoRunning(false);
   }
 
   if (loading) {
