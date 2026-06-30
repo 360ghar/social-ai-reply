@@ -48,6 +48,12 @@ import {
   Settings,
   Check,
   Zap,
+  BarChart2,
+  Crosshair,
+  Search,
+  Palette,
+  Terminal,
+  Eye,
 } from "lucide-react";
 import { MobileNav } from "@/components/shared/mobile-nav";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -81,7 +87,8 @@ const NAV_SECTIONS = [
     icon: LayoutDashboard,
     items: [
       { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/app/company", label: "Company Profile", icon: Building2 },
+      { href: "/app/analytics", label: "Analytics", icon: BarChart2 },
+      { href: "/app/agent-runs", label: "Agent Runs", icon: Workflow },
     ],
   },
   {
@@ -89,8 +96,27 @@ const NAV_SECTIONS = [
     icon: Workflow,
     items: [
       { href: "/app/workflow", label: "Workflow", icon: Workflow },
+      { href: "/app/company", label: "Company Profile", icon: Building2 },
       { href: "/app/discovery", label: "Social Radar", icon: Radar },
       { href: "/app/content", label: "Content Studio", icon: FileText },
+    ],
+  },
+  {
+    title: "INTELLIGENCE",
+    icon: Search,
+    items: [
+      { href: "/app/brand-brain", label: "Brand Brain", icon: Palette },
+      { href: "/app/competitors", label: "Competitor Intel", icon: Crosshair },
+      { href: "/app/sources", label: "Sources", icon: Search },
+      { href: "/app/scrapers", label: "Custom Scrapers", icon: Terminal },
+    ],
+  },
+  {
+    title: "OPTIMIZE",
+    icon: Eye,
+    items: [
+      { href: "/app/seo-geo", label: "SEO / GEO", icon: Eye },
+      { href: "/app/visibility", label: "AI Visibility", icon: Eye },
     ],
   },
   {
@@ -108,20 +134,21 @@ const PATH_TITLES: Record<string, string> = {
   "/app/discovery": "Social Radar",
   "/app/content": "Content Studio",
   "/app/settings": "Settings",
-  // Legacy pages still accessible via direct URL
-  "/app/auto-pipeline": "Auto Pipeline",
-  "/app/company": "Company Setup",
-  "/app/brand-brain": "Brand Brain",
-  "/app/competitors": "Competitor Intel",
-  "/app/persona": "Personas",
-  "/app/subreddits": "Communities",
-  "/app/scrapers": "Custom Scrapers",
   "/app/analytics": "Analytics",
   "/app/agent-runs": "Agent Runs",
+  "/app/brand-brain": "Brand Brain",
+  "/app/competitors": "Competitor Intel",
+  "/app/sources": "Sources",
+  "/app/scrapers": "Custom Scrapers",
   "/app/seo-geo": "SEO / GEO",
   "/app/visibility": "AI Visibility",
+  // Reachable via direct URL only (superseded by Workflow page steps,
+  // or kept for backward-compat links)
+  "/app/auto-pipeline": "Auto Pipeline",
+  "/app/company": "Company Setup",
+  "/app/persona": "Personas",
+  "/app/subreddits": "Communities",
   "/app/agents": "Agents Feed",
-  "/app/sources": "Sources",
   "/app/brand": "Brand Profile",
   "/app/prompts": "Prompts",
   "/app/content-studio": "Content Studio",

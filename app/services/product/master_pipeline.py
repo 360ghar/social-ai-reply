@@ -70,20 +70,42 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     company_name = company_profile.get("name")
     
     # 0. Load or create Project
+    # IMPORTANT: lookup is keyed on company_id (stable FK), not slug.
+    # A prior bug looked up by a clean slug ("flipkart") but created with a
+    # UUID-suffixed slug ("flipkart-a3f9c2"), so the lookup never matched and
+    # every pipeline run silently created a brand-new project. company_id is
+    # immune to that class of bug since it's never regenerated per-run.
     try:
-        from app.db.tables.projects import get_project_by_slug, create_project, create_brand_profile, get_brand_profile_by_project
+        from app.db.tables.projects import (
+            get_project_by_company_id,
+            get_project_by_slug,
+            create_project,
+            create_brand_profile,
+            get_brand_profile_by_project,
+        )
         project_name = company_name
-        slug = project_name.lower().replace(" ", "-") if project_name else "my-project"
-        project = get_project_by_slug(supabase, workspace["id"], slug)
+        base_slug = (project_name or "my-project").lower().replace(" ", "-")
+
+        project = get_project_by_company_id(supabase, workspace["id"], company_id) if company_id else None
+
+        # Legacy fallback: a project created before company_id linking existed
         if not project:
-            import uuid
-            raw_slug = project_name.lower().replace(" ", "-") + "-" + str(uuid.uuid4())[:6]
+            project = get_project_by_slug(supabase, workspace["id"], base_slug)
+
+        if not project:
             yield _log(f"Creating project '{project_name}'…")
+            # Only disambiguate the slug if there's an actual collision —
+            # don't append a UUID unconditionally, since that's what broke
+            # lookups before.
+            slug = base_slug
+            if get_project_by_slug(supabase, workspace["id"], slug):
+                import uuid
+                slug = f"{base_slug}-{str(uuid.uuid4())[:6]}"
             project = create_project(supabase, {
                 "workspace_id": workspace["id"],
                 "company_id": company_id,
                 "name": project_name,
-                "slug": raw_slug,
+                "slug": slug,
                 "status": "active"
             })
             # Create the brand profile so the dashboard sees it as configured
@@ -95,6 +117,7 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
                 "business_domain": ""
             })
         else:
+            yield _log(f"Reusing existing project '{project.get('name', project_name)}' (ID {project['id']})")
             # Self-heal: If project exists but brand profile is missing (e.g. from a past failed run)
             bp = get_brand_profile_by_project(supabase, project["id"])
             if not bp:
@@ -444,6 +467,35 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
                             yield _log(f"Failed to save opportunity: {exc}", "warn")
             except Exception as e:
                 yield _log(f"Error scoring post: {e}", "warn")
+
+    # 3b. Competitor Intelligence — detect mentions in the posts we just scored.
+    # This was previously only wired into the legacy pipeline.py orchestrator,
+    # which meant the Competitor Intel page stayed empty for anyone using the
+    # Auto-Analyze flow or a manual Launch Scan. Wiring it here (and in
+    # scanner.py) makes all three entry points feed the same page consistently.
+    if project_id and competitor_list and scored_opps:
+        yield _section("Competitor Intelligence")
+        try:
+            from app.services.product.competitor_intel import process_competitor_opportunities
+            post_dicts_for_comp = [
+                {
+                    "title": o.get("title", ""),
+                    "body": o.get("body", ""),
+                    "selftext": o.get("body", ""),
+                    "platform": o.get("platform", "reddit"),
+                    "url": o.get("post_url", ""),
+                }
+                for o in scored_opps
+            ]
+            comp_mentions = await process_competitor_opportunities(
+                supabase, project_id, post_dicts_for_comp, competitor_list
+            )
+            if comp_mentions:
+                yield _log(f"Detected {len(comp_mentions)} competitor mentions across scanned posts", "success")
+            else:
+                yield _log("No competitor mentions found in this batch", "info")
+        except Exception as exc:
+            yield _log(f"Competitor intelligence scan failed (non-fatal): {exc}", "warn")
 
     # 4. Generate Document
     yield _section("Generating Final Report")

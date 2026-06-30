@@ -77,7 +77,13 @@ def generate_personas(
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     project = get_project(supabase, workspace["id"], project_id)
 
-    generated = ProductCopilot().suggest_personas(project.get("brand_profile"), count=count)
+    # NOTE: project.get("brand_profile") was a bug — projects rows never had
+    # that key, so generation always fell back to generic, non-brand-aware
+    # personas. resolve_brand_context merges brand_profiles + company_profiles.
+    from app.db.tables.projects import resolve_brand_context
+    brand = resolve_brand_context(supabase, workspace["id"], project_id)
+
+    generated = ProductCopilot().suggest_personas(brand, count=count)
     rows = []
     for item in generated:
         persona_data = {"project_id": project_id, **item}

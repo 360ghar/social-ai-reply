@@ -601,6 +601,48 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
                 except Exception:
                     pass
 
+        # ── Competitor Intelligence ────────────────────────────────────────────
+        # Previously this only ran from the legacy auto-pipeline orchestrator,
+        # so the Competitor Intel page stayed empty for manual scans run from
+        # Social Radar / the Launch step. Wiring it here makes every scan path
+        # (auto-pipeline, master_pipeline, manual scan) populate the same page.
+        if opportunities_found > 0:
+            try:
+                from app.services.product.competitor_intel import (
+                    get_project_competitors,
+                    process_competitor_opportunities,
+                )
+                from app.db.tables.discovery import list_opportunities_for_project
+
+                competitors = get_project_competitors(db, project["id"])
+                if competitors:
+                    recent_opps = list_opportunities_for_project(db, project["id"], limit=100)
+                    post_dicts = [
+                        {
+                            "title": o.get("title", ""),
+                            "body": o.get("body_excerpt", "") or o.get("body_text", ""),
+                            "selftext": o.get("body_excerpt", "") or o.get("body_text", ""),
+                            "platform": o.get("platform", "reddit"),
+                            "url": o.get("permalink") or o.get("post_url", ""),
+                        }
+                        for o in recent_opps
+                    ]
+                    # run_scan is synchronous, so spin up a fresh event loop
+                    # rather than trying to await inside a sync function.
+                    import asyncio as _asyncio_comp
+                    _comp_loop = _asyncio_comp.new_event_loop()
+                    try:
+                        comp_mentions = _comp_loop.run_until_complete(
+                            process_competitor_opportunities(db, project["id"], post_dicts, competitors)
+                        )
+                    finally:
+                        _comp_loop.close()
+                    logger.info("Competitor intel: %d mentions detected during scan", len(comp_mentions))
+                else:
+                    logger.info("No competitors configured for project %s — skipping competitor intel", project["id"])
+            except Exception as _comp_err:
+                logger.warning("Competitor intelligence scan failed (non-fatal): %s", _comp_err)
+
         # Persist final scan results (always runs, regardless of free sources)
         update_scan_run(db, run["id"], {
             "status": "completed",

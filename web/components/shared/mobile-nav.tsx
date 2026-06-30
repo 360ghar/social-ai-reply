@@ -35,14 +35,33 @@ const MORE_SECTIONS = [
     title: "OVERVIEW",
     items: [
       { href: "/app/dashboard", label: "Dashboard" },
+      { href: "/app/analytics", label: "Analytics" },
+      { href: "/app/agent-runs", label: "Agent Runs" },
     ],
   },
   {
     title: "PIPELINE",
     items: [
       { href: "/app/workflow", label: "Workflow" },
+      { href: "/app/company", label: "Company Profile" },
       { href: "/app/discovery", label: "Social Radar" },
       { href: "/app/content", label: "Content Studio" },
+    ],
+  },
+  {
+    title: "INTELLIGENCE",
+    items: [
+      { href: "/app/brand-brain", label: "Brand Brain" },
+      { href: "/app/competitors", label: "Competitor Intel" },
+      { href: "/app/sources", label: "Sources" },
+      { href: "/app/scrapers", label: "Custom Scrapers" },
+    ],
+  },
+  {
+    title: "OPTIMIZE",
+    items: [
+      { href: "/app/seo-geo", label: "SEO / GEO" },
+      { href: "/app/visibility", label: "AI Visibility" },
     ],
   },
   {
