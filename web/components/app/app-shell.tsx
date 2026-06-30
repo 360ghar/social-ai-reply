@@ -46,6 +46,7 @@ import {
   Radar,
   FileText,
   Settings,
+  Users,
   Check,
   Zap,
   BarChart2,
@@ -87,36 +88,21 @@ const NAV_SECTIONS = [
     icon: LayoutDashboard,
     items: [
       { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/app/analytics", label: "Analytics", icon: BarChart2 },
-      { href: "/app/agent-runs", label: "Agent Runs", icon: Workflow },
-    ],
-  },
-  {
-    title: "PIPELINE",
-    icon: Workflow,
-    items: [
       { href: "/app/workflow", label: "Workflow", icon: Workflow },
-      { href: "/app/company", label: "Company Profile", icon: Building2 },
       { href: "/app/discovery", label: "Social Radar", icon: Radar },
       { href: "/app/content", label: "Content Studio", icon: FileText },
     ],
   },
   {
-    title: "INTELLIGENCE",
-    icon: Search,
+    title: "COMPANY",
+    icon: Building2,
     items: [
-      { href: "/app/brand-brain", label: "Brand Brain", icon: Palette },
-      { href: "/app/competitors", label: "Competitor Intel", icon: Crosshair },
-      { href: "/app/sources", label: "Sources", icon: Search },
-      { href: "/app/scrapers", label: "Custom Scrapers", icon: Terminal },
-    ],
-  },
-  {
-    title: "OPTIMIZE",
-    icon: Eye,
-    items: [
-      { href: "/app/seo-geo", label: "SEO / GEO", icon: Eye },
-      { href: "/app/visibility", label: "AI Visibility", icon: Eye },
+      { href: "/app/company", label: "Company Profile", icon: Building2 },
+      { href: "/app/persona", label: "Target Personas", icon: Users, indent: true },
+      { href: "/app/brand-brain", label: "Brand Brain", icon: Palette, indent: true },
+      { href: "/app/competitors", label: "Competitor Intel", icon: Crosshair, indent: true },
+      { href: "/app/sources", label: "Sources", icon: Search, indent: true },
+      { href: "/app/pipeline-runs", label: "Run History", icon: Terminal, indent: true },
     ],
   },
   {
@@ -139,7 +125,6 @@ const PATH_TITLES: Record<string, string> = {
   "/app/brand-brain": "Brand Brain",
   "/app/competitors": "Competitor Intel",
   "/app/sources": "Sources",
-  "/app/scrapers": "Custom Scrapers",
   "/app/seo-geo": "SEO / GEO",
   "/app/visibility": "AI Visibility",
   // Reachable via direct URL only (superseded by Workflow page steps,
@@ -650,7 +635,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
                             href={item.href}
                             className={cn(
                               "flex items-center gap-2.5 rounded-md mx-1 px-2.5 py-2 text-sm text-sidebar-foreground/80 no-underline transition-all duration-150 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                              isActive && "bg-coral-glow text-primary font-medium"
+                              isActive && "bg-coral-glow text-primary font-medium",
+                              (item as any).indent && "ml-4"
                             )}
                             onClick={() => setSidebarOpen(false)}
                           >

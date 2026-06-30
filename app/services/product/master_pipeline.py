@@ -156,6 +156,30 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     yield _data("company_name", company_name)
     yield _log(f"Identified Brand: {company_name}")
 
+    # Update company and brand profile with enriched data
+    if company_id:
+        try:
+            from app.db.tables.company import update_company
+            update_company(supabase, company_id, {
+                "name": company_name,
+                "description": enriched.get("description", ""),
+                "features": enriched.get("features", ""),
+                "benefits": enriched.get("benefits", ""),
+                "pain_points": enriched.get("pain_points", ""),
+                "target_audience": enriched.get("target_audience", ""),
+            })
+            if project_id:
+                from app.db.tables.projects import update_brand_profile, get_brand_profile_by_project
+                bp = get_brand_profile_by_project(supabase, project_id)
+                if bp:
+                    update_brand_profile(supabase, bp["id"], {
+                        "brand_name": company_name,
+                        "summary": enriched.get("description", ""),
+                        "target_audience": enriched.get("target_audience", "")
+                    })
+        except Exception as exc:
+            yield _log(f"Failed to update company profile: {exc}", "warn")
+
     # Competitors
     raw_competitors = enriched.get("competitors") or enriched.get("extracted_competitors") or ""
     competitor_list = []
@@ -216,32 +240,35 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
             except Exception as exc:
                 yield _log(f"Failed to save personas: {exc}", "warn")
 
-    if not kws_db:
-        yield _log("Generating seed search keywords…")
-        from app.services.product.copilot import generate_keywords, expand_keywords
+    if len(kws_db) < 10:
+        yield _log("Generating search keywords…")
+        from app.services.product.copilot import generate_keywords
         generated = await loop.run_in_executor(
             None,
             lambda: generate_keywords({
                 "brand_name": enriched.get("name", ""),
                 "summary": enriched.get("extracted_summary", ""),
                 "product_summary": enriched.get("description", ""),
-            }, personas_list, count=10),  # Generate 10 seeds
+            }, personas_list, count=30),  # Generate 30 keywords directly
         )
-        seed_keywords = [
-            kw.keyword if hasattr(kw, "keyword") else str(kw)
+        
+        new_kws = [
+            {
+                "keyword": kw.keyword if hasattr(kw, "keyword") else str(kw),
+                "type": getattr(kw, "category", "core") if hasattr(kw, "category") else "core",
+                "priority": getattr(kw, "priority_score", 50) if hasattr(kw, "priority_score") else 50
+            }
             for kw in generated
-        ][:5]  # Take top 5 seeds
-        
-        yield _log(f"Expanding {len(seed_keywords)} seed keywords into conversational variants…")
-        expanded = await expand_keywords(seed_keywords)
-        
-        kws_list = [
-            {"keyword": kw["keyword"], "type": kw["type"], "priority": kw["priority_score"]}
-            for kw in expanded
         ]
         
-        if not kws_list:
-            kws_list = [{"keyword": s, "type": "core", "priority": 50} for s in seed_keywords]
+        # Merge avoiding duplicates
+        existing_kw_strs = {k.keyword.lower() if hasattr(k, "keyword") else str(k).lower() for k in kws_db}
+        for kw in new_kws:
+            if kw["keyword"].lower() not in existing_kw_strs:
+                kws_list.append(kw)
+                
+        if not kws_list and not kws_db:
+            kws_list = [{"keyword": company_name, "type": "core", "priority": 50}]
 
         yield _log(f"Generated {len(kws_list)} expanded keywords.", "success")
         yield _data("keywords_count", len(kws_list))
@@ -260,6 +287,9 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
                     })
             except Exception as exc:
                 yield _log(f"Failed to save keywords: {exc}", "warn")
+                
+        # Combine old and new for the rest of the pipeline
+        kws_list = kws_db + kws_list
     else:
         kws_list = kws_db
 
@@ -334,6 +364,25 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
     except Exception:
         subreddits = fallback_subs
     yield _log(f"Selected subreddits: {', '.join(subreddits)}", "info")
+
+    if project_id:
+        try:
+            from app.db.tables.discovery import create_monitored_subreddit, get_subreddit_by_project_and_name
+            for s_name in subreddits:
+                existing = get_subreddit_by_project_and_name(supabase, project_id, s_name)
+                if not existing:
+                    create_monitored_subreddit(supabase, {
+                        "project_id": project_id,
+                        "name": s_name,
+                        "title": f"r/{s_name}",
+                        "description": "",
+                        "subscribers": 0,
+                        "activity_score": 50,
+                        "fit_score": 50,
+                        "is_active": True
+                    })
+        except Exception as exc:
+            yield _log(f"Failed to save subreddits: {exc}", "warn")
 
     # Run all platforms (including new free native scrapers) via PlatformRouter asynchronously
     router_platforms = ["twitter", "linkedin", "instagram", "hackernews", "github", "reddit", "indiehackers"]
@@ -508,6 +557,28 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
         opportunities=scored_opps,
     )
 
+    if project_id:
+        try:
+            from app.db.tables.analytics import create_auto_pipeline
+            create_auto_pipeline(supabase, {
+                "project_id": project_id,
+                "website_url": website_url,
+                "status": "executed",
+                "progress": 100,
+                "personas_count": len(personas_list),
+                "keywords_count": len(kws_list),
+                "subreddits_count": len(subs_list) if 'subs_list' in locals() else 0,
+                "opportunities_count": len(scored_opps),
+                "drafts_count": 0,
+                "results": {
+                    "brand_summary": enriched.get("extracted_summary", ""),
+                    "report_md": report_md
+                }
+            })
+            yield _log("Saved pipeline run history to database.", "success")
+        except Exception as exc:
+            yield _log(f"Failed to save pipeline run to history: {exc}", "warn")
+
     yield _data("report", report_md)
     yield _log("Report ready.", "success")
 
@@ -519,3 +590,4 @@ async def run_full_pipeline_stream(url: str, workspace: dict, supabase: Any) -> 
         "opportunities_count": len(scored_opps),
         "report": report_md
     })
+

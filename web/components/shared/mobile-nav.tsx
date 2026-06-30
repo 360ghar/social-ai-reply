@@ -35,26 +35,18 @@ const MORE_SECTIONS = [
     title: "OVERVIEW",
     items: [
       { href: "/app/dashboard", label: "Dashboard" },
-      { href: "/app/analytics", label: "Analytics" },
-      { href: "/app/agent-runs", label: "Agent Runs" },
-    ],
-  },
-  {
-    title: "PIPELINE",
-    items: [
       { href: "/app/workflow", label: "Workflow" },
-      { href: "/app/company", label: "Company Profile" },
       { href: "/app/discovery", label: "Social Radar" },
       { href: "/app/content", label: "Content Studio" },
     ],
   },
   {
-    title: "INTELLIGENCE",
+    title: "COMPANY",
     items: [
-      { href: "/app/brand-brain", label: "Brand Brain" },
-      { href: "/app/competitors", label: "Competitor Intel" },
-      { href: "/app/sources", label: "Sources" },
-      { href: "/app/scrapers", label: "Custom Scrapers" },
+      { href: "/app/company", label: "Company Profile" },
+      { href: "/app/brand-brain", label: "Brand Brain", indent: true },
+      { href: "/app/competitors", label: "Competitor Intel", indent: true },
+      { href: "/app/sources", label: "Sources", indent: true },
     ],
   },
   {
@@ -137,7 +129,8 @@ export function MobileNav() {
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors hover:bg-muted",
                       (pathname === item.href || pathname.startsWith(item.href + "/"))
                         ? "border-l-[3px] border-l-primary bg-primary/10 text-primary font-semibold"
-                        : "text-muted-foreground"
+                        : "text-muted-foreground",
+                      (item as any).indent && "ml-4"
                     )}
                   >
                     {item.label}

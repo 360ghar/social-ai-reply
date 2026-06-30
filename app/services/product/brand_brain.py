@@ -259,6 +259,7 @@ class BrandBrain:
 
         # Update fields if empty in current profile
         for field_name, extracted_value in [
+            ("description", extracted.get("product_summary", "")),
             ("category", extracted.get("industry", "")),
             ("target_audience", extracted.get("icp", "")),
             ("brand_voice", extracted.get("tone_of_voice", "")),

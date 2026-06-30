@@ -40,6 +40,12 @@ import {
   Activity,
   CheckCircle2,
   Circle,
+  MessageSquare,
+  BarChart2,
+  AlertCircle,
+  Clock,
+  ExternalLink,
+  Workflow,
 } from "lucide-react";
 import { apiRequest, type Opportunity, type Project } from "@/lib/api";
 import { sourceLabel } from "@/lib/opportunity";
@@ -191,6 +197,19 @@ const QUICK_ACTIONS = [
     label: "Analytics",
     icon: BarChart3,
     href: "/app/analytics",
+  },
+];
+
+const REPORTS_TOOLS = [
+  {
+    label: "Agent Runs",
+    icon: Workflow,
+    href: "/app/agent-runs",
+  },
+  {
+    label: "SEO / GEO",
+    icon: Eye,
+    href: "/app/seo-geo",
   },
 ];
 
@@ -782,6 +801,30 @@ export default function DashboardPage() {
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {qa.label}
+                  </Button>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Reports & Tools */}
+          <Card size="sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Reports & Tools</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1">
+              {REPORTS_TOOLS.map((rt) => {
+                const Icon = rt.icon;
+                return (
+                  <Button
+                    key={rt.label}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2.5"
+                    onClick={() => router.push(rt.href)}
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                    {rt.label}
                   </Button>
                 );
               })}
