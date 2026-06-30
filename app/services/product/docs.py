@@ -65,24 +65,25 @@ def generate_markdown_report(
     md += "## Recommended Keywords\n"
     if keywords:
         kws = [(k.get("keyword") if isinstance(k, dict) else str(k)) for k in keywords if (k.get("keyword") if isinstance(k, dict) else k)]
-        md += ", ".join(kws) + "\n\n"
+        for kw in kws:
+            md += f"- {kw}\n"
+        md += "\n"
     else:
         md += "No keywords generated.\n\n"
 
     md += f"## Discovered Opportunities ({len(opportunities)} found)\n"
     if opportunities:
-        md += "| Score | Source | Title |\n"
-        md += "|-------|--------|-------|\n"
         # Only show top 10 in report
         for opp in sorted(opportunities, key=lambda x: x.get("score", 0), reverse=True)[:10]:
             score = opp.get("score", 0)
             source = opp.get("platform") or "reddit"
             title = opp.get("title") or opp.get("body", "No Title")
-            title_trunc = (title[:50] + "...") if len(title) > 50 else title
+            title_trunc = (title[:100] + "...") if len(title) > 100 else title
             title_trunc = title_trunc.replace("\n", " ").replace("|", "")
 
             url = opp.get("post_url") or "#"
-            md += f"| {score} | {source} | [{title_trunc}]({url}) |\n"
+            md += f"- **[{title_trunc}]({url})** — *{source}* (Score: {score})\n"
+        md += "\n"
     else:
         md += "No actionable opportunities discovered in this run.\n"
 

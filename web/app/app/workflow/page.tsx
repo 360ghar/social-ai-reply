@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Zap, CheckCircle2, ArrowRight, Building2, Users, Search, BarChart3, Activity } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -265,7 +266,7 @@ export default function WorkflowPage() {
           <div className="rounded-2xl border bg-card p-8 shadow-sm">
             {reportMarkdown ? (
               <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-a:text-primary">
-                <ReactMarkdown>{reportMarkdown}</ReactMarkdown>
+                <ReactMarkdown className="prose dark:prose-invert max-w-none" remarkPlugins={[remarkGfm]}>{reportMarkdown}</ReactMarkdown>
               </div>
             ) : (
               <div className="text-center text-muted-foreground py-10">
