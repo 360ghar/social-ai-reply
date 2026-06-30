@@ -98,11 +98,6 @@ const NAV_SECTIONS = [
     icon: Building2,
     items: [
       { href: "/app/company", label: "Company Profile", icon: Building2 },
-      { href: "/app/persona", label: "Target Personas", icon: Users, indent: true },
-      { href: "/app/brand-brain", label: "Brand Brain", icon: Palette, indent: true },
-      { href: "/app/competitors", label: "Competitor Intel", icon: Crosshair, indent: true },
-      { href: "/app/sources", label: "Sources", icon: Search, indent: true },
-      { href: "/app/pipeline-runs", label: "Run History", icon: Terminal, indent: true },
     ],
   },
   {

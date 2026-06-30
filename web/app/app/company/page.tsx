@@ -21,6 +21,7 @@ import {
   type CompanyProfile,
 } from "@/lib/api/company";
 import { startAutoPipelineV2 } from "@/lib/api/auto-pipeline-v2";
+import { CompanyNav } from "@/components/company/company-nav";
 
 export default function CompanyPage() {
   const { token } = useAuth();
@@ -241,6 +242,7 @@ export default function CompanyPage() {
   if (!company) {
     return (
       <div className="space-y-8">
+        <CompanyNav />
         <PageHeader title="Company Setup" />
 
         <Card className="border-dashed border-primary/30 bg-primary/5">
@@ -311,6 +313,7 @@ export default function CompanyPage() {
 
   return (
     <div className="space-y-8">
+      <CompanyNav />
       <PageHeader
         title="Company Setup"
         actions={

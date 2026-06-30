@@ -266,7 +266,7 @@ export default function WorkflowPage() {
           <div className="rounded-2xl border bg-card p-8 shadow-sm">
             {reportMarkdown ? (
               <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-a:text-primary">
-                <ReactMarkdown className="prose dark:prose-invert max-w-none" remarkPlugins={[remarkGfm]}>{reportMarkdown}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{reportMarkdown}</ReactMarkdown>
               </div>
             ) : (
               <div className="text-center text-muted-foreground py-10">

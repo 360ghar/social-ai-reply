@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
+import { CompanyNav } from "@/components/company/company-nav";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import ReactMarkdown from "react-markdown";
@@ -78,6 +79,7 @@ export default function PipelineRunsPage() {
 
   return (
     <div className="space-y-6">
+      <CompanyNav />
       <PageHeader
         title="Run History"
         description="History of automated intelligence gathering runs."

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/shared/page-header";
+import { CompanyNav } from "@/components/company/company-nav";
 import { EmptyState } from "@/components/shared/empty-state";
 import {
   getCompanies,
@@ -110,7 +111,8 @@ export default function BrandBrainPage() {
   if (!company) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Brand Brain" />
+        <CompanyNav />
+      <PageHeader title="Brand Brain" />
         <EmptyState
           icon={RefreshCw}
           title="No company found"
@@ -132,6 +134,7 @@ export default function BrandBrainPage() {
 
   return (
     <div className="space-y-8">
+      <CompanyNav />
       <PageHeader
         title="Brand Brain"
         actions={

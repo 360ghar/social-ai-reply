@@ -34,6 +34,7 @@ import { apiRequest, type Dashboard, type Persona } from "@/lib/api";
 import { fetchDashboard, getCurrentProject } from "@/lib/workspace-data";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PageHeader } from "@/components/shared/page-header";
+import { CompanyNav } from "@/components/company/company-nav";
 import { KPIGrid, type KPICardProps } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 
@@ -242,6 +243,7 @@ export default function PersonaPage() {
 
   return (
     <div className="space-y-6">
+      <CompanyNav />
       <PageHeader
         title="Personas"
         description="Define who you want to help on Reddit"
