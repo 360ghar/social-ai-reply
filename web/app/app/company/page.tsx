@@ -20,8 +20,12 @@ import {
 } from "@/lib/api/company";
 import { startAutoPipelineV2 } from "@/lib/api/auto-pipeline-v2";
 import { CompanyNav } from "@/components/company/company-nav";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { useProjectStore } from "@/stores/project-store";
+
 export default function CompanyPage() {
   const { token } = useAuth();
+  const selectedProjectId = useSelectedProjectId();
   const { success, error } = useToast();
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<CompanyProfile | null>(null);
@@ -84,6 +88,9 @@ export default function CompanyPage() {
       is_active: _ia,
       ...payload
     } = company;
+    if (selectedProjectId && !_id) {
+      (payload as any).project_id = selectedProjectId;
+    }
     return payload;
   }
   async function handleSave(event: FormEvent<HTMLFormElement>) {
@@ -175,7 +182,11 @@ export default function CompanyPage() {
     }
     
     try {
-      const res = await startAutoPipelineV2(token, { website_url: autoUrl.trim() });
+      const payload: any = { website_url: autoUrl.trim() };
+      if (selectedProjectId) {
+        payload.project_id = selectedProjectId;
+      }
+      const res = await startAutoPipelineV2(token, payload);
       success("Auto Pipeline Started", res.message);
       // Reload company list to show the newly created one (which will likely not have summary yet)
       await loadCompany();
