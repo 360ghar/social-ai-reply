@@ -22,9 +22,12 @@ import {
 } from "@/lib/api/company";
 import { startAutoPipelineV2 } from "@/lib/api/auto-pipeline-v2";
 import { CompanyNav } from "@/components/company/company-nav";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { useProjectStore } from "@/stores/project-store";
 
 export default function CompanyPage() {
   const { token } = useAuth();
+  const selectedProjectId = useSelectedProjectId();
   const { success, error } = useToast();
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<CompanyProfile | null>(null);
@@ -48,13 +51,22 @@ export default function CompanyPage() {
   useEffect(() => {
     if (!token) return;
     void loadCompany();
-  }, [token]);
+  }, [token, selectedProjectId]);
 
   async function loadCompany() {
     setLoading(true);
     try {
       const companies = await getCompanies(token!);
-      const active = companies.find((c) => c.is_active) ?? companies[0] ?? null;
+      let active = null;
+      if (selectedProjectId) {
+        const project = useProjectStore.getState().projects.find(p => p.id === selectedProjectId);
+        if (project?.company_id) {
+          active = companies.find((c) => c.id === project.company_id) || null;
+        }
+      }
+      if (!active) {
+        active = companies.find((c) => c.is_active) ?? companies[0] ?? null;
+      }
       setCompany(active);
     } catch (err) {
       error("Failed to load company", err instanceof Error ? err.message : "Unknown error");
@@ -77,6 +89,9 @@ export default function CompanyPage() {
       is_active: _ia,
       ...payload
     } = company;
+    if (selectedProjectId && !_id) {
+      (payload as any).project_id = selectedProjectId;
+    }
     return payload;
   }
 
@@ -172,7 +187,11 @@ export default function CompanyPage() {
     }
     
     try {
-      const res = await startAutoPipelineV2(token, { website_url: autoUrl.trim() });
+      const payload: any = { website_url: autoUrl.trim() };
+      if (selectedProjectId) {
+        payload.project_id = selectedProjectId;
+      }
+      const res = await startAutoPipelineV2(token, payload);
       success("Auto Pipeline Started", res.message);
       // Reload company list to show the newly created one (which will likely not have summary yet)
       await loadCompany();

@@ -26,6 +26,7 @@ router = APIRouter(prefix="/v1", tags=["auto-pipeline"])
 class AutoPipelineV2Request(BaseModel):
     website_url: str = Field(min_length=5, max_length=2000)
     name: str = Field(min_length=1, max_length=255, default="")
+    project_id: int | None = Field(default=None)
 
 
 class AutoPipelineV2Response(BaseModel):
@@ -102,6 +103,10 @@ def start_auto_pipeline_v2(
 
     company = create_company(supabase, company_data)
     company_id = company["id"]
+
+    if payload.project_id:
+        from app.db.tables.projects import update_project
+        update_project(supabase, payload.project_id, {"company_id": company_id})
 
     background_tasks.add_task(_run_full_pipeline_background, company_id)
 

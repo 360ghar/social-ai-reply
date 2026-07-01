@@ -19,6 +19,7 @@ def _jsonb_to_str(value: Any) -> str | None:
 
 class CompanyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    project_id: int | None = Field(default=None)
     website_url: str | None = Field(default=None, max_length=2000)
     description: str | None = Field(default=None, max_length=4000)
     category: str | None = Field(default=None, max_length=255)
