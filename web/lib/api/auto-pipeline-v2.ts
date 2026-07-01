@@ -3,6 +3,7 @@ import { apiRequest } from "../api";
 export interface AutoPipelineV2Request {
   website_url: string;
   name?: string;
+  project_id?: number | null;
 }
 
 export interface AutoPipelineV2Response {

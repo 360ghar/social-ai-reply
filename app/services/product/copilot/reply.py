@@ -263,6 +263,18 @@ def _ai_reply(
 ) -> tuple[str, str, str] | None:
     """Generate reply using LLM, with platform-aware tone."""
     effective_platform = (platform or opportunity.get("platform") or "reddit").lower()
+
+    if effective_platform == "reddit" and voice_profile is None and subreddit_tone_rules is None:
+        try:
+            from app.services.infrastructure.llm.service import generate_reply_sync as llm_generate_reply_sync
+
+            agent_prompts = [{"prompt_type": "reply", "name": "Reply", "instructions": prompt_context}]
+            result = llm_generate_reply_sync(opportunity, brand, agent_prompts)
+            if result is not None:
+                return result
+        except Exception as agent_error:
+            logger.warning("Pydantic AI reply agent failed, falling back to legacy: %s", agent_error)
+
     try:
         system_prompt, user_content = _build_prompts(
             opportunity, brand, prompt_context,

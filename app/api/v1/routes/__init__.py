@@ -9,6 +9,7 @@ from app.api.v1.routes.agents import router as agents_router
 from app.api.v1.routes.amplify import router as amplify_router
 from app.api.v1.routes.analytics import router as analytics_router
 from app.api.v1.routes.analytics_v2 import router as analytics_v2_router
+from app.api.v1.routes.analyze import router as analyze_router
 from app.api.v1.routes.articles import router as articles_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.auto_pipeline import router as auto_pipeline_router
@@ -35,6 +36,7 @@ from app.api.v1.routes.projects import router as projects_router
 from app.api.v1.routes.prompts import router as prompts_router
 from app.api.v1.routes.reddit_posting import router as reddit_posting_router
 from app.api.v1.routes.scans import router as scans_router
+from app.api.v1.routes.scrapers import router as scrapers_router
 from app.api.v1.routes.secrets import router as secrets_router
 from app.api.v1.routes.seo import router as seo_router
 from app.api.v1.routes.sources import router as sources_router
@@ -54,6 +56,7 @@ router.include_router(analytics_router)
 router.include_router(analytics_v2_router)
 router.include_router(articles_router)
 router.include_router(auth_router)
+router.include_router(analyze_router)
 router.include_router(auto_pipeline_router)
 router.include_router(auto_pipeline_v2_router)
 router.include_router(billing_router)
@@ -79,6 +82,7 @@ router.include_router(projects_router)
 router.include_router(prompts_router)
 router.include_router(reddit_posting_router)
 router.include_router(scans_router)
+router.include_router(scrapers_router)
 router.include_router(secrets_router)
 router.include_router(seo_router)
 router.include_router(sources_router)

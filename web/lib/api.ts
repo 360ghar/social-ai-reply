@@ -26,6 +26,7 @@ export type AuthPayload = {
 export type Project = {
   id: number;
   workspace_id: number;
+  company_id?: number | null;
   name: string;
   slug: string;
   description: string | null;

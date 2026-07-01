@@ -8,6 +8,7 @@
  * @deprecated Use `platformUrl()` for multi-platform support.
  */
 export function redditUrl(permalink: string): string {
+  if (!permalink) return "";
   if (permalink.startsWith("http")) {
     return permalink;
   }
@@ -21,6 +22,7 @@ export function redditUrl(permalink: string): string {
  *   (their URLs are already absolute).
  */
 export function platformUrl(permalink: string, platform?: string): string {
+  if (!permalink) return "";
   if (!platform || platform.toLowerCase() === "reddit") {
     return redditUrl(permalink);
   }

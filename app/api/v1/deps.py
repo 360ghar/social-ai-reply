@@ -9,7 +9,7 @@ import logging
 from datetime import UTC, datetime
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client
 
@@ -82,6 +82,7 @@ def _is_token_revoked(user: dict, payload: dict, token: str) -> bool:
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     supabase: Client = Depends(get_supabase),
 ) -> dict:
@@ -93,10 +94,14 @@ def get_current_user(
     Returns:
         User record dict with keys: id, supabase_user_id, email, full_name, is_active, etc.
     """
-    if not credentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    token_str = request.query_params.get("token")
+    if not token_str:
+        if not credentials:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+        token_str = credentials.credentials
+
     try:
-        payload = verify_supabase_jwt(credentials.credentials)
+        payload = verify_supabase_jwt(token_str)
         supabase_uid = payload["sub"]
     except JWKSUnavailableError as exc:
         logger.error("JWKS unavailable while verifying JWT: %s", exc)
@@ -118,20 +123,25 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
     if not user.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated.")
-    if _is_token_revoked(user, payload, credentials.credentials):
+    if _is_token_revoked(user, payload, token_str):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
     return user
 
 
 def get_current_user_optional(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     supabase: Client = Depends(get_supabase),
 ) -> dict | None:
     """Like get_current_user but returns None instead of raising when unauthenticated."""
-    if not credentials:
-        return None
+    token_str = request.query_params.get("token")
+    if not token_str:
+        if not credentials:
+            return None
+        token_str = credentials.credentials
+
     try:
-        payload = verify_supabase_jwt(credentials.credentials)
+        payload = verify_supabase_jwt(token_str)
         supabase_uid = payload["sub"]
     except (jwt.InvalidTokenError, jwt.DecodeError, jwt.ExpiredSignatureError, ValueError):
         return None

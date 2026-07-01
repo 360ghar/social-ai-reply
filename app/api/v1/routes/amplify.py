@@ -138,7 +138,11 @@ def create_amplified_draft(
         supabase, workspace["id"], payload
     )
     voice_profile = _load_voice_profile(supabase, project["id"], payload.voice_profile_id)
-    brand = project.get("brand_profile")
+    # NOTE: project.get("brand_profile") was a bug — projects rows never had
+    # that key, so amplified X/LinkedIn posts were generated with zero brand
+    # context (no name, tone, or audience) every single time.
+    from app.db.tables.projects import resolve_brand_context
+    brand = resolve_brand_context(supabase, project["workspace_id"], project["id"])
 
     if payload.target == "x":
         tweets = amplify_to_x_thread(source, brand, voice_profile=voice_profile)

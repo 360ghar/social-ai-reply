@@ -86,19 +86,35 @@ export function CommunitiesSection({
         )}
 
         {/* Multi-platform info strip */}
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 px-3 py-2.5">
-          <span className="text-xs text-muted-foreground font-medium">Also scanning via keywords:</span>
-          <div className="flex items-center gap-1.5">
-            <PlatformIcon platform="twitter" />
-            <span className="text-xs text-muted-foreground">Twitter / X</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <PlatformIcon platform="linkedin" />
-            <span className="text-xs text-muted-foreground">LinkedIn</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <PlatformIcon platform="instagram" />
-            <span className="text-xs text-muted-foreground">Instagram</span>
+        <div className="mt-6 border-t pt-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs text-muted-foreground font-medium">Also scanning via keywords:</span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <PlatformIcon platform="twitter" />
+                <span className="text-xs text-muted-foreground">Twitter</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <PlatformIcon platform="hackernews" />
+                <span className="text-xs text-muted-foreground">HackerNews</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <PlatformIcon platform="github" />
+                <span className="text-xs text-muted-foreground">GitHub</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <PlatformIcon platform="indiehackers" />
+                <span className="text-xs text-muted-foreground">IndieHackers</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <PlatformIcon platform="linkedin" />
+                <span className="text-xs text-muted-foreground">LinkedIn</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <PlatformIcon platform="instagram" />
+                <span className="text-xs text-muted-foreground">Instagram</span>
+              </div>
+            </div>
           </div>
         </div>
       </CardContent>

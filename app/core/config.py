@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     ollama_base_url: str | None = None
     local_llm_model: str = "llama3.1"
 
-    embedding_model: str = Field(default="tfidf", description="Embedding model: tfidf or sentence-transformers")
+    embedding_model: str = Field(default="gemini", description="Embedding model: gemini (API-based)")
     # Rollback switch for the 2026-06 scoring unification: when True the
     # scanner uses the legacy scoring.score_post path instead of RelevanceEngine.
     # Default is False — the v2 engine is more permissive and produces more
@@ -118,10 +118,18 @@ class Settings(BaseSettings):
     reddit_base_url: str = "https://old.reddit.com"
     reddit_user_agent: str = "web:signalflow:v1.0 (by /u/SignalFlowBot)"
     reddit_search_provider: str = "auto"
-    # Official Reddit OAuth credentials (https://www.reddit.com/prefs/apps)
-    # Gives 100 req/min for free — much better than RapidAPI's 50/month.
-    reddit_client_id: str = ""
-    reddit_client_secret: str = ""
+    # Reddit OAuth credentials (https://www.reddit.com/prefs/apps).
+    # Used for BOTH: (a) server-to-server client-credentials auth for
+    # RedditClient's search/scrape calls — gives ~100 req/min and, crucially,
+    # is NOT subject to the IP-based blocking that hits anonymous calls to
+    # www.reddit.com/old.reddit.com from datacenter IPs; and (b) the
+    # /v1/reddit/connect per-user OAuth flow (uses reddit_redirect_uri too).
+    # When client_id/secret are empty, RedditClient falls back to anonymous
+    # public JSON endpoints, which Reddit increasingly blocks from server IPs
+    # — this is the most common reason "monitored subreddits" stays empty.
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_redirect_uri: str | None = None
     # Min seconds between requests to reddit.com hosts.  Reddit's public
     # endpoints are strict about rate limits; 4s keeps us safely under.
     reddit_scrape_min_interval: float = 4.0
@@ -129,13 +137,6 @@ class Settings(BaseSettings):
     bing_search_api_key: str | None = None
     bing_search_url: str = "https://api.bing.microsoft.com/v7.0/search"
     duckduckgo_search_url: str = "https://html.duckduckgo.com/html/"
-
-    # Reddit OAuth (for connecting user Reddit accounts). When any of these are
-    # empty, the /v1/reddit/connect endpoint returns a structured 503 instead
-    # of handing out a placeholder authorize URL.
-    reddit_client_id: str | None = None
-    reddit_client_secret: str | None = None
-    reddit_redirect_uri: str | None = None
 
     # RapidAPI (multi-platform social media scraping)
     rapidapi_key: str | None = None

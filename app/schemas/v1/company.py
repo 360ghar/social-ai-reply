@@ -19,6 +19,7 @@ def _jsonb_to_str(value: Any) -> str | None:
 
 class CompanyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    project_id: int | None = Field(default=None)
     website_url: str | None = Field(default=None, max_length=2000)
     description: str | None = Field(default=None, max_length=4000)
     category: str | None = Field(default=None, max_length=255)
@@ -83,7 +84,7 @@ class CompanyResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("features", "benefits", "pain_points", "competitors", "extracted_keywords", "extracted_pain_points", "extracted_competitors", mode="before")
+    @field_validator("features", "benefits", "pain_points", "competitors", "forbidden_claims", "extracted_keywords", "extracted_pain_points", "extracted_competitors", mode="before")
     @classmethod
     def _normalize_jsonb(cls, value: Any) -> str | None:
         return _jsonb_to_str(value)

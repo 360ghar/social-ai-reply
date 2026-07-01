@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getCitations, getSourceDomains, getSourceGaps, CitationItem, apiRequest, type BrandProfile } from "@/lib/api";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PageHeader } from "@/components/shared/page-header";
+import { CompanyNav } from "@/components/company/company-nav";
 import { KPIGrid, type KPICardProps } from "@/components/shared/kpi-card";
 import { DataTable, type ColumnDef } from "@/components/shared/data-table";
 
@@ -185,7 +186,8 @@ export default function SourcesPage() {
   if (loading) {
     return (
       <div className="flex flex-col gap-8">
-        <PageHeader title="Source Intelligence" description="Understand which domains and URLs AI models cite when responding to prompts about your category." />
+        <CompanyNav />
+      <PageHeader title="Source Intelligence" description="Understand which domains and URLs AI models cite when responding to prompts about your category." />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
           {[1, 2, 3, 4].map(i => (
             <Card key={i} className="p-5">
@@ -214,6 +216,7 @@ export default function SourcesPage() {
 
   return (
     <div className="flex flex-col gap-8">
+      <CompanyNav />
       <PageHeader title="Source Intelligence" description="Understand which domains and URLs AI models cite when responding to prompts about your category." />
 
       {/* KPI Row - 4 cards */}

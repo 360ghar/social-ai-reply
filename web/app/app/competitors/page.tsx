@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
 import { PageHeader } from "@/components/shared/page-header";
+import { CompanyNav } from "@/components/company/company-nav";
 import { PlatformIcon } from "@/components/shared/platform-icon";
 import { EmptyState } from "@/components/shared/empty-state";
 import {
@@ -222,7 +223,8 @@ export default function CompetitorsPage() {
   if (!selectedProjectId) {
     return (
       <div className="space-y-6">
-        <PageHeader
+        <CompanyNav />
+      <PageHeader
           title="Competitor Intelligence"
           description="Track competitor mentions, sentiment, and complaints across platforms."
         />
@@ -238,7 +240,8 @@ export default function CompetitorsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <PageHeader
+        <CompanyNav />
+      <PageHeader
           title="Competitor Intelligence"
           description="Track competitor mentions, sentiment, and complaints across platforms."
         />
@@ -250,7 +253,8 @@ export default function CompetitorsPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <PageHeader
+        <CompanyNav />
+      <PageHeader
           title="Competitor Intelligence"
           description="Track competitor mentions, sentiment, and complaints across platforms."
         />
@@ -274,7 +278,8 @@ export default function CompetitorsPage() {
   if (competitors.length === 0 && mentions.length === 0) {
     return (
       <div className="space-y-6">
-        <PageHeader
+        <CompanyNav />
+      <PageHeader
           title="Competitor Intelligence"
           description="Track competitor mentions, sentiment, and complaints across platforms."
         />
@@ -289,6 +294,7 @@ export default function CompetitorsPage() {
 
   return (
     <div className="space-y-6">
+      <CompanyNav />
       <PageHeader
         title="Competitor Intelligence"
         description="Track competitor mentions, sentiment, and complaints across platforms."

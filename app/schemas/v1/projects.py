@@ -22,6 +22,7 @@ class ProjectResponse(BaseModel):
 
     id: int
     workspace_id: int
+    company_id: int | None = None
     name: str
     slug: str
     description: str | None

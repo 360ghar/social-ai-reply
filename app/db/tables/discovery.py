@@ -458,6 +458,23 @@ def _normalize_opportunity_record(record: dict[str, Any]) -> dict[str, Any]:
     if subreddit_value is not None:
         normalized.setdefault("subreddit_name", subreddit_value)
         normalized.setdefault("subreddit", subreddit_value)
+        
+    # Map body to body_excerpt for frontend (handle if body_excerpt is None)
+    if normalized.get("body") and not normalized.get("body_excerpt"):
+        normalized["body_excerpt"] = normalized["body"]
+        
+    # Fallback: if body_excerpt is empty, use title
+    if not normalized.get("body_excerpt") and normalized.get("title"):
+        normalized["body_excerpt"] = normalized["title"]
+        
+    # Fallback: if title is empty, use body_excerpt (truncated)
+    if not normalized.get("title") and normalized.get("body_excerpt"):
+        normalized["title"] = (normalized["body_excerpt"][:100] + "...") if len(normalized["body_excerpt"]) > 100 else normalized["body_excerpt"]
+        
+    # Ensure they are at least empty strings, not None, to avoid React rendering bugs
+    normalized["title"] = normalized.get("title") or "Untitled Post"
+    normalized["body_excerpt"] = normalized.get("body_excerpt") or ""
+        
     return normalized
 
 

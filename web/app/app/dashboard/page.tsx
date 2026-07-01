@@ -40,6 +40,12 @@ import {
   Activity,
   CheckCircle2,
   Circle,
+  MessageSquare,
+  BarChart2,
+  AlertCircle,
+  Clock,
+  ExternalLink,
+  Workflow,
 } from "lucide-react";
 import { apiRequest, type Opportunity, type Project } from "@/lib/api";
 import { sourceLabel } from "@/lib/opportunity";
@@ -191,6 +197,19 @@ const QUICK_ACTIONS = [
     label: "Analytics",
     icon: BarChart3,
     href: "/app/analytics",
+  },
+];
+
+const REPORTS_TOOLS = [
+  {
+    label: "Agent Runs",
+    icon: Workflow,
+    href: "/app/agent-runs",
+  },
+  {
+    label: "SEO / GEO",
+    icon: Eye,
+    href: "/app/seo-geo",
   },
 ];
 
@@ -389,49 +408,49 @@ export default function DashboardPage() {
       label: "Create Project",
       title: "Create your first project",
       description:
-        "Start a project to connect brand setup, audience signals, community mapping, and visibility tracking.",
+        "Start a project to connect your brand, keywords, communities, and scan results.",
       actionLabel: "Create Project",
       done: hasProject,
       actionKind: "modal",
     },
     {
-      label: "Define Brand",
-      title: "Review your brand profile",
+      label: "Company Setup",
+      title: "Set up your company profile",
       description:
-        "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
-      actionLabel: "Open Brand",
+        "Add your website, product summary, audience, and brand voice — the foundation for all AI-generated content.",
+      actionLabel: "Open Workflow",
       done: setupStatus?.brand_configured || false,
-      href: "/app/brand",
+      href: "/app/workflow",
       actionKind: "route",
     },
     {
-      label: "Add Audience",
-      title: "Add your first audience",
+      label: "Add Personas",
+      title: "Create buyer personas",
       description:
-        "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
-      actionLabel: "Open Audience",
+        "Define customer types so the AI can score social posts by how closely they match your ideal buyer.",
+      actionLabel: "Open Workflow",
       done: (setupStatus?.personas_count || 0) > 0,
-      href: "/app/persona",
+      href: "/app/workflow",
       actionKind: "route",
     },
     {
-      label: "Map Communities",
+      label: "Find Communities",
       title: "Discover matching communities",
       description:
-        "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
-      actionLabel: "Open Radar",
+        "Add subreddits and platforms to monitor — then launch a scan to surface live opportunities.",
+      actionLabel: "Open Workflow",
       done: (setupStatus?.subreddits_count || 0) > 0,
-      href: "/app/discovery",
+      href: "/app/workflow",
       actionKind: "route",
     },
     {
-      label: "Track Visibility",
-      title: "Run your first visibility check",
+      label: "First Scan",
+      title: "Run your first scan",
       description:
-        "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
-      actionLabel: "Open AI Visibility",
-      done: (visibility?.total_runs || 0) > 0,
-      href: "/app/visibility",
+        "Launch the pipeline to scan communities for posts where you can authentically reply and drive leads.",
+      actionLabel: "Launch Scan",
+      done: false,
+      href: "/app/workflow",
       actionKind: "route",
     },
   ];
@@ -782,6 +801,30 @@ export default function DashboardPage() {
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {qa.label}
+                  </Button>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Reports & Tools */}
+          <Card size="sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Reports & Tools</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1">
+              {REPORTS_TOOLS.map((rt) => {
+                const Icon = rt.icon;
+                return (
+                  <Button
+                    key={rt.label}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2.5"
+                    onClick={() => router.push(rt.href)}
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                    {rt.label}
                   </Button>
                 );
               })}
