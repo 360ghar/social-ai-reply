@@ -37,14 +37,6 @@ export function Hero() {
         initial="hidden"
         animate="visible"
       >
-        {/* Eyebrow */}
-        <m.div variants={fadeUp}>
-          <span
-            className="mb-6 inline-block rounded-full bg-coral-glow px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-primary"
-          >
-            AI Visibility Platform
-          </span>
-        </m.div>
 
         {/* Headline */}
         <m.h1
@@ -68,24 +60,17 @@ export function Hero() {
           variants={fadeUp}
           className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl"
         >
-          SignalFlow tracks your brand across Reddit, X, Instagram, LinkedIn, and TikTok — then uses
-          AI to find the conversations that shape what people say about you.
+          See what AI says about your brand — automatically.
         </m.p>
 
         {/* CTA Buttons */}
-        <m.div variants={fadeUp} className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+        <m.div variants={fadeUp} className="mt-10 flex items-center justify-center">
           <Link
             href="/register"
-            className={cn(buttonVariants({ size: "default" }), "h-12 rounded-xl px-8 text-base font-semibold hover:scale-[1.02]")}
+            className={cn(buttonVariants({ size: "default" }), "h-12 rounded-xl px-10 text-base font-semibold hover:scale-[1.02]")}
           >
-            Start Free Trial
+            Get Started Free
           </Link>
-          <a
-            href="#features"
-            className={cn(buttonVariants({ variant: "outline", size: "default" }), "h-12 rounded-xl px-8 text-base font-semibold hover:scale-[1.02]")}
-          >
-            Watch Demo
-          </a>
         </m.div>
 
         {/* Product Screenshot Mockup */}
