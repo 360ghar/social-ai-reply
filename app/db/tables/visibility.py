@@ -86,7 +86,7 @@ def list_prompt_runs_for_prompt_set(
 
     result = (
         query
-        .order("scheduled_at", desc=True)
+        .order("created_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
     )

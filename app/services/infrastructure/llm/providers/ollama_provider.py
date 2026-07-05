@@ -68,7 +68,7 @@ class OllamaProvider:
                 url,
                 json=payload,
                 headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=httpx.Timeout(30.0, connect=10.0),
+                timeout=httpx.Timeout(120.0, connect=10.0),
             )
             resp.raise_for_status()
             return resp.json()

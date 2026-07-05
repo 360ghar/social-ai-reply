@@ -266,30 +266,30 @@ def ensure_default_prompts(supabase: Client, project_id: int) -> None:
     """Ensure default prompt templates exist for a project."""
     defaults = [
         {
-            "prompt_type": "reply",
+            "type": "reply",
             "name": "Helpful Reply",
             "system_prompt": "You write grounded Reddit replies that help first and pitch never.",
-            "instructions": "Start with empathy, answer the actual question, avoid hard CTAs, and only mention the product when invited.",
+            "user_prompt_template": "Start with empathy, answer the actual question, avoid hard CTAs, and only mention the product when invited.",
         },
         {
-            "prompt_type": "post",
+            "type": "post",
             "name": "Educational Post",
             "system_prompt": "You write Reddit posts that teach from direct experience.",
-            "instructions": "Use first-hand lessons, concrete examples, and end with an invitation for discussion rather than a promo CTA.",
+            "user_prompt_template": "Use first-hand lessons, concrete examples, and end with an invitation for discussion rather than a promo CTA.",
         },
         {
-            "prompt_type": "analysis",
+            "type": "analysis",
             "name": "Signal Review",
             "system_prompt": "You summarize opportunities with clarity and no fluff.",
-            "instructions": "Highlight why the thread matters, what the risk is, and how the brand can contribute credibly.",
+            "user_prompt_template": "Highlight why the thread matters, what the risk is, and how the brand can contribute credibly.",
         },
     ]
 
     existing = list_prompt_templates_for_project(supabase, project_id)
-    existing_types = {p.get("prompt_type") or p.get("type") for p in existing}
+    existing_types = {p.get("type") for p in existing}
 
     for prompt in defaults:
-        if prompt["prompt_type"] not in existing_types:
+        if prompt["type"] not in existing_types:
             prompt_data = {
                 **prompt,
                 "project_id": project_id,

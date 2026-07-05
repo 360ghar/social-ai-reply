@@ -21,6 +21,7 @@ from app.db.tables.discovery import (
     list_keywords_for_project,
     list_subreddits_for_project,
 )
+from app.db.tables.projects import get_brand_profile_by_project
 from app.schemas.v1.discovery import (
     KeywordGenerateRequest,
     KeywordRequest,
@@ -96,7 +97,8 @@ def generate_keywords(
     from app.db.tables.discovery import list_personas_for_project
     personas = list_personas_for_project(supabase, project_id, include_inactive=False)
 
-    generated = ProductCopilot().generate_keywords(project.get("brand_profile"), personas, payload.count)
+    brand_profile = get_brand_profile_by_project(supabase, project_id)
+    generated = ProductCopilot().generate_keywords(brand_profile, personas, payload.count)
     created = []
 
     # Batch-fetch all existing keywords for duplicate detection

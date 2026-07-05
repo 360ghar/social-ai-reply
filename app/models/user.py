@@ -11,7 +11,7 @@ class AccountUser(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    supabase_user_id: str = Field(min_length=1)
+    supabase_uid: str = Field(min_length=1)
     email: EmailStr
     full_name: str | None = None
     avatar_url: str | None = None

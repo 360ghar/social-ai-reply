@@ -46,3 +46,4 @@ web/sessions/
 .claude/worktrees/
 .factory/
 *.bak
+web/.env

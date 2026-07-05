@@ -335,11 +335,17 @@ class VisibilityRunner:
         provider = self._providers.get(provider_key) if provider_key else None
 
         if not provider:
+            provider = self._providers.get("ollama")
+            if provider:
+                logger.warning(
+                    "Provider for model %r not configured; falling back to Ollama.",
+                    model_name,
+                )
+        if not provider:
             raise RuntimeError(
                 f"No configured provider for model {model_name!r}. "
                 f"Ensure the required API key is set for this provider."
             )
-
         try:
             messages = [
                 {"role": "system", "content": _DEFAULT_VISIBILITY_SYSTEM},

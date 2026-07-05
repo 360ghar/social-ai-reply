@@ -51,7 +51,7 @@ def list_prompt_sets(
                 "id": s["id"],
                 "name": s["name"],
                 "category": s["category"],
-                "prompts": s.get("prompts", []),
+                "prompts": s.get("prompts_json", []),
                 "target_models": s.get("target_models", []),
                 "is_active": s.get("is_active", True),
                 "schedule": s.get("schedule", "manual"),
@@ -80,7 +80,7 @@ def create_prompt_set(
             "project_id": proj["id"],
             "name": payload.get("name", "Untitled"),
             "category": payload.get("category", "general"),
-            "prompts": payload.get("prompts", []),
+            "prompts_json": payload.get("prompts", []),
             "target_models": payload.get("target_models", ["chatgpt", "perplexity", "gemini", "claude"]),
             "schedule": payload.get("schedule", "manual"),
         },
@@ -128,7 +128,7 @@ def run_prompt_set(
     extractor = CitationExtractor()
 
     results = []
-    for prompt_text in ps.get("prompts", []):
+    for prompt_text in ps.get("prompts_json", []):
         for model in ps.get("target_models", ["chatgpt"]):
             pr = create_prompt_run(
                 supabase,
