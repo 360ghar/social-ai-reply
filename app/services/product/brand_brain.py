@@ -191,6 +191,32 @@ class BrandBrain:
             logger.exception("LLM extraction failed")
             return None
 
+    def detect_competitors(self, company_profile: dict[str, Any]) -> list[str]:
+        """Use LLM to detect real-world competitors based on company profile.
+
+        Returns a list of competitor company names, or empty list on failure.
+        """
+        name = company_profile.get("name", "")
+        description = company_profile.get("description", "")
+        category = company_profile.get("category", "")
+
+        prompt = (
+            f"Given this business:\n"
+            f"Name: {name}\n"
+            f"Description: {description}\n"
+            f"Category: {category}\n\n"
+            f"List 3-5 real, well-known competitor companies by name. "
+            f"Return ONLY a comma-separated list of company names, nothing else."
+        )
+        try:
+            result = self.llm.call_text(prompt, temperature=0.2)
+            if not result:
+                return []
+            return _to_list(result)[:5]
+        except Exception:
+            logger.warning("Competitor detection failed for %s", name)
+            return []
+
     def analyze_website(self, website_url: str, company_profile: dict[str, Any], db: Any) -> dict[str, Any]:
         """Crawl website and extract complete intelligence profile.
 
@@ -273,6 +299,18 @@ class BrandBrain:
             update_data["pain_points"] = ", ".join(extracted["pain_points_solved"])[:4000]
         if not company_profile.get("competitors") and extracted.get("competitors"):
             update_data["competitors"] = ", ".join(extracted["competitors"])[:4000]
+
+        # Auto-detect competitors via LLM if still empty
+        if not update_data.get("competitors") and not company_profile.get("competitors"):
+            context_profile = {
+                "name": company_profile.get("name", ""),
+                "description": extracted.get("product_summary", company_profile.get("description", "")),
+                "category": extracted.get("industry", company_profile.get("category", "")),
+            }
+            detected = self.detect_competitors(context_profile)
+            if detected:
+                logger.info("Auto-detected competitors for %s: %s", company_profile.get("name"), detected)
+                update_data["competitors"] = ", ".join(detected)[:4000]
 
         # Merge into profile dict
         merged_profile = {**company_profile, **update_data}
