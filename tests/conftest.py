@@ -166,6 +166,21 @@ class MockTableQuery:
         self._filters.append(("in", field, values))
         return self
 
+    def gte(self, field: str, value):
+        """Add greater-or-equal filter."""
+        self._filters.append(("gte", field, value))
+        return self
+
+    def lte(self, field: str, value):
+        """Add less-or-equal filter."""
+        self._filters.append(("lte", field, value))
+        return self
+
+    def is_(self, field: str, value):
+        """Add IS filter."""
+        self._filters.append(("is", field, value))
+        return self
+
     def order(self, field: str, desc: bool = False):
         """Add ordering."""
         self._order_by = field
@@ -277,6 +292,15 @@ class MockTableQuery:
                 result = [r for r in result if r.get(field) != value]
             elif op == "in":
                 result = [r for r in result if r.get(field) in value]
+            elif op == "gte":
+                result = [r for r in result if r.get(field) is not None and r.get(field) >= value]
+            elif op == "lte":
+                result = [r for r in result if r.get(field) is not None and r.get(field) <= value]
+            elif op == "is":
+                if value == "null":
+                    result = [r for r in result if r.get(field) is None]
+                else:
+                    result = [r for r in result if r.get(field) == value]
 
         return result
 
