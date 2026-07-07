@@ -79,14 +79,25 @@ class PostDraftResponse(BaseModel):
     thread_json: list[str] = Field(default_factory=list)
     status: str = "draft"
     scheduled_at: datetime | None = None
+    published_at: datetime | None = None
+    published_url: str | None = None
+    publish_mode: str | None = None
+    publish_error: str | None = None
+    publish_note: str | None = None
+    last_publish_attempt_at: datetime | None = None
 
 
 class PostDraftUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1, max_length=40000)
     rationale: str | None = Field(default=None, max_length=8000)
-    status: str | None = Field(default=None, pattern="^(draft|scheduled|needs_edit|rejected)$")
+    status: str | None = Field(default=None, pattern="^(draft|scheduled|needs_edit|rejected|published)$")
 
 
 class PostDraftScheduleRequest(BaseModel):
     scheduled_at: datetime
+
+
+class PostDraftManualPublishRequest(BaseModel):
+    published_url: str | None = Field(default=None, max_length=2000)
+    publish_note: str | None = Field(default=None, max_length=2000)

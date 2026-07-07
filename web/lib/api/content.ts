@@ -51,7 +51,7 @@ export async function updateReplyDraft(
 export async function updatePostDraft(
   token: string,
   draftId: number,
-  data: { title: string; body: string; rationale?: string | null; status?: "draft" | "scheduled" | "needs_edit" | "rejected" | null }
+  data: { title: string; body: string; rationale?: string | null; status?: "draft" | "scheduled" | "needs_edit" | "rejected" | "published" | null }
 ) {
   return apiRequest<PostDraft>(
     `/v1/drafts/posts/${draftId}`, { method: "PUT", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) }
@@ -94,6 +94,17 @@ export async function unschedulePostDraft(token: string, draftId: number) {
   return apiRequest<PostDraft>(
     `/v1/drafts/posts/${draftId}/unschedule`,
     { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function manualPublishPostDraft(
+  token: string,
+  draftId: number,
+  data?: { published_url?: string | null; publish_note?: string | null }
+) {
+  return apiRequest<PostDraft>(
+    `/v1/drafts/posts/${draftId}/manual-publish`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data ?? {}) }
   );
 }
 

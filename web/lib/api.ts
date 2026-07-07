@@ -107,6 +107,12 @@ export type PostDraft = {
   thread_json?: string[];
   status?: string;
   scheduled_at?: string | null;
+  published_at?: string | null;
+  published_url?: string | null;
+  publish_mode?: string | null;
+  publish_error?: string | null;
+  publish_note?: string | null;
+  last_publish_attempt_at?: string | null;
 };
 
 export type Dashboard = {

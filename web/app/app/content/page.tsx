@@ -80,7 +80,7 @@ import { sourceLabel } from "@/lib/opportunity";
 import { redditUrl, platformUrl, copyText } from "@/lib/reddit";
 import { setStoredProjectId } from "@/lib/project";
 import { postToReddit as apiPostToReddit } from "@/lib/api/reddit";
-import { createContentPlan, schedulePostDraft, unschedulePostDraft, updatePostDraft } from "@/lib/api/content";
+import { createContentPlan, manualPublishPostDraft, schedulePostDraft, unschedulePostDraft, updatePostDraft } from "@/lib/api/content";
 import { createTrackedLink, shortLinkUrl } from "@/lib/api/links";
 import { createAmplifyDraft, type AmplifyTarget } from "@/lib/api/amplify";
 import { uploadAnalysisFile } from "@/lib/api/files";
@@ -152,7 +152,7 @@ type PlannerCampaign = "brand_awareness" | "lead_generation" | "product_launch" 
 type PlannerVoice = "professional" | "friendly" | "premium" | "witty";
 type PlannerTemplate = "product_tip" | "comparison" | "founder_story" | "case_study" | "offer_post";
 type CalendarPlatformFilter = "all" | PlannerPlatform;
-type CalendarStatusFilter = "all" | "draft" | "scheduled" | "needs_edit" | "rejected";
+type CalendarStatusFilter = "all" | "draft" | "scheduled" | "published" | "needs_edit" | "rejected";
 type PostRewritePreset = "shorter" | "professional" | "less_salesy" | "stronger_hook";
 type CalendarLayout = "board" | "list";
 
@@ -188,6 +188,7 @@ const CALENDAR_STATUS_LABELS: Record<CalendarStatusFilter, string> = {
   all: "All status",
   draft: "Suggested",
   scheduled: "Approved",
+  published: "Published",
   needs_edit: "Needs edit",
   rejected: "Rejected",
 };
@@ -195,7 +196,8 @@ const CALENDAR_STATUS_LABELS: Record<CalendarStatusFilter, string> = {
 const MEDIA_PLAN_MARKER = "\n\n[Media plan]\n";
 
 function draftPlatform(draft: PostDraft): string {
-  return (draft.platform || "reddit").toLowerCase();
+  const platform = (draft.platform || "reddit").toLowerCase();
+  return platform === "twitter" ? "x" : platform;
 }
 
 function draftStatus(draft: PostDraft): string {
@@ -230,6 +232,18 @@ function defaultScheduleSlot(): string {
   return date.toISOString();
 }
 
+function postCopyText(title: string, body: string): string {
+  return [title.trim(), body.trim()].filter(Boolean).join("\n\n");
+}
+
+function platformComposerUrl(platform: string, title: string, body: string): string {
+  const text = postCopyText(title, body);
+  if (platform === "linkedin") {
+    return "https://www.linkedin.com/feed/";
+  }
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+}
+
 function csvValue(value: string | number | null | undefined): string {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
@@ -239,6 +253,7 @@ function safeFilePart(value: string): string {
 }
 
 function calendarStatusLabel(status: string): string {
+  if (status === "published") return "Published";
   if (status === "scheduled") return "Scheduled";
   if (status === "needs_edit") return "Needs edit";
   if (status === "rejected") return "Rejected";
@@ -246,6 +261,7 @@ function calendarStatusLabel(status: string): string {
 }
 
 function calendarStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "published") return "success";
   if (status === "scheduled") return "success";
   if (status === "needs_edit") return "warning";
   if (status === "rejected") return "error";
@@ -370,6 +386,7 @@ export default function ContentPage() {
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [approvingCalendar, setApprovingCalendar] = useState(false);
   const [schedulingDraftId, setSchedulingDraftId] = useState<number | null>(null);
+  const [publishingDraftId, setPublishingDraftId] = useState<number | null>(null);
   const [draggingDraftId, setDraggingDraftId] = useState<number | null>(null);
 
   const [selectedReply, setSelectedReply] = useState<ReplyDraftRow | null>(null);
@@ -837,9 +854,10 @@ export default function ContentPage() {
         const scheduledDate = new Date(draft.scheduled_at || draft.created_at);
         const channel = draftPlatform(draft) === "linkedin" ? "LinkedIn" : "X / Twitter";
         return [
-          `${formatDayLabel(scheduledDate)} ${formatTime(draft.scheduled_at)} - ${channel} - ${draftStatus(draft)}`,
+          `${formatDayLabel(scheduledDate)} ${formatTime(draft.scheduled_at)} - ${channel} - ${calendarStatusLabel(draftStatus(draft))}`,
           draft.title,
           draft.body,
+          draft.published_at ? `Published: ${new Date(draft.published_at).toLocaleString()}` : "",
         ].join("\n");
       }),
     ].join("\n\n");
@@ -858,11 +876,13 @@ export default function ContentPage() {
       return;
     }
 
-    const headers = ["scheduled_at", "platform", "status", "title", "body"];
+    const headers = ["scheduled_at", "platform", "status", "published_at", "published_url", "title", "body"];
     const rows = calendarDrafts.map((draft) => [
       draft.scheduled_at || draft.created_at,
       draftPlatform(draft) === "linkedin" ? "LinkedIn" : "X / Twitter",
-      draftStatus(draft),
+      calendarStatusLabel(draftStatus(draft)),
+      draft.published_at || "",
+      draft.published_url || "",
       draft.title,
       draft.body,
     ]);
@@ -897,6 +917,51 @@ export default function ContentPage() {
       error("Could not update schedule", getErrorMessage(err));
     } finally {
       setSchedulingDraftId(null);
+    }
+  }
+
+  function openPlatformComposer(draft: PostDraft) {
+    const url = draft.published_url || platformComposerUrl(draftPlatform(draft), draft.title, draft.body);
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  async function copyAndMarkCalendarPublished(draft: PostDraft) {
+    if (!token) {
+      return;
+    }
+    setPublishingDraftId(draft.id);
+    try {
+      const title = selectedPost?.id === draft.id ? postTitle : draft.title;
+      const body = selectedPost?.id === draft.id ? postBody : draft.body;
+      const rationale = selectedPost?.id === draft.id
+        ? combinePostRationale(postReviewNote, postMediaBrief)
+        : draft.rationale;
+
+      if (selectedPost?.id === draft.id && (title !== draft.title || body !== draft.body || rationale !== draft.rationale)) {
+        const status = draftStatus(draft);
+        const saved = await updatePostDraft(token, draft.id, {
+          title,
+          body,
+          rationale,
+          status: ["draft", "scheduled", "needs_edit", "rejected", "published"].includes(status)
+            ? status as "draft" | "scheduled" | "needs_edit" | "rejected" | "published"
+            : null,
+        });
+        setPostDrafts((rows) => rows.map((row) => (row.id === saved.id ? saved : row)));
+        setSelectedPost((current) => (current?.id === saved.id ? saved : current));
+      }
+
+      await copyText(postCopyText(title, body));
+      const updated = await manualPublishPostDraft(token, draft.id, {
+        publish_note: "Manually copied from Content Calendar.",
+      });
+      setPostDrafts((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
+      setSelectedPost((current) => (current?.id === updated.id ? updated : current));
+      success("Marked published", "Post copy is in your clipboard and the calendar status is complete.");
+    } catch (err: unknown) {
+      error("Could not mark published", getErrorMessage(err));
+    } finally {
+      setPublishingDraftId(null);
     }
   }
 
@@ -1035,7 +1100,7 @@ export default function ContentPage() {
     }
   }
 
-  const totalPublished = postedDrafts.length + publishedPosts.length;
+  const totalPublished = postedDrafts.length + publishedPosts.length + postDrafts.filter((draft) => draftStatus(draft) === "published").length;
   const selectedReplyQuality = selectedReply ? assessReplyQuality(replyContent, selectedReply.platform) : null;
   const selectedPostPlatform = selectedPost ? draftPlatform(selectedPost) : "reddit";
   const selectedPostIsCalendar = selectedPost ? isCalendarDraft(selectedPost) : false;
@@ -1057,12 +1122,18 @@ export default function ContentPage() {
   const calendarStatusStats = useMemo(() => ({
     draft: calendarDrafts.filter((draft) => draftStatus(draft) === "draft").length,
     scheduled: calendarDrafts.filter((draft) => draftStatus(draft) === "scheduled").length,
+    published: calendarDrafts.filter((draft) => draftStatus(draft) === "published").length,
     needsEdit: calendarDrafts.filter((draft) => draftStatus(draft) === "needs_edit").length,
     rejected: calendarDrafts.filter((draft) => draftStatus(draft) === "rejected").length,
   }), [calendarDrafts]);
   const scheduledCalendarCount = calendarStatusStats.scheduled;
+  const publishedCalendarCount = calendarStatusStats.published;
   const suggestedCalendarCount = calendarStatusStats.draft + calendarStatusStats.needsEdit;
   const nextCalendarDraft = calendarDrafts.find((draft) => draftStatus(draft) === "scheduled") ?? calendarDrafts[0] ?? null;
+  const publishedCalendarDrafts = useMemo(
+    () => calendarDrafts.filter((draft) => draftStatus(draft) === "published"),
+    [calendarDrafts]
+  );
   const visibleCalendarDrafts = useMemo(
     () =>
       calendarDrafts.filter((draft) => {
@@ -1096,11 +1167,13 @@ export default function ContentPage() {
     const averageQuality =
       qualityScores.length > 0 ? Math.round(qualityScores.reduce((total, score) => total + score, 0) / qualityScores.length) : 0;
     const approvalRate =
-      calendarDrafts.length > 0 ? Math.round((calendarStatusStats.scheduled / calendarDrafts.length) * 100) : 0;
+      calendarDrafts.length > 0
+        ? Math.round(((calendarStatusStats.scheduled + calendarStatusStats.published) / calendarDrafts.length) * 100)
+        : 0;
     const xCount = calendarDrafts.filter((draft) => draftPlatform(draft) === "x").length;
     const linkedinCount = calendarDrafts.filter((draft) => draftPlatform(draft) === "linkedin").length;
     return { averageQuality, approvalRate, xCount, linkedinCount };
-  }, [calendarDrafts, calendarStatusStats.scheduled]);
+  }, [calendarDrafts, calendarStatusStats.published, calendarStatusStats.scheduled]);
   const calendarReadinessPercent =
     calendarDrafts.length > 0 ? Math.round((calendarQualityStats.ready / calendarDrafts.length) * 100) : 0;
   const visibleSuggestedCount = visibleCalendarDrafts.filter((draft) => draftStatus(draft) === "draft").length;
@@ -1530,7 +1603,7 @@ export default function ContentPage() {
               </CardContent>
             </Card>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               <Card>
                 <CardContent className="py-4">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Suggestions</p>
@@ -1541,6 +1614,12 @@ export default function ContentPage() {
                 <CardContent className="py-4">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scheduled</p>
                   <p className="mt-2 text-2xl font-semibold">{scheduledCalendarCount}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="py-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Published</p>
+                  <p className="mt-2 text-2xl font-semibold">{publishedCalendarCount}</p>
                 </CardContent>
               </Card>
               <Card>
@@ -1573,7 +1652,7 @@ export default function ContentPage() {
                     <p className="text-sm font-semibold">Publishing readiness</p>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Approved posts stay queued here until platform connectors are enabled.
+                    Manual copy/publish is ready now. OAuth connectors can replace this step later.
                   </p>
                 </div>
                 <div className="rounded-lg border bg-background p-3">
@@ -1584,7 +1663,11 @@ export default function ContentPage() {
                     </div>
                     <StatusBadge variant="warning">Manual</StatusBadge>
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{calendarDrafts.filter((draft) => draftPlatform(draft) === "x").length} queued</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {calendarDrafts.filter((draft) => draftPlatform(draft) === "x" && draftStatus(draft) !== "published").length} queued,
+                    {" "}
+                    {calendarDrafts.filter((draft) => draftPlatform(draft) === "x" && draftStatus(draft) === "published").length} done
+                  </p>
                 </div>
                 <div className="rounded-lg border bg-background p-3">
                   <div className="flex items-center justify-between gap-2">
@@ -1594,7 +1677,11 @@ export default function ContentPage() {
                     </div>
                     <StatusBadge variant="warning">Manual</StatusBadge>
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{calendarDrafts.filter((draft) => draftPlatform(draft) === "linkedin").length} queued</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {calendarDrafts.filter((draft) => draftPlatform(draft) === "linkedin" && draftStatus(draft) !== "published").length} queued,
+                    {" "}
+                    {calendarDrafts.filter((draft) => draftPlatform(draft) === "linkedin" && draftStatus(draft) === "published").length} done
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -1690,7 +1777,7 @@ export default function ContentPage() {
                         )}
                       </Button>
                     ))}
-                    {(["all", "draft", "scheduled", "needs_edit", "rejected"] as CalendarStatusFilter[]).map((status) => (
+                    {(["all", "draft", "scheduled", "published", "needs_edit", "rejected"] as CalendarStatusFilter[]).map((status) => (
                       <Button
                         key={status}
                         type="button"
@@ -1771,11 +1858,35 @@ export default function ContentPage() {
                           <Button variant="outline" size="sm" onClick={() => openPostDraft(draft)}>
                             Review
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => copyToClipboard(`${draft.title}\n\n${draft.body}`)}>
+                          <Button variant="outline" size="sm" onClick={() => copyToClipboard(postCopyText(draft.title, draft.body))}>
                             <Copy className="h-3.5 w-3.5" />
                             Copy
                           </Button>
-                          {isScheduled ? (
+                          <Button variant="outline" size="sm" onClick={() => openPlatformComposer(draft)}>
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Open
+                          </Button>
+                          {status === "published" ? (
+                            <Button variant="outline" size="sm" disabled>
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              Done
+                            </Button>
+                          ) : isScheduled ? (
+                            <Button
+                              size="sm"
+                              disabled={publishingDraftId === draft.id}
+                              onClick={() => void copyAndMarkCalendarPublished(draft)}
+                            >
+                              {publishingDraftId === draft.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                              Copy &amp; done
+                            </Button>
+                          ) : (
+                            <Button size="sm" disabled={schedulingDraftId === draft.id} onClick={() => void approveSchedule(draft)}>
+                              {schedulingDraftId === draft.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                              Approve
+                            </Button>
+                          )}
+                          {isScheduled && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1783,11 +1894,6 @@ export default function ContentPage() {
                               onClick={() => void moveBackToDraft(draft)}
                             >
                               Move to draft
-                            </Button>
-                          ) : (
-                            <Button size="sm" disabled={schedulingDraftId === draft.id} onClick={() => void approveSchedule(draft)}>
-                              {schedulingDraftId === draft.id && <Loader2 className="h-4 w-4 animate-spin" />}
-                              Approve
                             </Button>
                           )}
                         </div>
@@ -1877,18 +1983,45 @@ export default function ContentPage() {
                                   {formatTime(draft.scheduled_at)}
                                 </span>
                                 <div className="flex items-center gap-1">
-                                  {isScheduled ? (
-                                    <Button
-                                      variant="outline"
-                                      size="xs"
-                                      disabled={schedulingDraftId === draft.id}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void moveBackToDraft(draft);
-                                      }}
-                                    >
-                                      Draft
+                                  <Button
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openPlatformComposer(draft);
+                                    }}
+                                  >
+                                    Open
+                                  </Button>
+                                  {status === "published" ? (
+                                    <Button variant="outline" size="xs" disabled>
+                                      Done
                                     </Button>
+                                  ) : isScheduled ? (
+                                    <>
+                                      <Button
+                                        size="xs"
+                                        disabled={publishingDraftId === draft.id}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void copyAndMarkCalendarPublished(draft);
+                                        }}
+                                      >
+                                        {publishingDraftId === draft.id && <Loader2 className="h-3 w-3 animate-spin" />}
+                                        Done
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="xs"
+                                        disabled={schedulingDraftId === draft.id}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void moveBackToDraft(draft);
+                                        }}
+                                      >
+                                        Draft
+                                      </Button>
+                                    </>
                                   ) : (
                                     <Button
                                       size="xs"
@@ -1920,14 +2053,42 @@ export default function ContentPage() {
       {/* Published Tab */}
       {!loading && (
         <TabsContent value="published">
-          {postedDrafts.length === 0 && publishedPosts.length === 0 ? (
+          {postedDrafts.length === 0 && publishedPosts.length === 0 && publishedCalendarDrafts.length === 0 ? (
             <EmptyState
               icon={CheckCircle}
               title="No published content yet"
-              description="Your published replies and posts will appear here."
+              description="Your published replies, posts, and calendar items will appear here."
             />
           ) : (
             <div className="space-y-2">
+              {publishedCalendarDrafts.map((draft) => (
+                <Card key={`calendar-${draft.id}`}>
+                  <CardContent className="flex items-center gap-4 py-4">
+                    <div className="flex shrink-0 items-center gap-2">
+                      <PlatformIcon platform={draftPlatform(draft)} />
+                      <StatusBadge variant="success">Published</StatusBadge>
+                      <Badge variant="outline">{draftPlatform(draft) === "linkedin" ? "LinkedIn" : "X / Twitter"}</Badge>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{draft.title}</p>
+                      <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
+                        <span>{draft.published_at ? new Date(draft.published_at).toLocaleDateString() : "Marked published"}</span>
+                        {draft.publish_mode && <span>{draft.publish_mode}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button variant="outline" size="xs" onClick={() => copyToClipboard(postCopyText(draft.title, draft.body))}>
+                        <Copy className="h-3 w-3" /> Copy
+                      </Button>
+                      <Button variant="outline" size="xs" onClick={() => openPlatformComposer(draft)}>
+                        <ExternalLink className="h-3 w-3" /> Open
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
               {postedDrafts.map((draft) => (
                 <Card key={`reply-${draft.id}`}>
                   <CardContent className="flex items-center gap-4 py-4">
@@ -2222,21 +2383,45 @@ export default function ContentPage() {
               {savingPost && <Loader2 className="h-4 w-4 animate-spin" />}
               Save
             </Button>
-            <Button variant="outline" onClick={() => copyToClipboard(`${postTitle}\n\n${postBody}`)}>
+            <Button variant="outline" onClick={() => copyToClipboard(postCopyText(postTitle, postBody))}>
               <Copy className="h-3.5 w-3.5" /> Copy
             </Button>
-            {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) !== "scheduled" && (
+            {selectedPostIsCalendar && selectedPost && (
+              <Button
+                variant="outline"
+                onClick={() => openPlatformComposer({ ...selectedPost, title: postTitle, body: postBody })}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open platform
+              </Button>
+            )}
+            {selectedPostIsCalendar && selectedPost && !["scheduled", "published"].includes(draftStatus(selectedPost)) && (
               <Button onClick={() => void approveSchedule(selectedPost)} disabled={schedulingDraftId === selectedPost.id}>
                 {schedulingDraftId === selectedPost.id && <Loader2 className="h-4 w-4 animate-spin" />}
                 Approve &amp; schedule
               </Button>
             )}
             {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) === "scheduled" && (
-              <Button variant="outline" onClick={() => void moveBackToDraft(selectedPost)} disabled={schedulingDraftId === selectedPost.id}>
-                Move to draft
+              <>
+                <Button
+                  onClick={() => void copyAndMarkCalendarPublished(selectedPost)}
+                  disabled={publishingDraftId === selectedPost.id}
+                >
+                  {publishingDraftId === selectedPost.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Copy &amp; mark published
+                </Button>
+                <Button variant="outline" onClick={() => void moveBackToDraft(selectedPost)} disabled={schedulingDraftId === selectedPost.id}>
+                  Move to draft
+                </Button>
+              </>
+            )}
+            {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) === "published" && (
+              <Button variant="outline" disabled>
+                <CheckCircle className="h-3.5 w-3.5" />
+                Published
               </Button>
             )}
-            {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) !== "needs_edit" && (
+            {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) !== "published" && draftStatus(selectedPost) !== "needs_edit" && (
               <Button
                 variant="outline"
                 onClick={() => void markCalendarDraftStatus(selectedPost, "needs_edit")}
@@ -2245,7 +2430,7 @@ export default function ContentPage() {
                 Needs edit
               </Button>
             )}
-            {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) !== "rejected" && (
+            {selectedPostIsCalendar && selectedPost && draftStatus(selectedPost) !== "published" && draftStatus(selectedPost) !== "rejected" && (
               <Button
                 variant="outline"
                 onClick={() => void markCalendarDraftStatus(selectedPost, "rejected")}

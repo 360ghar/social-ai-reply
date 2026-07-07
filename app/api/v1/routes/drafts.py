@@ -48,6 +48,7 @@ from app.db.tables.voice_profiles import (
 )
 from app.schemas.v1.content import (
     ContentPlanRequest,
+    PostDraftManualPublishRequest,
     PostDraftRequest,
     PostDraftResponse,
     PostDraftScheduleRequest,
@@ -787,6 +788,12 @@ def schedule_post_draft(
         {
             "status": "scheduled",
             "scheduled_at": scheduled_at.astimezone(UTC).isoformat(),
+            "published_at": None,
+            "published_url": None,
+            "publish_mode": None,
+            "publish_error": None,
+            "publish_note": None,
+            "last_publish_attempt_at": None,
         },
     )
     return PostDraftResponse.model_validate(updated)
@@ -806,7 +813,58 @@ def unschedule_post_draft(
         raise HTTPException(status_code=404, detail="Post draft not found.")
     get_project(supabase, workspace["id"], draft["project_id"])
 
-    updated = update_post_draft_db(supabase, draft_id, {"status": "draft"})
+    updated = update_post_draft_db(
+        supabase,
+        draft_id,
+        {
+            "status": "draft",
+            "published_at": None,
+            "published_url": None,
+            "publish_mode": None,
+            "publish_error": None,
+            "publish_note": None,
+            "last_publish_attempt_at": None,
+        },
+    )
+    return PostDraftResponse.model_validate(updated)
+
+
+@router.post("/drafts/posts/{draft_id}/manual-publish", response_model=PostDraftResponse)
+def manual_publish_post_draft(
+    draft_id: int,
+    payload: PostDraftManualPublishRequest,
+    current_user: dict = Depends(get_current_user),
+    workspace: dict = Depends(get_current_workspace),
+    supabase: Client = Depends(get_supabase),
+) -> PostDraftResponse:
+    """Mark a calendar post as manually published.
+
+    This is the free MVP fallback until platform OAuth/API publishing is
+    connected. It records the user's manual action without posting externally.
+    """
+    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    draft = get_post_draft_by_id(supabase, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Post draft not found.")
+    get_project(supabase, workspace["id"], draft["project_id"])
+
+    published_url = payload.published_url.strip() if payload.published_url else None
+    publish_note = payload.publish_note.strip() if payload.publish_note else None
+    now = datetime.now(UTC)
+
+    updated = update_post_draft_db(
+        supabase,
+        draft_id,
+        {
+            "status": "published",
+            "published_at": now.isoformat(),
+            "published_url": published_url,
+            "publish_mode": "manual",
+            "publish_error": None,
+            "publish_note": publish_note,
+            "last_publish_attempt_at": now.isoformat(),
+        },
+    )
     return PostDraftResponse.model_validate(updated)
 
 
