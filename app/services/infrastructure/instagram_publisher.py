@@ -25,8 +25,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from app.db.tables.integrations import list_integration_secrets_for_workspace
-from app.utils.encryption import decrypt_text
+from app.services.infrastructure.platform_token_utils import (
+    get_platform_secret_value,
+    get_platform_token,
+)
 
 if TYPE_CHECKING:
     from supabase import Client
@@ -46,20 +48,7 @@ def get_instagram_token(db: Client, workspace_id: int) -> str | None:
 
     Looks for an integration secret with provider ``"instagram"``.
     """
-    secrets = list_integration_secrets_for_workspace(db, workspace_id)
-    row = next((s for s in secrets if s.get("provider") == "instagram"), None)
-    if not row:
-        return None
-    encrypted = row.get("encrypted_value")
-    if not encrypted:
-        return None
-    try:
-        return decrypt_text(encrypted)
-    except ValueError as exc:
-        raise RuntimeError(
-            "Stored Instagram credentials could not be decrypted. Re-save the "
-            "Instagram access token in workspace integration settings."
-        ) from exc
+    return get_platform_token(db, workspace_id, "instagram")
 
 
 def get_instagram_business_account_id(db: Client, workspace_id: int) -> str | None:
@@ -68,24 +57,7 @@ def get_instagram_business_account_id(db: Client, workspace_id: int) -> str | No
     Stored as an integration secret with provider ``"instagram"`` and
     label ``"business_account_id"``.
     """
-    secrets = list_integration_secrets_for_workspace(db, workspace_id)
-    row = next(
-        (
-            s
-            for s in secrets
-            if s.get("provider") == "instagram" and s.get("label") == "business_account_id"
-        ),
-        None,
-    )
-    if not row:
-        return None
-    encrypted = row.get("encrypted_value")
-    if not encrypted:
-        return row.get("value")  # may be stored in plaintext
-    try:
-        return decrypt_text(encrypted)
-    except ValueError:
-        return None
+    return get_platform_secret_value(db, workspace_id, "instagram", "business_account_id")
 
 
 class InstagramPublisher:
@@ -127,38 +99,33 @@ class InstagramPublisher:
         content: str,
         media_url: str | None = None,
     ) -> dict[str, Any]:
-        """Publish a single Instagram post (image with caption, or caption-only).
+        """Publish a single Instagram post (image with caption).
 
         Args:
             content: Caption text for the post.
             media_url: Publicly accessible URL of an image to attach.
-                       If omitted the post will be caption-only (text-only
-                       posts are allowed on Instagram).
+                       Required for standard feed posts.
 
         Returns:
             Dict with keys ``{"id": media_id}`` on success.
 
         Raises:
-            RuntimeError: On API errors or network failures.
+            RuntimeError: On API errors, network failures, or missing media_url.
         """
-        # Step 1: create media container
-        media_payload: dict[str, Any] = {"caption": content}
-
-        if media_url:
-            media_payload["image_url"] = media_url
-            media_payload["media_type"] = "IMAGE"
-        else:
-            # TODO: caption-only fallback; the Instagram Graph API *does*
-            # support STORY or REEL media types, but for a standard feed
-            # post a media attachment is strongly preferred.  Once the
-            # image-upload pipeline exists this branch should upload a
-            # branded placeholder or auto-generated visual.
-            media_payload["media_type"] = "IMAGE"
-            media_payload["image_url"] = ""
-            logger.warning(
-                "No media_url provided for Instagram post. "
-                "The Graph API may reject this; provide a media_url when possible."
+        if not media_url:
+            raise RuntimeError(
+                "Instagram standard feed posts require a media_url (image URL). "
+                "Caption-only posts are not supported by the Instagram Graph API "
+                "for feed publishing. Provide a media_url or implement a media "
+                "upload pipeline."
             )
+
+        # Step 1: create media container
+        media_payload: dict[str, Any] = {
+            "caption": content,
+            "image_url": media_url,
+            "media_type": "IMAGE",
+        }
 
         container = self._create_media_container(media_payload)
         container_id = container.get("id")

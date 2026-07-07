@@ -160,8 +160,22 @@ def test_failure_mid_thread_stops_publishing():
 
 def _secrets_patch(rows):
     return patch(
-        "app.services.infrastructure.x_publisher.list_integration_secrets_for_workspace",
+        "app.services.infrastructure.platform_token_utils.list_integration_secrets_for_workspace",
         return_value=rows,
+    )
+
+
+def _decrypt_patch():
+    return patch(
+        "app.services.infrastructure.platform_token_utils.decrypt_text",
+        side_effect=lambda v: f"dec:{v}",
+    )
+
+
+def _decrypt_failure_patch():
+    return patch(
+        "app.services.infrastructure.platform_token_utils.decrypt_text",
+        side_effect=ValueError("bad key"),
     )
 
 
@@ -170,19 +184,13 @@ def test_get_x_token_prefers_provider_x():
         {"provider": "twitter", "encrypted_value": "enc-twitter"},
         {"provider": "x", "encrypted_value": "enc-x"},
     ]
-    with (
-        _secrets_patch(rows),
-        patch("app.services.infrastructure.x_publisher.decrypt_text", side_effect=lambda v: f"dec:{v}"),
-    ):
+    with _secrets_patch(rows), _decrypt_patch():
         assert get_x_token(object(), 1) == "dec:enc-x"
 
 
 def test_get_x_token_falls_back_to_twitter():
     rows = [{"provider": "twitter", "encrypted_value": "enc-tw"}]
-    with (
-        _secrets_patch(rows),
-        patch("app.services.infrastructure.x_publisher.decrypt_text", side_effect=lambda v: f"dec:{v}"),
-    ):
+    with _secrets_patch(rows), _decrypt_patch():
         assert get_x_token(object(), 1) == "dec:enc-tw"
 
 
@@ -193,9 +201,5 @@ def test_get_x_token_none_when_not_configured():
 
 def test_get_x_token_decrypt_failure_raises_runtime_error():
     rows = [{"provider": "x", "encrypted_value": "broken"}]
-    with (
-        _secrets_patch(rows),
-        patch("app.services.infrastructure.x_publisher.decrypt_text", side_effect=ValueError("bad key")),
-        pytest.raises(RuntimeError, match="decrypt"),
-    ):
+    with _secrets_patch(rows), _decrypt_failure_patch(), pytest.raises(RuntimeError, match="decrypt"):
         get_x_token(object(), 1)

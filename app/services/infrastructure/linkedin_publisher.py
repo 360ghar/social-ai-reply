@@ -23,8 +23,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from app.db.tables.integrations import list_integration_secrets_for_workspace
-from app.utils.encryption import decrypt_text
+from app.services.infrastructure.platform_token_utils import (
+    get_platform_secret_value,
+    get_platform_token,
+)
 
 if TYPE_CHECKING:
     from supabase import Client
@@ -41,22 +43,7 @@ def get_linkedin_token(db: Client, workspace_id: int) -> str | None:
 
     Looks for an integration secret with provider ``"linkedin"``.
     """
-    secrets = list_integration_secrets_for_workspace(db, workspace_id)
-    row = next(
-        (s for s in secrets if s.get("provider") == "linkedin"), None
-    )
-    if not row:
-        return None
-    encrypted = row.get("encrypted_value")
-    if not encrypted:
-        return None
-    try:
-        return decrypt_text(encrypted)
-    except ValueError as exc:
-        raise RuntimeError(
-            "Stored LinkedIn credentials could not be decrypted. Re-save the "
-            "LinkedIn access token in workspace integration settings."
-        ) from exc
+    return get_platform_token(db, workspace_id, "linkedin")
 
 
 def get_linkedin_author_urn(db: Client, workspace_id: int) -> str | None:
@@ -66,24 +53,7 @@ def get_linkedin_author_urn(db: Client, workspace_id: int) -> str | None:
     label ``"author_urn"`` (e.g. ``urn:li:organization:123456`` or
     ``urn:li:person:abcdef``).
     """
-    secrets = list_integration_secrets_for_workspace(db, workspace_id)
-    row = next(
-        (
-            s
-            for s in secrets
-            if s.get("provider") == "linkedin" and s.get("label") == "author_urn"
-        ),
-        None,
-    )
-    if not row:
-        return None
-    encrypted = row.get("encrypted_value")
-    if not encrypted:
-        return row.get("value")
-    try:
-        return decrypt_text(encrypted)
-    except ValueError:
-        return None
+    return get_platform_secret_value(db, workspace_id, "linkedin", "author_urn")
 
 
 class LinkedInPublisher:
