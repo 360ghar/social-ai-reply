@@ -144,7 +144,7 @@ export function ContentCalendar({ token }: ContentCalendarProps) {
   const [generating, setGenerating] = useState(false);
 
   const { year, month } = getMonthYear(currentDate);
-  const weekStart = getWeekStart(currentDate);
+  const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate]);
 
   const gridDays = useMemo(
     () =>
@@ -161,8 +161,8 @@ export function ContentCalendar({ token }: ContentCalendarProps) {
       const firstDay = gridDays[0][0];
       const lastDay = gridDays[gridDays.length - 1][6];
       const data = await listSuggestions(token, {
-        date_from: formatDateKey(firstDay),
-        date_to: formatDateKey(lastDay),
+        from: formatDateKey(firstDay),
+        to: formatDateKey(lastDay),
       });
       setSuggestions(data);
     } catch {
@@ -217,8 +217,8 @@ export function ContentCalendar({ token }: ContentCalendarProps) {
     setGenerating(true);
     try {
       const result = await generateSuggestions(token, {
-        day_count: genDayCount,
-        platforms: genPlatforms.length > 0 ? genPlatforms : undefined,
+        days: genDayCount,
+        platforms: genPlatforms.length > 0 ? genPlatforms : ["x"],
       });
       success(`Generated ${result.generated} suggestions`);
       setShowGenerate(false);

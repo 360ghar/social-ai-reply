@@ -1,34 +1,66 @@
-"""Instagram platform adapter — powered by RapidAPI (instagram-looter2).
+"""Instagram platform adapter — powered by RapidAPI (instagram-scraper-stable-api).
 
-Uses the instagram-looter2.p.rapidapi.com API from the RapidAPI marketplace.
-The API supports keyword search via GET /search?query=... which returns
-matching hashtags and user profiles.
+Uses the instagram-scraper-stable-api.p.rapidapi.com API from the RapidAPI
+marketplace (by RockSolid APIs).  The API supports keyword search via
+POST /search_ig.php which returns matching users and hashtags.
 
-Rate limit: 150 requests/month on the free plan.
+CONFIRMED (via live API test):
+  Endpoint: POST /search_ig.php
+  Content-Type: application/x-www-form-urlencoded
+  Body field: search_query=<search term>
+  Response: {"users": [{"position": N, "user": {...}}], "hashtags": [...]}
+
+NOTE: The search result user objects do NOT include ``follower_count`` or
+``biography``.  Follower count is approximated from the
+``search_social_context`` string (e.g. "87.6M followers").  Biography
+defaults to empty string.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 import httpx
 
+from app.core.config import get_settings
 from app.services.infrastructure.platforms.base import PlatformAdapter
 from app.services.infrastructure.platforms.models import UnifiedComment, UnifiedPost
 from app.services.infrastructure.platforms.rapidapi_client import RapidAPIClient, RapidAPIError
 
 logger = logging.getLogger(__name__)
 
-# New RapidAPI host for Instagram scraping with keyword search support.
-DEFAULT_INSTAGRAM_API_HOST = "instagram-looter2.p.rapidapi.com"
+DEFAULT_INSTAGRAM_API_HOST = "instagram-scraper-stable-api.p.rapidapi.com"
+INSTAGRAM_SEARCH_ENDPOINT = "/search_ig.php"
+
+
+def _parse_follower_count(social_context: str) -> int:
+    """Extract approximate follower count from search_social_context string.
+
+    Handles formats like "87.6M followers", "685M followers", "9.4M followers".
+    """
+    if not social_context:
+        return 0
+    match = re.search(r"([\d.]+)\s*([KM]?)\s*follower", social_context, re.IGNORECASE)
+    if not match:
+        return 0
+    value = float(match.group(1))
+    suffix = match.group(2).upper()
+    if suffix == "M":
+        return int(value * 1_000_000)
+    if suffix == "K":
+        return int(value * 1_000)
+    return int(value)
 
 
 class InstagramAdapter(PlatformAdapter):
-    """Instagram adapter using RapidAPI Instagram Looter 2.
+    """Instagram adapter using RapidAPI Instagram Scraper Stable API.
 
-    Endpoints used (GET with query params):
-      - GET /search?query=...  — global search (returns users + hashtags)
+    Endpoints used:
+      - POST /search_ig.php  — global search (returns users + hashtags)
+        Content-Type: application/x-www-form-urlencoded
+        Field: search_query
     """
 
     platform_name = "instagram"
@@ -43,20 +75,20 @@ class InstagramAdapter(PlatformAdapter):
             self._available = False
 
     # ------------------------------------------------------------------
-    # Internal HTTP helper — GET requests for instagram-looter2
+    # Internal HTTP helper — POST form-urlencoded
     # ------------------------------------------------------------------
 
-    async def _get(
+    async def _post_form(
         self,
         endpoint: str,
         *,
-        params: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
     ) -> dict[str, Any] | list[Any]:
-        """Make a GET request to the Instagram Looter 2 API.
+        """Make a form-urlencoded POST request to the Instagram API.
 
         Args:
-            endpoint: API path (e.g., ``/search``).
-            params: Query parameters.
+            endpoint: API path (e.g., ``/search_ig.php``).
+            data: Form fields.
 
         Returns:
             Parsed JSON response.
@@ -64,26 +96,28 @@ class InstagramAdapter(PlatformAdapter):
         Raises:
             RapidAPIError: On non-200 responses after retries.
         """
-        await self.client._throttle()  # noqa: SLF001 — reuse shared rate limiter
-
-        url = f"https://{self.api_host}{endpoint}"
+        settings = get_settings()
         headers = {
-            **self.client._get_headers(),  # noqa: SLF001
-            "Content-Type": "application/json",
+            "x-rapidapi-key": settings.rapidapi_key,
+            "x-rapidapi-host": self.api_host,
+            "Content-Type": "application/x-www-form-urlencoded",
         }
 
-        last_error: Exception | None = None
+        url = f"https://{self.api_host}{endpoint}"
 
-        for attempt in range(self.client.MAX_RETRIES + 1):
+        max_retries = 1
+        retry_delay = 2.0
+
+        for attempt in range(max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.client.timeout) as http:
-                    response = await http.get(url, headers=headers, params=params or {})
+                async with httpx.AsyncClient(timeout=15.0) as http:
+                    response = await http.post(url, headers=headers, data=data or {})
 
                 if response.status_code == 200:
-                    return response.json()  # type: ignore[no-any-return]
+                    return response.json()
 
                 if response.status_code == 429:
-                    wait = self.client.RETRY_DELAY * (2**attempt)
+                    wait = retry_delay * (2**attempt)
                     logger.warning(
                         "Rate limited by %s, waiting %.1fs (attempt %d)",
                         self.api_host,
@@ -94,7 +128,7 @@ class InstagramAdapter(PlatformAdapter):
                     continue
 
                 if response.status_code >= 500:
-                    wait = self.client.RETRY_DELAY * (2**attempt)
+                    wait = retry_delay * (2**attempt)
                     logger.warning(
                         "Server error %d from %s, retrying in %.1fs",
                         response.status_code,
@@ -104,70 +138,64 @@ class InstagramAdapter(PlatformAdapter):
                     await asyncio.sleep(wait)
                     continue
 
-                # Client error (400, 403, 404) — don't retry
                 error_body = response.text[:500]
+                if error_body.startswith("{\"error\":"):
+                    error_data = response.json()
+                    if isinstance(error_data, dict):
+                        error_body = error_data.get("error", error_body)
                 raise RapidAPIError(response.status_code, error_body, self.api_host)
 
             except httpx.HTTPError as e:
-                last_error = e
-                if attempt < self.client.MAX_RETRIES:
-                    await asyncio.sleep(self.client.RETRY_DELAY)
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
                     continue
                 raise RapidAPIError(0, str(e), self.api_host) from e
 
-        raise RapidAPIError(0, f"Max retries exceeded: {last_error}", self.api_host)
+        raise RapidAPIError(0, "Max retries exceeded", self.api_host)
 
     # ------------------------------------------------------------------
     # Parsing
     # ------------------------------------------------------------------
 
-    def _parse_user_as_post(self, user_wrapper: dict[str, Any]) -> UnifiedPost | None:
+    def _parse_user_as_post(self, user: dict[str, Any]) -> UnifiedPost | None:
         """Convert a search-result user entry into a UnifiedPost.
 
-        The /search endpoint returns users as {position, user: {...}}.
-        We treat each relevant user profile as an opportunity/post.
+        The /search_ig.php endpoint returns users with fields:
+          - ``username`` (str)
+          - ``full_name`` (str)
+          - ``pk`` (int/str) — internal user ID
+          - ``is_verified`` (bool)
+          - ``profile_pic_url`` (str)
+          - ``search_social_context`` (str, optional) — e.g. "87.6M followers"
         """
-        user = user_wrapper.get("user", user_wrapper)
         if not isinstance(user, dict):
             return None
 
-        username = user.get("username", "")
+        username = user.get("username") or user.get("screen_name") or ""
         if not username:
             return None
 
-        full_name = user.get("full_name", "")
-        bio = user.get("biography", "")
-        pk = str(user.get("pk", ""))
+        pk = str(user.get("pk", user.get("id", "")))
+        full_name = user.get("full_name") or user.get("fullName") or ""
         is_verified = user.get("is_verified", False)
-        follower_count = int(user.get("follower_count", 0))
         social_context = user.get("search_social_context", "")
+        follower_count = _parse_follower_count(social_context)
 
-        # Build a descriptive body from available fields
         parts = []
         if full_name:
             parts.append(full_name)
-        if bio:
-            parts.append(bio)
         if social_context:
             parts.append(f"Context: {social_context}")
         if is_verified:
-            parts.append("✓ Verified account")
+            parts.append("Verified account")
 
         body = "\n".join(parts) if parts else f"Instagram user @{username}"
-
         profile_url = f"https://www.instagram.com/{username}/"
 
-        # Profile picture
         media_urls: list[str] = []
-        pic_url = user.get("profile_pic_url", "")
+        pic_url = user.get("profile_pic_url") or user.get("profile_pic") or user.get("avatar", "")
         if pic_url:
             media_urls.append(pic_url)
-
-        # Extract hashtags from bio
-        hashtags: list[str] = []
-        if bio:
-            import re
-            hashtags = re.findall(r"#(\w+)", bio)
 
         try:
             post = UnifiedPost(
@@ -178,7 +206,7 @@ class InstagramAdapter(PlatformAdapter):
                 title=f"@{username}" + (f" — {full_name}" if full_name else ""),
                 body=body,
                 url=profile_url,
-                hashtags=hashtags,
+                hashtags=[],
                 upvotes=follower_count,
                 comments_count=0,
                 shares=0,
@@ -193,13 +221,8 @@ class InstagramAdapter(PlatformAdapter):
             logger.debug("Failed to create UnifiedPost from Instagram user @%s: %s", username, e)
             return None
 
-    def _parse_hashtag_as_post(self, hashtag_wrapper: dict[str, Any]) -> UnifiedPost | None:
-        """Convert a search-result hashtag entry into a UnifiedPost.
-
-        The /search endpoint returns hashtags as {position, hashtag: {name, media_count, id}}.
-        We treat popular hashtags as signals/opportunities.
-        """
-        hashtag = hashtag_wrapper.get("hashtag", hashtag_wrapper)
+    def _parse_hashtag_as_post(self, hashtag: dict[str, Any]) -> UnifiedPost | None:
+        """Convert a search-result hashtag entry into a UnifiedPost."""
         if not isinstance(hashtag, dict):
             return None
 
@@ -207,7 +230,7 @@ class InstagramAdapter(PlatformAdapter):
         if not name:
             return None
 
-        media_count = int(hashtag.get("media_count", 0))
+        media_count = int(hashtag.get("media_count", hashtag.get("mediaCount", 0)))
         hashtag_id = str(hashtag.get("id", ""))
         tag_url = f"https://www.instagram.com/explore/tags/{name}/"
 
@@ -248,11 +271,10 @@ class InstagramAdapter(PlatformAdapter):
         sort: str = "relevance",
         time_filter: str = "week",
     ) -> list[UnifiedPost]:
-        """Search Instagram using the Global Search endpoint.
+        """Search Instagram using the Search (Users + Hashtags) endpoint.
 
-        Uses GET /search?query=... which returns matching users and hashtags.
-        Each relevant user profile and trending hashtag is converted into a
-        UnifiedPost for the opportunity pipeline.
+        Uses POST /search_ig.php with form-urlencoded body containing
+        ``search_query``.  Returns matching users and hashtags as UnifiedPosts.
 
         Args:
             keywords: Search terms to query.
@@ -276,7 +298,10 @@ class InstagramAdapter(PlatformAdapter):
                 continue
 
             try:
-                data = await self._get("/search", params={"query": query})
+                data = await self._post_form(
+                    INSTAGRAM_SEARCH_ENDPOINT,
+                    data={"search_query": query},
+                )
             except RapidAPIError as e:
                 logger.error("Instagram search failed for '%s': %s", query, e)
                 continue
@@ -284,25 +309,28 @@ class InstagramAdapter(PlatformAdapter):
             if not isinstance(data, dict):
                 continue
 
-            # Parse users — these are the most actionable results
+            # Parse users (wrapped in {position, user} objects)
             users = data.get("users", [])
-            for user_wrapper in users[:10]:
-                if not isinstance(user_wrapper, dict):
-                    continue
-                post = self._parse_user_as_post(user_wrapper)
-                if post and post.external_id not in seen_ids:
-                    seen_ids.add(post.external_id)
-                    all_posts.append(post)
+            if isinstance(users, list):
+                for user_entry in users[:10]:
+                    if not isinstance(user_entry, dict):
+                        continue
+                    user = user_entry.get("user", user_entry)
+                    post = self._parse_user_as_post(user)
+                    if post and post.external_id not in seen_ids:
+                        seen_ids.add(post.external_id)
+                        all_posts.append(post)
 
-            # Parse hashtags — useful as content signals
+            # Parse hashtags
             hashtags = data.get("hashtags", [])
-            for hashtag_wrapper in hashtags[:5]:
-                if not isinstance(hashtag_wrapper, dict):
-                    continue
-                post = self._parse_hashtag_as_post(hashtag_wrapper)
-                if post and post.external_id not in seen_ids:
-                    seen_ids.add(post.external_id)
-                    all_posts.append(post)
+            if isinstance(hashtags, list):
+                for hashtag_entry in hashtags[:5]:
+                    if not isinstance(hashtag_entry, dict):
+                        continue
+                    post = self._parse_hashtag_as_post(hashtag_entry)
+                    if post and post.external_id not in seen_ids:
+                        seen_ids.add(post.external_id)
+                        all_posts.append(post)
 
             if len(all_posts) >= limit:
                 break
@@ -322,10 +350,9 @@ class InstagramAdapter(PlatformAdapter):
     ) -> list[UnifiedComment]:
         """Get comments on an Instagram post.
 
-        The instagram-looter2 API does not expose a comments endpoint,
-        so this returns an empty list.
+        Currently not implemented for this API.  Returns empty list.
         """
-        logger.debug("[instagram] get_post_comments not supported by current API (post %s)", post_id)
+        logger.debug("[instagram] get_post_comments not implemented (post %s)", post_id)
         return []
 
     async def get_trending(
@@ -346,7 +373,10 @@ class InstagramAdapter(PlatformAdapter):
         if not self._available:
             return False
         try:
-            data = await self._get("/search", params={"query": "test"})
-            return isinstance(data, dict) and data.get("status") == "ok"
+            data = await self._post_form(
+                INSTAGRAM_SEARCH_ENDPOINT,
+                data={"search_query": "test"},
+            )
+            return isinstance(data, dict) and "users" in data
         except Exception:
             return False

@@ -12,12 +12,13 @@ export type TweetSuggestion = {
   platform: SuggestionPlatform;
   scheduled_at: string | null;
   published_at: string | null;
+  error_message: string | null;
   created_at: string;
 };
 
 export type GenerateSuggestionsRequest = {
-  day_count: number;
-  platforms?: SuggestionPlatform[];
+  days: number;
+  platforms: SuggestionPlatform[];
 };
 
 export type GenerateSuggestionsResponse = {
@@ -28,19 +29,25 @@ export type GenerateSuggestionsResponse = {
 export type ListSuggestionsParams = {
   status?: SuggestionStatus;
   platform?: SuggestionPlatform;
-  date_from?: string;
-  date_to?: string;
+  from?: string;
+  to?: string;
 };
 
 export async function generateSuggestions(
   token: string,
   data: GenerateSuggestionsRequest,
 ): Promise<GenerateSuggestionsResponse> {
-  return apiRequest<GenerateSuggestionsResponse>(
-    "/v1/suggestions/generate",
-    { method: "POST", body: JSON.stringify(data) },
-    token,
-  );
+  const allSuggestions: TweetSuggestion[] = [];
+  for (const platform of data.platforms) {
+    const body = { days: data.days, platform };
+    const res = await apiRequest<GenerateSuggestionsResponse>(
+      "/v1/suggestions/generate",
+      { method: "POST", body: JSON.stringify(body) },
+      token,
+    );
+    allSuggestions.push(...res.suggestions);
+  }
+  return { generated: allSuggestions.length, suggestions: allSuggestions };
 }
 
 export async function listSuggestions(
@@ -50,8 +57,8 @@ export async function listSuggestions(
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.set("status", params.status);
   if (params?.platform) searchParams.set("platform", params.platform);
-  if (params?.date_from) searchParams.set("date_from", params.date_from);
-  if (params?.date_to) searchParams.set("date_to", params.date_to);
+  if (params?.from) searchParams.set("from", params.from);
+  if (params?.to) searchParams.set("to", params.to);
   const qs = searchParams.toString();
   return apiRequest<TweetSuggestion[]>(
     `/v1/suggestions${qs ? `?${qs}` : ""}`,

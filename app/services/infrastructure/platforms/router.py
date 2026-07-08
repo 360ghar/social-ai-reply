@@ -2,8 +2,8 @@
 
 Each platform has its own search strategy:
   - Reddit:    Browse subreddits via RapidAPI (reddit34)
-  - Twitter/X: Direct keyword search via RapidAPI (twitter154)
-  - Instagram: Global search (users + hashtags) via RapidAPI (instagram-looter2)
+  - Twitter/X: Direct keyword search via RapidAPI (twitter-api45)
+  - Instagram: Global search (users + hashtags) via RapidAPI (instagram-scraper-stable-api)
   - LinkedIn:  Keyword search via RapidAPI (fresh-linkedin-scraper-api)
 """
 from __future__ import annotations
@@ -24,9 +24,9 @@ _adapters: dict[str, PlatformAdapter] = {}
 # Supported platforms and their search characteristics
 PLATFORM_INFO = {
     "reddit": {"host": "reddit34.p.rapidapi.com", "search": "subreddit browsing", "limit": "1000/hr"},
-    "twitter": {"host": "twitter154.p.rapidapi.com", "search": "keyword search", "limit": "1000/hr"},
-    "x": {"host": "twitter154.p.rapidapi.com", "search": "keyword search (alias for twitter)", "limit": "1000/hr"},
-    "instagram": {"host": "instagram-looter2.p.rapidapi.com", "search": "global search (users + hashtags)", "limit": "150/month"},
+    "twitter": {"host": "twitter-api45.p.rapidapi.com", "search": "keyword search", "limit": "1000/hr"},
+    "x": {"host": "twitter-api45.p.rapidapi.com", "search": "keyword search (alias for twitter)", "limit": "1000/hr"},
+    "instagram": {"host": "instagram-scraper-stable-api.p.rapidapi.com", "search": "global search (users + hashtags)", "limit": "150/month"},
     "linkedin": {"host": "fresh-linkedin-scraper-api.p.rapidapi.com", "search": "keyword search", "limit": "1000/hr"},
 }
 
