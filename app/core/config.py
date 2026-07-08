@@ -111,6 +111,9 @@ class Settings(BaseSettings):
     # Default is False — the v2 engine is more permissive and produces more
     # opportunities from RSS feeds (which have score=0, num_comments=0).
     use_legacy_scoring: bool = False
+    # When True, auto-publishes approved + due suggestions every 5 minutes
+    # via a background loop in the lifespan handler.
+    enable_auto_publish_scheduler: bool = True
 
     relevance_threshold: int = Field(default=70, ge=0, le=100)
     semantic_threshold: float = Field(default=0.45, ge=0.0, le=1.0)

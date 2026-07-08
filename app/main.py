@@ -3,6 +3,7 @@
 Backend API server using FastAPI with Supabase for authentication and database.
 """
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -21,6 +22,24 @@ from app.services.infrastructure.llm.providers._registry import get_configured_p
 
 setup_logging("INFO")
 logger = logging.getLogger(__name__)
+
+
+async def auto_publish_loop() -> None:
+    """Background loop: publish approved/due suggestions every 5 minutes."""
+    from app.db.supabase_client import get_supabase
+    from app.services.product.tweet_scheduler import publish_all_workspaces
+
+    logger.info("Auto-publish scheduler started (interval=300s)")
+    while True:
+        try:
+            await asyncio.sleep(300)
+            db = get_supabase()
+            await asyncio.to_thread(publish_all_workspaces, db)
+        except asyncio.CancelledError:
+            logger.info("Auto-publish scheduler cancelled")
+            raise
+        except Exception:
+            logger.exception("Auto-publish scheduler iteration failed")
 
 
 @asynccontextmanager
@@ -65,7 +84,24 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Migration runner failed — continuing startup")
     logger.info("SignalFlow API started successfully.")
+
+    # Background auto-publish scheduler (every 5 minutes)
+    _bg_tasks: set[asyncio.Task] = set()
+    if settings.enable_auto_publish_scheduler:
+        task = asyncio.create_task(auto_publish_loop())
+        _bg_tasks.add(task)
+        task.add_done_callback(_bg_tasks.discard)
+
     yield
+
+    # Cancel background tasks on shutdown
+    for task in _bg_tasks:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     logger.info("Shutting down SignalFlow API.")
 
 
