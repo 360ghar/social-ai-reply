@@ -29,8 +29,10 @@ create policy "Users can view suggestions for their workspaces"
     on tweet_suggestions for select
     using (
         workspace_id in (
-            select workspace_id from workspace_members
-            where user_id = auth.uid()
+            select workspace_id from memberships
+            where user_id in (
+                select id from account_users where supabase_uid = auth.uid()
+            )
         )
     );
 
@@ -38,8 +40,10 @@ create policy "Users can insert suggestions for their workspaces"
     on tweet_suggestions for insert
     with check (
         workspace_id in (
-            select workspace_id from workspace_members
-            where user_id = auth.uid()
+            select workspace_id from memberships
+            where user_id in (
+                select id from account_users where supabase_uid = auth.uid()
+            )
         )
     );
 
@@ -47,8 +51,10 @@ create policy "Users can update suggestions for their workspaces"
     on tweet_suggestions for update
     using (
         workspace_id in (
-            select workspace_id from workspace_members
-            where user_id = auth.uid()
+            select workspace_id from memberships
+            where user_id in (
+                select id from account_users where supabase_uid = auth.uid()
+            )
         )
     );
 
@@ -56,8 +62,10 @@ create policy "Users can delete suggestions for their workspaces"
     on tweet_suggestions for delete
     using (
         workspace_id in (
-            select workspace_id from workspace_members
-            where user_id = auth.uid()
+            select workspace_id from memberships
+            where user_id in (
+                select id from account_users where supabase_uid = auth.uid()
+            )
         )
     );
 
