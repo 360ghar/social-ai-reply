@@ -456,3 +456,13 @@ export {
   type UserProfile,
   type UsageResponse,
 } from "./api/workspace";
+
+export {
+  listSuggestions,
+  generateSuggestions,
+  approveSuggestion,
+  rejectSuggestion,
+  type TweetSuggestion,
+  type SuggestionPlatform,
+  type SuggestionStatus,
+} from "./api/tweet-suggestions";

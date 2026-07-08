@@ -18,6 +18,7 @@ import {
   Link2,
   Megaphone,
   AlertTriangle,
+  CalendarDays,
 } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -69,6 +70,7 @@ import { postToReddit as apiPostToReddit } from "@/lib/api/reddit";
 import { createTrackedLink, shortLinkUrl } from "@/lib/api/links";
 import { createAmplifyDraft, type AmplifyTarget } from "@/lib/api/amplify";
 import { rememberAmplifyDraft } from "@/lib/amplify-store";
+import { ContentCalendar } from "@/components/content/content-calendar";
 
 interface ReplyDraftRow {
   id: number;
@@ -486,6 +488,10 @@ export default function ContentPage() {
                 )}
               </TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
+              <TabsTrigger value="calendar">
+                <CalendarDays className="h-4 w-4" />
+                Calendar
+              </TabsTrigger>
             </TabsList>
           }
         />
@@ -797,6 +803,13 @@ export default function ContentPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
+
+        {/* Calendar Tab */}
+        {!loading && (
+          <TabsContent value="calendar">
+            <ContentCalendar token={token} />
+          </TabsContent>
         )}
       </Tabs>
 
