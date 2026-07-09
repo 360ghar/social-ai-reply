@@ -236,7 +236,7 @@ def _list_workspaces_with_creds(db: Client, platform: str) -> list[int]:
         result = (
             db.table("integration_secrets")
             .select("workspace_id")
-            .in_("provider", providers)
+            .in_("platform", providers)
             .execute()
         )
         seen: set[int] = set()
