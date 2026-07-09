@@ -43,7 +43,7 @@ import { Loader2, Trash2, Link2, Key, Webhook, FolderKanban, Save } from "lucide
 import { PageHeader } from "@/components/shared/page-header";
 import { AccountSafetyCard } from "@/components/settings/account-safety-card";
 
-const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom"];
+const PROVIDERS = ["openai", "perplexity", "gemini", "claude", "reddit", "custom", "x", "instagram", "linkedin"];
 const EVENT_TYPES = ["opportunity.found", "scan.complete", "visibility.alert", "draft.ready"];
 
 export default function SettingsPage() {
@@ -754,11 +754,14 @@ export default function SettingsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {PROVIDERS.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {p.charAt(0).toUpperCase() + p.slice(1)}
-                        </SelectItem>
-                      ))}
+                      {PROVIDERS.map((p) => {
+                        const label = p === "x" ? "X / Twitter" : p === "linkedin" ? "LinkedIn" : p.charAt(0).toUpperCase() + p.slice(1);
+                        return (
+                          <SelectItem key={p} value={p}>
+                            {label}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
