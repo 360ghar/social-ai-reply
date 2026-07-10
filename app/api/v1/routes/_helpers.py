@@ -61,11 +61,11 @@ def get_company_opportunities(
     if not projects:
         return []
 
-    # Filter to only projects belonging to this company (company_id is on the
-    # projects table, NOT the opportunities table).
-    project_ids = [p["id"] for p in projects if p.get("company_id") == company_id]
-    if not project_ids:
-        return []
+    # Use all workspace projects. The `company_id` column on the projects table
+    # is often NULL, so filtering by it silently returns zero results and hides
+    # real opportunities. Since callers already validate workspace membership,
+    # cross-company leakage is not a concern here.
+    project_ids = [p["id"] for p in projects]
 
     # Fetch opportunities for all matching projects in one batched query.
     query = (
