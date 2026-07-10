@@ -10,6 +10,7 @@ and decrypts it.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +68,11 @@ class XPublisher:
             RuntimeError: On API errors (rate limit, auth, validation) or
                 network failures, with a clear message.
         """
+        if os.environ.get("MOCK_PUBLISHERS", "").strip().lower() == "true":
+            for text in tweets:
+                logger.info("[MOCK] Would publish to X: %s", text)
+            return [{"id": f"mock_{i}", "text": t} for i, t in enumerate(tweets)]
+
         if not tweets:
             raise RuntimeError("Cannot publish an empty thread.")
 

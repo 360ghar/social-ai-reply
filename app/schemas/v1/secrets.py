@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SecretRequest(BaseModel):
-    provider: str = Field(min_length=2, max_length=100)
+    provider: str = Field(min_length=1, max_length=100)
     label: str = Field(min_length=2, max_length=100)
     value: str = Field(min_length=4, max_length=8000)
 

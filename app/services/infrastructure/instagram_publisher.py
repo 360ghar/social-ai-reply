@@ -20,6 +20,7 @@ workspace's stored token from ``integration_secrets`` (provider
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -112,6 +113,10 @@ class InstagramPublisher:
         Raises:
             RuntimeError: On API errors, network failures, or missing media_url.
         """
+        if os.environ.get("MOCK_PUBLISHERS", "").strip().lower() == "true":
+            logger.info("[MOCK] Would publish to Instagram: %s", content)
+            return {"id": "mock_ig_post"}
+
         if not media_url:
             raise RuntimeError(
                 "Instagram standard feed posts require a media_url (image URL). "

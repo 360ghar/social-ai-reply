@@ -41,9 +41,9 @@ def get_company_opportunities(
     this fetches all workspace projects once and batches opportunities into a
     single query using .in_("project_id", ...) (Issue #19).
 
-    The ``company_id`` is enforced: only opportunities whose ``company_id``
-    column matches are returned, so cross-company leakage within a workspace
-    is impossible (Issue: PR review).
+    The ``company_id`` is enforced by filtering projects in Python (the
+    ``projects`` table has ``company_id``; the ``opportunities`` table does
+    not), so cross-company leakage within a workspace is impossible.
 
     Args:
         platform: If set, filter to opportunities with this platform value.
@@ -58,19 +58,20 @@ def get_company_opportunities(
     from app.db.tables.projects import list_projects_for_workspace
 
     projects = list_projects_for_workspace(db, workspace_id)
-    project_ids = [p["id"] for p in projects]
+    if not projects:
+        return []
+
+    # Filter to only projects belonging to this company (company_id is on the
+    # projects table, NOT the opportunities table).
+    project_ids = [p["id"] for p in projects if p.get("company_id") == company_id]
     if not project_ids:
         return []
 
-    # Fetch opportunities for ALL workspace projects in one batched query,
-    # then filter by company_id in Python (no company_id column index assumed
-    # across all opportunity rows). The company_id check guarantees that one
-    # company's data is never returned to another company's request.
+    # Fetch opportunities for all matching projects in one batched query.
     query = (
         db.table(OPPORTUNITIES_TABLE)
         .select("*")
         .in_("project_id", project_ids)
-        .eq("company_id", company_id)
     )
     if platform:
         query = query.eq("platform", platform)

@@ -19,6 +19,7 @@ decrypts it.
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -97,6 +98,10 @@ class LinkedInPublisher:
         Raises:
             RuntimeError: On API errors or network failures.
         """
+        if os.environ.get("MOCK_PUBLISHERS", "").strip().lower() == "true":
+            logger.info("[MOCK] Would publish to LinkedIn: %s", content)
+            return {"id": "mock_li_post"}
+
         url = f"{self._base_url}/rest/posts"
 
         payload: dict[str, Any] = {

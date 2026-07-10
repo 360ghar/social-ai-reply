@@ -41,7 +41,7 @@ def get_integration_secret_by_provider_and_label(
         db.table(INTEGRATION_SECRETS_TABLE)
         .select("*")
         .eq("workspace_id", workspace_id)
-        .eq("platform", provider)
+        .eq("provider", provider)
         .eq("label", label)
         .execute()
     )
