@@ -7,7 +7,7 @@ copied across x_publisher.py, instagram_publisher.py, and linkedin_publisher.py.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from app.db.tables.integrations import list_integration_secrets_for_workspace
 from app.utils.encryption import decrypt_text
@@ -76,6 +76,11 @@ def get_platform_secret_value(
         return None
     encrypted = row.get("encrypted_value")
     if not encrypted:
+        logger.warning(
+            "Secret for provider=%s label=%s is stored in plaintext (column 'value') "
+            "rather than encrypted. Store secrets in 'encrypted_value' instead.",
+            provider, label,
+        )
         return row.get("value")
     try:
         return decrypt_text(encrypted)
