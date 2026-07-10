@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from supabase import Client
 
 from app.api.v1.deps import (
     ensure_workspace_membership,
@@ -15,7 +15,6 @@ from app.api.v1.deps import (
 )
 from app.db.supabase_client import get_supabase
 from app.db.tables.tweet_suggestions import (
-    count_suggestions,
     get_suggestion_by_id,
     list_suggestions,
     update_suggestion,
@@ -33,6 +32,9 @@ from app.services.product.tweet_scheduler import (
     publish_due_suggestions,
 )
 from app.services.product.tweet_suggestion_service import generate_suggestions
+
+if TYPE_CHECKING:
+    from supabase import Client
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +102,13 @@ def list_suggestion_batch(
 )
 def approve_suggestion(
     suggestion_id: int,
-    payload: SuggestionApproveRequest = SuggestionApproveRequest(),
+    payload: SuggestionApproveRequest | None = None,
     current_user: dict = Depends(get_current_user),
     workspace: dict = Depends(get_current_workspace),
     supabase: Client = Depends(get_supabase),
 ) -> TweetSuggestionResponse:
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    payload = payload or SuggestionApproveRequest()
 
     suggestion = get_suggestion_by_id(supabase, suggestion_id)
     if not suggestion:
@@ -146,12 +149,13 @@ def approve_suggestion(
 )
 def reject_suggestion(
     suggestion_id: int,
-    payload: SuggestionRejectRequest = SuggestionRejectRequest(),
+    payload: SuggestionRejectRequest | None = None,
     current_user: dict = Depends(get_current_user),
     workspace: dict = Depends(get_current_workspace),
     supabase: Client = Depends(get_supabase),
 ) -> TweetSuggestionResponse:
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
+    payload = payload or SuggestionRejectRequest()
 
     suggestion = get_suggestion_by_id(supabase, suggestion_id)
     if not suggestion:

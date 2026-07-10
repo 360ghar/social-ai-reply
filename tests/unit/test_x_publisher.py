@@ -97,9 +97,8 @@ def test_publish_thread_single_tweet_no_sleep():
 
 
 def test_publish_thread_empty_raises():
-    with patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()):
-        with pytest.raises(RuntimeError):
-            XPublisher("tok").publish_thread([])
+    with patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()), pytest.raises(RuntimeError):
+        XPublisher("tok").publish_thread([])
 
 
 # ── 429 handling ──────────────────────────────────────────────────────

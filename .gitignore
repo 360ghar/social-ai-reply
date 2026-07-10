@@ -46,4 +46,5 @@ web/sessions/
 .claude/worktrees/
 .factory/
 *.bak
+*.err
 web/.env
