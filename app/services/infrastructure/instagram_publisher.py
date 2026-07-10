@@ -20,12 +20,12 @@ workspace's stored token from ``integration_secrets`` (provider
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from app.core.config import get_settings
 from app.services.infrastructure.platform_token_utils import (
     get_platform_secret_value,
     get_platform_token,
@@ -113,7 +113,7 @@ class InstagramPublisher:
         Raises:
             RuntimeError: On API errors, network failures, or missing media_url.
         """
-        if os.environ.get("MOCK_PUBLISHERS", "").strip().lower() == "true":
+        if get_settings().mock_publishers:
             logger.info("[MOCK] Would publish to Instagram: %s", content)
             return {"id": "mock_ig_post"}
 

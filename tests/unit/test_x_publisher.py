@@ -1,10 +1,16 @@
 """Unit tests for the X API v2 publisher."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.infrastructure.x_publisher import XPublisher, get_x_token
+
+
+def _mock_settings(mock_publishers: bool = False):
+    s = MagicMock()
+    s.mock_publishers = mock_publishers
+    return s
 
 # ── Fakes ─────────────────────────────────────────────────────────────
 
@@ -52,6 +58,7 @@ def _run_publish(responses, tweets):
     with (
         patch("app.services.infrastructure.x_publisher.httpx.Client", fake),
         patch("app.services.infrastructure.x_publisher.time.sleep") as sleep,
+        patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()),
     ):
         results = XPublisher("token-123").publish_thread(tweets)
     return fake, sleep, results
@@ -90,8 +97,9 @@ def test_publish_thread_single_tweet_no_sleep():
 
 
 def test_publish_thread_empty_raises():
-    with pytest.raises(RuntimeError):
-        XPublisher("tok").publish_thread([])
+    with patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()):
+        with pytest.raises(RuntimeError):
+            XPublisher("tok").publish_thread([])
 
 
 # ── 429 handling ──────────────────────────────────────────────────────
@@ -113,6 +121,7 @@ def test_429_twice_fails_with_clear_message():
     with (
         patch("app.services.infrastructure.x_publisher.httpx.Client", fake),
         patch("app.services.infrastructure.x_publisher.time.sleep"),
+        patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()),
         pytest.raises(RuntimeError, match="rate limit"),
     ):
         XPublisher("tok").publish_thread(["hello"])
@@ -128,6 +137,7 @@ def test_4xx_error_raises_with_api_detail():
     with (
         patch("app.services.infrastructure.x_publisher.httpx.Client", fake),
         patch("app.services.infrastructure.x_publisher.time.sleep"),
+        patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()),
         pytest.raises(RuntimeError, match="not permitted"),
     ):
         XPublisher("tok").publish_thread(["hi"])
@@ -139,6 +149,7 @@ def test_error_detail_from_errors_array():
     with (
         patch("app.services.infrastructure.x_publisher.httpx.Client", fake),
         patch("app.services.infrastructure.x_publisher.time.sleep"),
+        patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()),
         pytest.raises(RuntimeError, match="too long"),
     ):
         XPublisher("tok").publish_thread(["hi"])
@@ -149,6 +160,7 @@ def test_failure_mid_thread_stops_publishing():
     with (
         patch("app.services.infrastructure.x_publisher.httpx.Client", fake),
         patch("app.services.infrastructure.x_publisher.time.sleep"),
+        patch("app.services.infrastructure.x_publisher.get_settings", return_value=_mock_settings()),
         pytest.raises(RuntimeError),
     ):
         XPublisher("tok").publish_thread(["a", "b", "c"])

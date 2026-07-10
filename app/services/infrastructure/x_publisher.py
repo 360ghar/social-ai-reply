@@ -10,12 +10,12 @@ and decrypts it.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from app.core.config import get_settings
 from app.services.infrastructure.platform_token_utils import get_platform_token
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ class XPublisher:
             RuntimeError: On API errors (rate limit, auth, validation) or
                 network failures, with a clear message.
         """
-        if os.environ.get("MOCK_PUBLISHERS", "").strip().lower() == "true":
+        if get_settings().mock_publishers:
             for text in tweets:
                 logger.info("[MOCK] Would publish to X: %s", text)
             return [{"id": f"mock_{i}", "text": t} for i, t in enumerate(tweets)]

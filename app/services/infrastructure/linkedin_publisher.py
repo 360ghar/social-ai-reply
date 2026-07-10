@@ -19,11 +19,11 @@ decrypts it.
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from app.core.config import get_settings
 from app.services.infrastructure.platform_token_utils import (
     get_platform_secret_value,
     get_platform_token,
@@ -98,7 +98,7 @@ class LinkedInPublisher:
         Raises:
             RuntimeError: On API errors or network failures.
         """
-        if os.environ.get("MOCK_PUBLISHERS", "").strip().lower() == "true":
+        if get_settings().mock_publishers:
             logger.info("[MOCK] Would publish to LinkedIn: %s", content)
             return {"id": "mock_li_post"}
 

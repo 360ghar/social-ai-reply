@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     # When True, auto-publishes approved + due suggestions every 5 minutes
     # via a background loop in the lifespan handler.
     enable_auto_publish_scheduler: bool = True
+    # When True, publishers log "[MOCK] Would publish to ..." instead of
+    # calling real third-party APIs. Set MOCK_PUBLISHERS=true in .env for
+    # local development without real API credentials.
+    mock_publishers: bool = False
 
     relevance_threshold: int = Field(default=70, ge=0, le=100)
     semantic_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
