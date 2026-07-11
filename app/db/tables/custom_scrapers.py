@@ -17,7 +17,7 @@ def _decrypt_api_key(data: dict[str, Any] | None) -> dict[str, Any] | None:
     if data and data.get("api_key"):
         try:
             data["api_key"] = decrypt_text(data["api_key"])
-        except Exception:
+        except ValueError:
             pass  # if already plaintext or invalid, leave as-is
     return data
 

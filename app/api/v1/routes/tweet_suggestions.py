@@ -111,9 +111,9 @@ def approve_suggestion(
 
     suggestion = get_suggestion_by_id(supabase, suggestion_id)
     if not suggestion:
-        raise HTTPException(status_code=404, detail="Suggestion not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Suggestion not found.")
     if suggestion["workspace_id"] != workspace["id"]:
-        raise HTTPException(status_code=403, detail="Suggestion does not belong to this workspace.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Suggestion does not belong to this workspace.")
     if suggestion["status"] != "pending":
         raise HTTPException(
             status_code=422,
@@ -138,7 +138,7 @@ def approve_suggestion(
         "scheduled_at": scheduled.isoformat(),
     })
     if not updated:
-        raise HTTPException(status_code=500, detail="Failed to update suggestion.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update suggestion.")
     return TweetSuggestionResponse.model_validate(updated)
 
 
@@ -158,9 +158,9 @@ def reject_suggestion(
 
     suggestion = get_suggestion_by_id(supabase, suggestion_id)
     if not suggestion:
-        raise HTTPException(status_code=404, detail="Suggestion not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Suggestion not found.")
     if suggestion["workspace_id"] != workspace["id"]:
-        raise HTTPException(status_code=403, detail="Suggestion does not belong to this workspace.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Suggestion does not belong to this workspace.")
     if suggestion["status"] not in ("pending", "approved"):
         raise HTTPException(
             status_code=422,
@@ -169,7 +169,7 @@ def reject_suggestion(
 
     updated = update_suggestion(supabase, suggestion_id, {"status": "rejected"})
     if not updated:
-        raise HTTPException(status_code=500, detail="Failed to update suggestion.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update suggestion.")
     return TweetSuggestionResponse.model_validate(updated)
 
 
