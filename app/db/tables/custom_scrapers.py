@@ -7,13 +7,25 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from supabase import Client
 
+from app.utils.encryption import decrypt_text, encrypt_text
+
 CUSTOM_SCRAPERS_TABLE = "custom_scrapers"
+
+
+def _decrypt_api_key(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Decrypt api_key in-place if present."""
+    if data and data.get("api_key"):
+        try:
+            data["api_key"] = decrypt_text(data["api_key"])
+        except Exception:
+            pass  # if already plaintext or invalid, leave as-is
+    return data
 
 
 def get_custom_scraper_by_id(db: Client, scraper_id: int) -> dict[str, Any] | None:
     """Get a custom scraper configuration by ID."""
     result = db.table(CUSTOM_SCRAPERS_TABLE).select("*").eq("id", scraper_id).execute()
-    return result.data[0] if result.data else None
+    return _decrypt_api_key(result.data[0] if result.data else None)
 
 
 def get_custom_scraper_by_platform(
@@ -30,7 +42,7 @@ def get_custom_scraper_by_platform(
         .eq("is_active", True)
         .execute()
     )
-    return result.data[0] if result.data else None
+    return _decrypt_api_key(result.data[0] if result.data else None)
 
 
 def list_custom_scrapers_for_workspace(db: Client, workspace_id: int) -> list[dict[str, Any]]:
@@ -47,6 +59,10 @@ def list_custom_scrapers_for_workspace(db: Client, workspace_id: int) -> list[di
 
 def upsert_custom_scraper(db: Client, scraper_data: dict[str, Any]) -> dict[str, Any]:
     """Create or update a custom scraper configuration."""
+    # Encrypt the API key before storing
+    raw_key = scraper_data.get("api_key")
+    if raw_key and not raw_key.startswith("gAAAAA"):  # Fernet tokens always start with gAAAAA
+        scraper_data["api_key"] = encrypt_text(raw_key)
     # We use upsert based on the unique constraint (workspace_id, platform)
     result = db.table(CUSTOM_SCRAPERS_TABLE).upsert(scraper_data, on_conflict="workspace_id,platform").execute()
     return result.data[0]

@@ -154,7 +154,7 @@ class DynamicAdapter(PlatformAdapter):
                 raw_json = json.dumps(items)
                 # If the JSON is too massive, this might exceed context, but typical 10 items is ~5-10k tokens
                 result = await dynamic_parser_agent.run(raw_json)
-                parsed_list: ParsedPostList = result.data
+                parsed_list: ParsedPostList = result.output
 
                 for parsed in parsed_list.posts:
                     if parsed.external_id not in seen_ids:
