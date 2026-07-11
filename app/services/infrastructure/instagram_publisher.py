@@ -154,10 +154,15 @@ class InstagramPublisher:
         """
         url = f"{self._base_url}/{container_id}"
         for _attempt in range(_PUBLISH_POLL_MAX):
-            result = self._get(url)
+            result = self._get(url, {"fields": "status_code"})
             status = result.get("status_code") if isinstance(result, dict) else ""
             if status == "FINISHED":
                 return
+            if status in ("ERROR", "EXPIRED"):
+                raise RuntimeError(
+                    f"Instagram media container {container_id} reached status '{status}'; "
+                    "cannot publish."
+                )
             time.sleep(_PUBLISH_POLL_SLEEP)
         logger.warning(
             "Instagram media container %s did not reach FINISHED status "
@@ -206,11 +211,14 @@ class InstagramPublisher:
             return body
         raise RuntimeError(f"Instagram API returned unexpected response: {body}")
 
-    def _get(self, url: str) -> dict[str, Any]:
+    def _get(self, url: str, extra_params: dict[str, str] | None = None) -> dict[str, Any]:
         """GET with bearer auth."""
+        params: dict[str, str] = {"access_token": self._token}
+        if extra_params:
+            params.update(extra_params)
         with httpx.Client(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
             try:
-                response = client.get(url, params={"access_token": self._token})
+                response = client.get(url, params=params)
             except httpx.HTTPError as exc:
                 raise RuntimeError(f"Failed to reach Instagram Graph API: {exc}") from exc
 

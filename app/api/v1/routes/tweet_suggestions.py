@@ -28,7 +28,6 @@ from app.schemas.v1.tweet_suggestions import (
 )
 from app.services.product.tweet_scheduler import (
     ALL_PLATFORMS,
-    publish_all_workspaces,
     publish_due_suggestions,
 )
 from app.services.product.tweet_suggestion_service import generate_suggestions
@@ -191,12 +190,4 @@ def run_scheduler(
     return result
 
 
-@router.post("/suggestions/scheduler/run-all")
-def run_scheduler_all_workspaces(
-    current_user: dict = Depends(get_current_user),
-    workspace: dict = Depends(get_current_workspace),
-    supabase: Client = Depends(get_supabase),
-) -> list[dict]:
-    ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
-    results = publish_all_workspaces(supabase)
-    return results
+
