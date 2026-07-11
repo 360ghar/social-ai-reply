@@ -19,7 +19,6 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.config import get_settings
 from app.services.infrastructure.platforms.base import PlatformAdapter
 from app.services.infrastructure.platforms.models import UnifiedComment, UnifiedPost
 from app.services.infrastructure.platforms.rapidapi_client import RapidAPIClient, RapidAPIError
@@ -86,16 +85,6 @@ class TwitterAdapter(PlatformAdapter):
                     if url:
                         urls.append(url)
         return urls
-
-    @staticmethod
-    def _get_int(value: Any, *alternatives: str) -> int:
-        """Extract an int from a dict field, trying multiple keys."""
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str):
-            with contextlib.suppress(ValueError):
-                return int(value)
-        return 0
 
     @staticmethod
     def _get_int_from(raw: dict[str, Any], *keys: str) -> int:
@@ -305,7 +294,7 @@ class TwitterAdapter(PlatformAdapter):
                 params={"query": "test", "search_type": "Top"},
             )
             if isinstance(data, dict):
-                return bool(data.get("timeline")) or "timeline" in data
+                return bool(data.get("timeline")) or bool(data.get("tweets"))
             return False
         except Exception:
             return False

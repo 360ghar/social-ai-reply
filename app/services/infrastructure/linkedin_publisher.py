@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 LINKEDIN_API_BASE_URL = "https://api.linkedin.com"
+# TODO: Periodically review this version against LinkedIn's current API docs.
+#       See: https://learn.microsoft.com/en-us/linkedin/marketing/versioning
 LINKEDIN_API_VERSION = "202502"
 _REQUEST_TIMEOUT_SECONDS = 30.0
 

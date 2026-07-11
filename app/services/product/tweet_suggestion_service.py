@@ -99,7 +99,7 @@ def generate_suggestions(
         suggestions = _parse_llm_result(result, total_needed)
 
     records = _build_suggestion_records(
-        db, workspace_id, platform, suggestions, days, suggestions_per_day
+        workspace_id, platform, suggestions, days, suggestions_per_day
     )
     inserted = bulk_create_suggestions(db, records)
     logger.info("Generated %d %s suggestions for workspace %d", len(inserted), platform, workspace_id)
@@ -151,7 +151,6 @@ def _parse_llm_result(
 
 
 def _build_suggestion_records(
-    db: Client,
     workspace_id: int,
     platform: str,
     suggestions: list[dict[str, Any]],
