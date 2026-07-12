@@ -66,7 +66,7 @@ class InstagramAdapter(PlatformAdapter):
     def __init__(self, api_host: str | None = None):
         self.api_host = api_host or DEFAULT_INSTAGRAM_API_HOST
         try:
-            self.client = RapidAPIClient(self.api_host)
+            self.client = RapidAPIClient(self.api_host, timeout=15.0)
             self._available = True
         except ValueError:
             logger.warning("RapidAPI key not configured — Instagram adapter unavailable")

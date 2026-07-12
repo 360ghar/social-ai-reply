@@ -54,10 +54,10 @@ def list_custom_scrapers_for_workspace(db: Client, workspace_id: int) -> list[di
         .order("created_at", desc=True)
         .execute()
     )
-    rows = list(result.data)
-    for row in rows:
-        row.pop("api_key", None)
-    return rows
+    return [
+        {key: value for key, value in row.items() if key != "api_key"}
+        for row in result.data
+    ]
 
 
 def upsert_custom_scraper(db: Client, scraper_data: dict[str, Any]) -> dict[str, Any]:
