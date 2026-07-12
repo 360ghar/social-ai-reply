@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -78,21 +79,77 @@ def update_suggestion(db: Client, suggestion_id: int, data: dict[str, Any]) -> d
     return result.data[0] if result.data else None
 
 
-def claim_suggestion_for_publish(db: Client, suggestion_id: int) -> bool:
+def claim_suggestion_for_publish(db: Client, suggestion_id: int) -> str | None:
     """Atomically claim a suggestion for publishing.
 
-    Transitions ``approved -> publishing`` only if it's still in
-    ``approved`` state and ``published_at`` is still NULL.  Returns
-    ``True`` if THIS call successfully claimed it, ``False`` if
-    another worker already claimed or published it.
+    Transitions ``approved -> publishing`` with a unique claim token
+    and sets ``claimed_at``.  Returns the claim token on success, or
+    ``None`` if another worker already claimed or published it.
     """
     now = datetime.now(UTC)
+    token = uuid.uuid4().hex
     result = (
         db.table(SUGGESTIONS_TABLE)
-        .update({"status": "publishing", "claimed_at": now.isoformat()})
+        .update({"status": "publishing", "claimed_at": now.isoformat(), "claim_token": token})
         .eq("id", suggestion_id)
         .eq("status", "approved")
         .is_("published_at", "null")
+        .execute()
+    )
+    return token if result.data else None
+
+
+def mark_suggestion_published(
+    db: Client,
+    suggestion_id: int,
+    claim_token: str,
+    published_at: str | None = None,
+) -> bool:
+    """Mark a suggestion as published, only if *claim_token* matches.
+
+    Returns ``True`` if the update succeeded (ownership confirmed),
+    ``False`` if another worker reclaimed the suggestion.
+    """
+    if published_at is None:
+        published_at = datetime.now(UTC).isoformat()
+    result = (
+        db.table(SUGGESTIONS_TABLE)
+        .update({
+            "status": "published",
+            "published_at": published_at,
+            "error_message": None,
+            "claimed_at": None,
+            "claim_token": None,
+        })
+        .eq("id", suggestion_id)
+        .eq("claim_token", claim_token)
+        .execute()
+    )
+    return bool(result.data)
+
+
+def mark_suggestion_failed(
+    db: Client,
+    suggestion_id: int,
+    claim_token: str,
+    error_message: str,
+) -> bool:
+    """Reset a suggestion back to ``approved`` after a failed publish attempt.
+
+    Only applies if *claim_token* still matches (ownership not lost).
+    Returns ``True`` if the update succeeded, ``False`` if another worker
+    reclaimed the suggestion.
+    """
+    result = (
+        db.table(SUGGESTIONS_TABLE)
+        .update({
+            "status": "approved",
+            "error_message": error_message,
+            "claimed_at": None,
+            "claim_token": None,
+        })
+        .eq("id", suggestion_id)
+        .eq("claim_token", claim_token)
         .execute()
     )
     return bool(result.data)
@@ -104,12 +161,13 @@ def reclaim_stale_publishing_suggestions(
 ) -> int:
     """Reset suggestions stuck in ``publishing`` for longer than *timeout* back to ``approved``.
 
-    Returns the number of rows recovered.
+    Clears ``claimed_at`` and ``claim_token`` so another worker can
+    safely claim the suggestion.  Returns the number of rows recovered.
     """
     cutoff = (datetime.now(UTC) - timedelta(minutes=timeout_minutes)).isoformat()
     result = (
         db.table(SUGGESTIONS_TABLE)
-        .update({"status": "approved", "claimed_at": None})
+        .update({"status": "approved", "claimed_at": None, "claim_token": None})
         .eq("status", "publishing")
         .lte("claimed_at", cutoff)
         .execute()

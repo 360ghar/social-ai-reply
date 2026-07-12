@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Any
 from app.db.tables.tweet_suggestions import (
     claim_suggestion_for_publish,
     list_suggestions_ready_to_publish,
-    update_suggestion,
+    mark_suggestion_failed,
+    mark_suggestion_published,
 )
 from app.services.infrastructure.instagram_publisher import (
     InstagramPublisher,
@@ -126,7 +127,8 @@ def publish_due_suggestions(
     for suggestion in due:
         suggestion_id = suggestion["id"]
         # Atomic claim: only proceed if THIS call won the race
-        if not claim_suggestion_for_publish(db, suggestion_id):
+        claim_token = claim_suggestion_for_publish(db, suggestion_id)
+        if claim_token is None:
             logger.info("Skipping suggestion %d — already claimed by another worker", suggestion_id)
             continue
 
@@ -145,11 +147,12 @@ def publish_due_suggestions(
             else:
                 raise RuntimeError(f"Unsupported platform: {platform}")
 
-            update_suggestion(db, suggestion_id, {
-                "status": "published",
-                "published_at": datetime.now(UTC).isoformat(),
-                "error_message": None,
-            })
+            if not mark_suggestion_published(db, suggestion_id, claim_token):
+                logger.warning(
+                    "Lost claim on suggestion %d — another worker took over",
+                    suggestion_id,
+                )
+                continue
             published_count += 1
             logger.info(
                 "Published suggestion %d for workspace %d (%s id: %s)",
@@ -161,10 +164,7 @@ def publish_due_suggestions(
                 "Failed to publish suggestion %d for workspace %d (%s): %s",
                 suggestion_id, workspace_id, platform, error_msg,
             )
-            update_suggestion(db, suggestion_id, {
-                "status": "approved",
-                "error_message": error_msg,
-            })
+            mark_suggestion_failed(db, suggestion_id, claim_token, error_msg)
             failed_count += 1
 
     return {
