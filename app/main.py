@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 async def auto_publish_loop() -> None:
     """Background loop: publish approved/due suggestions every 5 minutes."""
     from app.db.supabase_client import get_supabase_client
+    from app.db.tables.tweet_suggestions import reclaim_stale_publishing_suggestions
     from app.services.product.tweet_scheduler import publish_all_workspaces
 
     logger.info("Auto-publish scheduler started (interval=300s)")
@@ -34,6 +35,7 @@ async def auto_publish_loop() -> None:
         try:
             await asyncio.sleep(300)
             db = get_supabase_client()
+            reclaim_stale_publishing_suggestions(db)
             await asyncio.to_thread(publish_all_workspaces, db)
         except asyncio.CancelledError:
             logger.info("Auto-publish scheduler cancelled")

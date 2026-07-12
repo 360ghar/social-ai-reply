@@ -67,20 +67,20 @@ class RapidAPIClient:
 
     async def _throttle(self) -> None:
         """Simple rate limiter: max N requests per minute per host."""
-        now = time.monotonic()
         key = self._cache_key
         if key not in _request_timestamps:
             _request_timestamps[key] = []
 
         # Remove timestamps older than 60 seconds
-        _request_timestamps[key] = [t for t in _request_timestamps[key] if now - t < 60]
+        _request_timestamps[key] = [t for t in _request_timestamps[key] if time.monotonic() - t < 60]
 
         if len(_request_timestamps[key]) >= self.REQUESTS_PER_MINUTE:
-            wait = 60 - (now - _request_timestamps[key][0])
+            wait = 60 - (time.monotonic() - _request_timestamps[key][0])
             if wait > 0:
                 logger.info("Rate limit: waiting %.1fs for %s", wait, key)
                 await asyncio.sleep(wait)
 
+        now = time.monotonic()
         _request_timestamps[key].append(now)
 
     def _is_circuit_broken(self) -> bool:
@@ -118,14 +118,13 @@ class RapidAPIClient:
         if self._is_circuit_broken():
             raise RapidAPIError(429, "API quota exhausted (circuit breaker active)", self.api_host)
 
-        await self._throttle()
-
         url = f"https://{self.api_host}{endpoint}"
         headers = self._get_headers()
 
         last_error: Exception | None = None
 
         for attempt in range(self.MAX_RETRIES + 1):
+            await self._throttle()
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.get(url, headers=headers, params=params or {})
@@ -149,10 +148,13 @@ class RapidAPIClient:
                     raise RapidAPIError(429, "Rate limited — circuit breaker tripped", self.api_host)
 
                 if response.status_code >= 500:  # Server error, retry
-                    wait = self.RETRY_DELAY * (2 ** attempt)
-                    logger.warning("Server error %d from %s, retrying in %.1fs", response.status_code, self.api_host, wait)
-                    await asyncio.sleep(wait)
-                    continue
+                    if attempt < self.MAX_RETRIES:
+                        wait = self.RETRY_DELAY * (2 ** attempt)
+                        logger.warning("Server error %d from %s, retrying in %.1fs", response.status_code, self.api_host, wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    error_body = response.text[:500]
+                    raise RapidAPIError(response.status_code, error_body, self.api_host)
 
                 # Client error (400, 403, 404) — don't retry
                 error_body = response.text[:500]
@@ -192,8 +194,6 @@ class RapidAPIClient:
         if self._is_circuit_broken():
             raise RapidAPIError(429, "API quota exhausted (circuit breaker active)", self.api_host)
 
-        await self._throttle()
-
         url = f"https://{self.api_host}{endpoint}"
         headers = self._get_headers()
         headers["Content-Type"] = content_type
@@ -201,6 +201,7 @@ class RapidAPIClient:
         last_error: Exception | None = None
 
         for attempt in range(self.MAX_RETRIES + 1):
+            await self._throttle()
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(url, headers=headers, data=data or {})
@@ -223,10 +224,13 @@ class RapidAPIClient:
                     raise RapidAPIError(429, "Rate limited — circuit breaker tripped", self.api_host)
 
                 if response.status_code >= 500:
-                    wait = self.RETRY_DELAY * (2 ** attempt)
-                    logger.warning("Server error %d from %s, retrying in %.1fs", response.status_code, self.api_host, wait)
-                    await asyncio.sleep(wait)
-                    continue
+                    if attempt < self.MAX_RETRIES:
+                        wait = self.RETRY_DELAY * (2 ** attempt)
+                        logger.warning("Server error %d from %s, retrying in %.1fs", response.status_code, self.api_host, wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    error_body = response.text[:500]
+                    raise RapidAPIError(response.status_code, error_body, self.api_host)
 
                 error_body = response.text[:500]
                 raise RapidAPIError(response.status_code, error_body, self.api_host)

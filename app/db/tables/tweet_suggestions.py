@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -89,13 +89,35 @@ def claim_suggestion_for_publish(db: Client, suggestion_id: int) -> bool:
     now = datetime.now(UTC)
     result = (
         db.table(SUGGESTIONS_TABLE)
-        .update({"status": "publishing"})
+        .update({"status": "publishing", "claimed_at": now.isoformat()})
         .eq("id", suggestion_id)
         .eq("status", "approved")
         .is_("published_at", "null")
         .execute()
     )
     return bool(result.data)
+
+
+def reclaim_stale_publishing_suggestions(
+    db: Client,
+    timeout_minutes: int = 10,
+) -> int:
+    """Reset suggestions stuck in ``publishing`` for longer than *timeout* back to ``approved``.
+
+    Returns the number of rows recovered.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(minutes=timeout_minutes)).isoformat()
+    result = (
+        db.table(SUGGESTIONS_TABLE)
+        .update({"status": "approved", "claimed_at": None})
+        .eq("status", "publishing")
+        .lte("claimed_at", cutoff)
+        .execute()
+    )
+    recovered = len(result.data or [])
+    if recovered:
+        logger.info("Reclaimed %d stale publishing suggestions (cutoff=%s)", recovered, cutoff)
+    return recovered
 
 
 def delete_suggestion(db: Client, suggestion_id: int) -> None:

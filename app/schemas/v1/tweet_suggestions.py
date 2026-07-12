@@ -42,7 +42,7 @@ class SuggestionRejectRequest(BaseModel):
 
 
 class SuggestionListQuery(BaseModel):
-    status: str | None = Field(default=None, pattern="^(pending|approved|rejected|published)$")
+    status: str | None = Field(default=None, pattern="^(pending|approved|publishing|rejected|published)$")
     platform: str | None = Field(default=None, pattern="^(twitter|x|linkedin|instagram)$")
     from_date: date | None = None
     to_date: date | None = None
