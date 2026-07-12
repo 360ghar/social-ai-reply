@@ -62,13 +62,11 @@ def delete_scraper_endpoint(
     workspace: dict = Depends(get_current_workspace),
     supabase: Client = Depends(get_supabase),
 ) -> None:
-    """Delete a custom scraper configuration."""
+    """Delete a custom scraper configuration belonging to the current workspace."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
     
-    # Optional: verify the scraper belongs to the workspace before deleting
-    # RLS handles this mostly, but good practice.
-    
-    delete_custom_scraper(supabase, scraper_id)
+    if not delete_custom_scraper(supabase, scraper_id, workspace["id"]):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scraper not found.")
 
 
 @router.post("/chat", response_model=ChatResponse)

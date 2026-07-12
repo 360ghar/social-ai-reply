@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.db.tables.tweet_suggestions import (
+    claim_suggestion_for_publish,
     list_suggestions_ready_to_publish,
     update_suggestion,
 )
@@ -124,6 +125,11 @@ def publish_due_suggestions(
 
     for suggestion in due:
         suggestion_id = suggestion["id"]
+        # Atomic claim: only proceed if THIS call won the race
+        if not claim_suggestion_for_publish(db, suggestion_id):
+            logger.info("Skipping suggestion %d — already claimed by another worker", suggestion_id)
+            continue
+
         content = suggestion["content"]
         media_url = suggestion.get("media_url") or None
         try:
@@ -156,6 +162,7 @@ def publish_due_suggestions(
                 suggestion_id, workspace_id, platform, error_msg,
             )
             update_suggestion(db, suggestion_id, {
+                "status": "approved",
                 "error_message": error_msg,
             })
             failed_count += 1

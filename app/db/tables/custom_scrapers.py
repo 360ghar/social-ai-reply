@@ -46,7 +46,7 @@ def get_custom_scraper_by_platform(
 
 
 def list_custom_scrapers_for_workspace(db: Client, workspace_id: int) -> list[dict[str, Any]]:
-    """List all custom scrapers for a workspace."""
+    """List all custom scrapers for a workspace (api_key excluded from response)."""
     result = (
         db.table(CUSTOM_SCRAPERS_TABLE)
         .select("*")
@@ -54,7 +54,10 @@ def list_custom_scrapers_for_workspace(db: Client, workspace_id: int) -> list[di
         .order("created_at", desc=True)
         .execute()
     )
-    return list(result.data)
+    rows = list(result.data)
+    for row in rows:
+        row.pop("api_key", None)
+    return rows
 
 
 def upsert_custom_scraper(db: Client, scraper_data: dict[str, Any]) -> dict[str, Any]:
@@ -68,6 +71,13 @@ def upsert_custom_scraper(db: Client, scraper_data: dict[str, Any]) -> dict[str,
     return result.data[0]
 
 
-def delete_custom_scraper(db: Client, scraper_id: int) -> None:
-    """Delete a custom scraper configuration."""
-    db.table(CUSTOM_SCRAPERS_TABLE).delete().eq("id", scraper_id).execute()
+def delete_custom_scraper(db: Client, scraper_id: int, workspace_id: int) -> bool:
+    """Delete a custom scraper configuration. Returns True if a row was actually deleted."""
+    result = (
+        db.table(CUSTOM_SCRAPERS_TABLE)
+        .delete()
+        .eq("id", scraper_id)
+        .eq("workspace_id", workspace_id)
+        .execute()
+    )
+    return bool(result.data)

@@ -78,6 +78,26 @@ def update_suggestion(db: Client, suggestion_id: int, data: dict[str, Any]) -> d
     return result.data[0] if result.data else None
 
 
+def claim_suggestion_for_publish(db: Client, suggestion_id: int) -> bool:
+    """Atomically claim a suggestion for publishing.
+
+    Transitions ``approved -> publishing`` only if it's still in
+    ``approved`` state and ``published_at`` is still NULL.  Returns
+    ``True`` if THIS call successfully claimed it, ``False`` if
+    another worker already claimed or published it.
+    """
+    now = datetime.now(UTC)
+    result = (
+        db.table(SUGGESTIONS_TABLE)
+        .update({"status": "publishing"})
+        .eq("id", suggestion_id)
+        .eq("status", "approved")
+        .is_("published_at", "null")
+        .execute()
+    )
+    return bool(result.data)
+
+
 def delete_suggestion(db: Client, suggestion_id: int) -> None:
     db.table(SUGGESTIONS_TABLE).delete().eq("id", suggestion_id).execute()
 

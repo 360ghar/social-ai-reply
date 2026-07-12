@@ -18,13 +18,11 @@ defaults to empty string.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from typing import Any
 
-import httpx
-
-from app.core.config import get_settings
 from app.services.infrastructure.platforms.base import PlatformAdapter
 from app.services.infrastructure.platforms.models import UnifiedComment, UnifiedPost
 from app.services.infrastructure.platforms.rapidapi_client import RapidAPIClient, RapidAPIError
@@ -86,6 +84,9 @@ class InstagramAdapter(PlatformAdapter):
     ) -> dict[str, Any] | list[Any]:
         """Make a form-urlencoded POST request to the Instagram API.
 
+        Delegates to :class:`RapidAPIClient.post_form` for shared throttle,
+        circuit-breaker, and retry logic.
+
         Args:
             endpoint: API path (e.g., ``/search_ig.php``).
             data: Form fields.
@@ -96,62 +97,21 @@ class InstagramAdapter(PlatformAdapter):
         Raises:
             RapidAPIError: On non-200 responses after retries.
         """
-        settings = get_settings()
-        headers = {
-            "x-rapidapi-key": settings.rapidapi_key,
-            "x-rapidapi-host": self.api_host,
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-
-        url = f"https://{self.api_host}{endpoint}"
-
-        max_retries = 1
-        retry_delay = 2.0
-
-        for attempt in range(max_retries + 1):
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as http:
-                    response = await http.post(url, headers=headers, data=data or {})
-
-                if response.status_code == 200:
-                    return response.json()
-
-                if response.status_code == 429:
-                    wait = retry_delay * (2**attempt)
-                    logger.warning(
-                        "Rate limited by %s, waiting %.1fs (attempt %d)",
-                        self.api_host,
-                        wait,
-                        attempt + 1,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-
-                if response.status_code >= 500:
-                    wait = retry_delay * (2**attempt)
-                    logger.warning(
-                        "Server error %d from %s, retrying in %.1fs",
-                        response.status_code,
-                        self.api_host,
-                        wait,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-
-                error_body = response.text[:500]
-                if error_body.startswith("{\"error\":"):
-                    error_data = response.json()
-                    if isinstance(error_data, dict):
-                        error_body = error_data.get("error", error_body)
-                raise RapidAPIError(response.status_code, error_body, self.api_host)
-
-            except httpx.HTTPError as e:
-                if attempt < max_retries:
-                    await asyncio.sleep(retry_delay)
-                    continue
-                raise RapidAPIError(0, str(e), self.api_host) from e
-
-        raise RapidAPIError(0, "Max retries exceeded", self.api_host)
+        try:
+            return await self.client.post_form(endpoint, data=data)
+        except RapidAPIError as e:
+            # Attempt to extract a cleaner error message from
+            # JSON responses shaped as {"error": "message"}.
+            if e.status_code and e.args:
+                msg = str(e)
+                if msg.startswith("RapidAPI [") and "{" in msg:
+                    import json
+                    with contextlib.suppress(Exception):
+                        body = msg.split(": ", 1)[-1] if ": " in msg else msg
+                        parsed = json.loads(body)
+                        if isinstance(parsed, dict) and "error" in parsed:
+                            raise RapidAPIError(e.status_code, parsed["error"], self.api_host) from e
+            raise
 
     # ------------------------------------------------------------------
     # Parsing

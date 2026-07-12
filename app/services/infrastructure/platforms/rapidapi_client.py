@@ -167,3 +167,76 @@ class RapidAPIClient:
 
         raise RapidAPIError(0, f"Max retries exceeded: {last_error}", self.api_host)
 
+    async def post_form(
+        self,
+        endpoint: str,
+        *,
+        data: dict[str, str] | None = None,
+        content_type: str = "application/x-www-form-urlencoded",
+    ) -> dict[str, Any] | list[Any]:
+        """Make a form-encoded POST request to a RapidAPI endpoint.
+
+        Applies the same throttle and circuit-breaker checks as :meth:`get`.
+
+        Args:
+            endpoint: API path (e.g., ``/search_ig.php``).
+            data: Form fields.
+            content_type: Value for the ``Content-Type`` header.
+
+        Returns:
+            Parsed JSON response.
+
+        Raises:
+            RapidAPIError: On non-200 responses after retries.
+        """
+        if self._is_circuit_broken():
+            raise RapidAPIError(429, "API quota exhausted (circuit breaker active)", self.api_host)
+
+        await self._throttle()
+
+        url = f"https://{self.api_host}{endpoint}"
+        headers = self._get_headers()
+        headers["Content-Type"] = content_type
+
+        last_error: Exception | None = None
+
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(url, headers=headers, data=data or {})
+
+                if response.status_code == 200:
+                    return response.json()
+
+                if response.status_code == 429:
+                    if attempt < self.MAX_RETRIES:
+                        wait = self.RETRY_DELAY * (2 ** attempt)
+                        logger.warning("Rate limited by %s, waiting %.1fs (attempt %d)", self.api_host, wait, attempt + 1)
+                        await asyncio.sleep(wait)
+                        continue
+                    key = self._cache_key
+                    _circuit_broken_hosts[key] = time.monotonic()
+                    logger.warning(
+                        "Circuit breaker tripped for %s — skipping all requests for %ds",
+                        key, _CIRCUIT_BREAK_DURATION,
+                    )
+                    raise RapidAPIError(429, "Rate limited — circuit breaker tripped", self.api_host)
+
+                if response.status_code >= 500:
+                    wait = self.RETRY_DELAY * (2 ** attempt)
+                    logger.warning("Server error %d from %s, retrying in %.1fs", response.status_code, self.api_host, wait)
+                    await asyncio.sleep(wait)
+                    continue
+
+                error_body = response.text[:500]
+                raise RapidAPIError(response.status_code, error_body, self.api_host)
+
+            except httpx.HTTPError as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES:
+                    await asyncio.sleep(self.RETRY_DELAY)
+                    continue
+                raise RapidAPIError(0, str(e), self.api_host) from e
+
+        raise RapidAPIError(0, f"Max retries exceeded: {last_error}", self.api_host)
+
