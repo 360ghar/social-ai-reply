@@ -13,11 +13,19 @@ def parse_json_payload(text: str) -> dict | list | None:
     cleaned = re.sub(r"\s*```$", "", cleaned)
 
     decoder = json.JSONDecoder()
-    candidates = [
-        cleaned,
-        cleaned[cleaned.find("{"):] if "{" in cleaned else "",
-        cleaned[cleaned.find("["):] if "[" in cleaned else "",
-    ]
+    first_brace = cleaned.find("{")
+    first_bracket = cleaned.find("[")
+
+    candidates = [cleaned]
+    if first_brace != -1 and first_bracket != -1:
+        if first_brace < first_bracket:
+            candidates.extend([cleaned[first_brace:], cleaned[first_bracket:]])
+        else:
+            candidates.extend([cleaned[first_bracket:], cleaned[first_brace:]])
+    elif first_brace != -1:
+        candidates.append(cleaned[first_brace:])
+    elif first_bracket != -1:
+        candidates.append(cleaned[first_bracket:])
     for candidate in candidates:
         candidate = candidate.strip()
         if not candidate:

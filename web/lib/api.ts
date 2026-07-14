@@ -1,6 +1,51 @@
 import { ApiError } from "@/types/errors";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const RAW_API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+function resolveApiBase(base: string): string {
+  if (typeof window === "undefined") {
+    return base;
+  }
+
+  try {
+    const url = new URL(base);
+    const pageHost = window.location.hostname;
+    const isLocalApiHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    const isLocalPageHost = pageHost === "localhost" || pageHost === "127.0.0.1";
+
+    if (isLocalApiHost && isLocalPageHost) {
+      return "/_backend";
+    }
+  } catch {
+    // Keep the configured value if it is not a valid absolute URL.
+  }
+
+  return base;
+}
+
+export const API_BASE = resolveApiBase(RAW_API_BASE);
+const DEFAULT_GET_TIMEOUT_MS = 10000;
+const DEFAULT_MUTATION_TIMEOUT_MS = 45000;
+
+function timeoutForRequest(method: string): number {
+  return method === "GET" || method === "HEAD" ? DEFAULT_GET_TIMEOUT_MS : DEFAULT_MUTATION_TIMEOUT_MS;
+}
+
+function requestInitWithTimeout(options: RequestInit, timeoutMs: number): { init: RequestInit; cleanup: () => void } {
+  if (options.signal || typeof AbortController === "undefined") {
+    return { init: options, cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    init: { ...options, signal: controller.signal },
+    cleanup: () => globalThis.clearTimeout(timeoutId),
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
 
 export type AuthPayload = {
   access_token: string;
@@ -26,6 +71,7 @@ export type AuthPayload = {
 export type Project = {
   id: number;
   workspace_id: number;
+  company_id?: number | null;
   name: string;
   slug: string;
   description: string | null;
@@ -79,6 +125,16 @@ export type PostDraft = {
   source_prompt: string | null;
   version: number;
   created_at: string;
+  platform?: string;
+  thread_json?: string[];
+  status?: string;
+  scheduled_at?: string | null;
+  published_at?: string | null;
+  published_url?: string | null;
+  publish_mode?: string | null;
+  publish_error?: string | null;
+  publish_note?: string | null;
+  last_publish_attempt_at?: string | null;
 };
 
 export type Dashboard = {
@@ -297,7 +353,25 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers, cache: "no-store" });
+
+  let response: Response;
+  const method = (options.method || "GET").toUpperCase();
+  const timeoutMs = timeoutForRequest(method);
+  const { init, cleanup } = requestInitWithTimeout({ ...options, headers, cache: "no-store" }, timeoutMs);
+  try {
+    response = await fetch(`${API_BASE}${path}`, init);
+  } catch (error) {
+    const timedOut = isAbortError(error);
+    throw new ApiError(
+      0,
+      timedOut
+        ? `API request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.`
+        : `Could not reach the API server through ${API_BASE}. Check that the backend is running, then try again.`,
+      error instanceof Error ? error.message : String(error)
+    );
+  } finally {
+    cleanup();
+  }
   if (!response.ok) {
     let detail = `Request failed: ${response.status}`;
     try {
@@ -314,8 +388,27 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
       if (refreshedToken && refreshedToken !== token) {
         // Retry the original request with the new token.
         const retryHeaders = new Headers(options.headers);
+        retryHeaders.set("Content-Type", "application/json");
         retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
-        const retryResponse = await fetch(`${API_BASE}${path}`, { ...options, headers: retryHeaders, cache: "no-store" });
+        const { init: retryInit, cleanup: cleanupRetry } = requestInitWithTimeout(
+          { ...options, headers: retryHeaders, cache: "no-store" },
+          timeoutMs,
+        );
+        let retryResponse: Response;
+        try {
+          retryResponse = await fetch(`${API_BASE}${path}`, retryInit);
+        } catch (error) {
+          const timedOut = isAbortError(error);
+          throw new ApiError(
+            0,
+            timedOut
+              ? `API request timed out after ${Math.round(timeoutMs / 1000)}s. Please try again.`
+              : `Could not reach the API server through ${API_BASE}. Check that the backend is running, then try again.`,
+            error instanceof Error ? error.message : String(error)
+          );
+        } finally {
+          cleanupRetry();
+        }
         if (retryResponse.ok) {
           if (retryResponse.status === 204) {
             return null as T;
@@ -443,6 +536,23 @@ export {
   getActivity,
   type ActivityItem,
 } from "./api/analytics";
+
+export {
+  runEnhancedSearch,
+  type EnhancedSearchPayload,
+  type SearchCitation,
+  type SearchItem,
+  type SearchProvider,
+  type SearchResponse,
+} from "./api/search";
+
+export {
+  uploadAnalysisFile,
+  listAnalysisFiles,
+  getFileAnalysisReport,
+  type FileAnalysisRecord,
+  type FileUploadResponse,
+} from "./api/files";
 
 export {
   getWorkspace,

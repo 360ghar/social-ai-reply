@@ -259,6 +259,7 @@ class BrandBrain:
 
         # Update fields if empty in current profile
         for field_name, extracted_value in [
+            ("description", extracted.get("product_summary", "")),
             ("category", extracted.get("industry", "")),
             ("target_audience", extracted.get("icp", "")),
             ("brand_voice", extracted.get("tone_of_voice", "")),
@@ -271,8 +272,36 @@ class BrandBrain:
             update_data["benefits"] = ", ".join(extracted["key_benefits"])[:4000]
         if not company_profile.get("pain_points") and extracted.get("pain_points_solved"):
             update_data["pain_points"] = ", ".join(extracted["pain_points_solved"])[:4000]
-        if not company_profile.get("competitors") and extracted.get("competitors"):
-            update_data["competitors"] = ", ".join(extracted["competitors"])[:4000]
+
+        # Competitor enrichment: combine on-site extraction with DDG external search.
+        # Companies rarely mention competitors on their own website, so DDG search for
+        # "{brand} vs" and "{brand} alternatives" catches what on-site parsing misses.
+        site_competitors: list[str] = extracted.get("competitors", [])
+        ddg_competitors: list[str] = []
+        if brand_name:
+            try:
+                from app.scrapers.free_sources import find_competitors_ddg
+                ddg_competitors = find_competitors_ddg(brand_name, max_results=8)
+                logger.info(
+                    "DDG competitor discovery for %r: %s",
+                    brand_name, ddg_competitors
+                )
+            except Exception:
+                logger.warning("DDG competitor discovery failed — using on-site only")
+
+        # Merge: site-extracted first (higher signal), then DDG additions
+        seen_comps: set[str] = set()
+        merged_competitors: list[str] = []
+        for c in site_competitors + ddg_competitors:
+            key = c.lower().strip()
+            if key and key not in seen_comps and key != brand_name.lower():
+                seen_comps.add(key)
+                merged_competitors.append(c.strip())
+
+        if merged_competitors:
+            update_data["extracted_competitors"] = ", ".join(merged_competitors[:10])[:4000]
+        if not company_profile.get("competitors") and merged_competitors:
+            update_data["competitors"] = ", ".join(merged_competitors[:10])[:4000]
 
         # Merge into profile dict
         merged_profile = {**company_profile, **update_data}

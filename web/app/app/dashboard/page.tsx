@@ -40,8 +40,14 @@ import {
   Activity,
   CheckCircle2,
   Circle,
+  MessageSquare,
+  BarChart2,
+  AlertCircle,
+  Clock,
+  ExternalLink,
+  Workflow,
 } from "lucide-react";
-import { apiRequest, type Opportunity, type Project, type CompanyProfile } from "@/lib/api";
+import { apiRequest, type Opportunity, type PostDraft, type Project, type CompanyProfile } from "@/lib/api";
 import { sourceLabel } from "@/lib/opportunity";
 import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
@@ -51,6 +57,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KPIGrid } from "@/components/shared/kpi-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
+import { AiCmoCommandCenter } from "@/components/shared/ai-cmo-command-center";
 import { redditUrl } from "@/lib/reddit";
 
 /* -------------------------------------------------------------------------- */
@@ -196,6 +203,19 @@ const QUICK_ACTIONS = [
   },
 ];
 
+const REPORTS_TOOLS = [
+  {
+    label: "Agent Runs",
+    icon: Workflow,
+    href: "/app/agent-runs",
+  },
+  {
+    label: "SEO / GEO",
+    icon: Eye,
+    href: "/app/seo-geo",
+  },
+];
+
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -233,6 +253,7 @@ export default function DashboardPage() {
   const [visibility, setVisibility] = useState<VisibilitySummary | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [draftCounts, setDraftCounts] = useState<DraftCounts | null>(null);
+  const [calendarDrafts, setCalendarDrafts] = useState<PostDraft[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [bizName, setBizName] = useState("");
   const [bizDesc, setBizDesc] = useState("");
@@ -272,52 +293,47 @@ export default function DashboardPage() {
       let visData: VisibilitySummary | null = null;
       let actData: ActivityItem[] = [];
       let draftCountsData: DraftCounts | null = null;
+      let calendarDraftsData: PostDraft[] = [];
 
-      try {
-        dashData = await apiRequest<DashData>(
-          withProjectId("/v1/dashboard", selectedProjectId),
-          {},
-          token,
-        );
-      } catch (err: unknown) {
-        console.warn("Failed to load dashboard:", err);
+      const [dashRes, usageRes, visRes, draftCountsRes, calendarDraftsRes, activityRes] =
+        await Promise.allSettled([
+          apiRequest<DashData>(withProjectId("/v1/dashboard", selectedProjectId), {}, token),
+          apiRequest<UsageData>(withProjectId("/v1/usage", selectedProjectId), {}, token),
+          apiRequest<VisibilitySummary>(withProjectId("/v1/visibility/summary", selectedProjectId), {}, token),
+          apiRequest<DraftCounts>(withProjectId("/v1/drafts/count", selectedProjectId), {}, token),
+          apiRequest<PostDraft[]>(withProjectId("/v1/drafts/posts", selectedProjectId), {}, token),
+          apiRequest<{ items: ActivityItem[] }>("/v1/activity", {}, token),
+        ]);
+
+      if (dashRes.status === "fulfilled") {
+        dashData = dashRes.value;
+      } else {
+        console.warn("Failed to load dashboard:", dashRes.reason);
       }
-
-      try {
-        usageData = await apiRequest<UsageData>(
-          withProjectId("/v1/usage", selectedProjectId),
-          {},
-          token,
-        );
-      } catch (err: unknown) {
-        console.warn("Failed to load usage:", err);
+      if (usageRes.status === "fulfilled") {
+        usageData = usageRes.value;
+      } else {
+        console.warn("Failed to load usage:", usageRes.reason);
       }
-
-      try {
-        visData = await apiRequest<VisibilitySummary>(
-          withProjectId("/v1/visibility/summary", selectedProjectId),
-          {},
-          token,
-        );
-      } catch (err: unknown) {
-        console.warn("Failed to load visibility:", err);
+      if (visRes.status === "fulfilled") {
+        visData = visRes.value;
+      } else {
+        console.warn("Failed to load visibility:", visRes.reason);
       }
-
-      try {
-        draftCountsData = await apiRequest<DraftCounts>(
-          withProjectId("/v1/drafts/count", selectedProjectId),
-          {},
-          token,
-        );
-      } catch (err: unknown) {
-        console.warn("Failed to load draft counts:", err);
+      if (draftCountsRes.status === "fulfilled") {
+        draftCountsData = draftCountsRes.value;
+      } else {
+        console.warn("Failed to load draft counts:", draftCountsRes.reason);
       }
-
-      try {
-        const res = await apiRequest<{ items: ActivityItem[] }>("/v1/activity", {}, token);
-        actData = res.items || [];
-      } catch (err: unknown) {
-        console.warn("Failed to load activity:", err);
+      if (calendarDraftsRes.status === "fulfilled") {
+        calendarDraftsData = calendarDraftsRes.value;
+      } else {
+        console.warn("Failed to load calendar drafts:", calendarDraftsRes.reason);
+      }
+      if (activityRes.status === "fulfilled") {
+        actData = activityRes.value.items || [];
+      } else {
+        console.warn("Failed to load activity:", activityRes.reason);
       }
 
       try {
@@ -336,6 +352,10 @@ export default function DashboardPage() {
       setVisibility(visData);
       setActivity(actData);
       setDraftCounts(draftCountsData);
+      setCalendarDrafts(calendarDraftsData.filter((draft) => {
+        const platform = (draft.platform || "").toLowerCase();
+        return platform === "x" || platform === "twitter" || platform === "linkedin" || Boolean(draft.scheduled_at);
+      }));
     } finally {
       setLoading(false);
     }
@@ -411,49 +431,49 @@ export default function DashboardPage() {
       label: "Create Project",
       title: "Create your first project",
       description:
-        "Start a project to connect brand setup, audience signals, community mapping, and visibility tracking.",
+        "Start a project to connect your brand, keywords, communities, and scan results.",
       actionLabel: "Create Project",
       done: hasProject,
       actionKind: "modal",
     },
     {
-      label: "Define Brand",
-      title: "Review your brand profile",
+      label: "Company Setup",
+      title: "Set up your company profile",
       description:
-        "Add your website, product summary, audience, and voice so the rest of the workflow has solid context.",
-      actionLabel: "Open Brand",
+        "Add your website, product summary, audience, and brand voice — the foundation for all AI-generated content.",
+      actionLabel: "Open Workflow",
       done: setupStatus?.brand_configured || false,
-      href: "/app/brand",
+      href: "/app/workflow",
       actionKind: "route",
     },
     {
-      label: "Add Audience",
-      title: "Add your first audience",
+      label: "Add Personas",
+      title: "Create buyer personas",
       description:
-        "Create a customer type so discovery can generate stronger signals and surface more relevant conversations.",
-      actionLabel: "Open Audience",
+        "Define customer types so the AI can score social posts by how closely they match your ideal buyer.",
+      actionLabel: "Open Workflow",
       done: (setupStatus?.personas_count || 0) > 0,
-      href: "/app/persona",
+      href: "/app/workflow",
       actionKind: "route",
     },
     {
-      label: "Map Communities",
+      label: "Find Communities",
       title: "Discover matching communities",
       description:
-        "Turn audience signals into monitored Reddit communities and prepare the engagement queue.",
-      actionLabel: "Open Radar",
+        "Add subreddits and platforms to monitor — then launch a scan to surface live opportunities.",
+      actionLabel: "Open Workflow",
       done: (setupStatus?.subreddits_count || 0) > 0,
-      href: "/app/discovery",
+      href: "/app/workflow",
       actionKind: "route",
     },
     {
-      label: "Track Visibility",
-      title: "Run your first visibility check",
+      label: "First Scan",
+      title: "Run your first scan",
       description:
-        "Create or run a prompt set so the dashboard can start tracking AI share of voice and citations.",
-      actionLabel: "Open AI Visibility",
-      done: (visibility?.total_runs || 0) > 0,
-      href: "/app/visibility",
+        "Launch the pipeline to scan communities for posts where you can authentically reply and drive leads.",
+      actionLabel: "Launch Scan",
+      done: false,
+      href: "/app/workflow",
       actionKind: "route",
     },
   ];
@@ -476,6 +496,14 @@ export default function DashboardPage() {
       keywordUsage.used / keywordUsage.limit >= 0.8) ||
     (subredditUsage &&
       subredditUsage.used / subredditUsage.limit >= 0.8);
+  const replyDraftCount =
+    draftCounts?.drafting ??
+    dash?.drafts_count ??
+    topOpps.filter((o: Opportunity) => o.status === "drafting").length;
+  const publishedCount =
+    draftCounts?.published ??
+    dash?.published_count ??
+    topOpps.filter((o: Opportunity) => o.status === "posted").length;
 
   /* ---- loading skeleton ---- */
   if (loading) {
@@ -672,6 +700,16 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      <AiCmoCommandCenter
+        projectName={focusProject?.name}
+        opportunities={topOpps.length}
+        replyDrafts={replyDraftCount}
+        published={publishedCount}
+        shareOfVoice={visibility?.share_of_voice}
+        visibilityRuns={visibility?.total_runs}
+        calendarDrafts={calendarDrafts}
+      />
+
       {/* ---- KPI Grid ---- */}
       <KPIGrid
         columns={4}
@@ -690,12 +728,12 @@ export default function DashboardPage() {
           },
           {
             label: "Drafts Ready",
-            value: draftCounts?.drafting ?? dash?.drafts_count ?? topOpps.filter((o: Opportunity) => o.status === "drafting").length,
+            value: replyDraftCount,
             icon: FileText,
           },
           {
             label: "Published",
-            value: draftCounts?.published ?? dash?.published_count ?? topOpps.filter((o: Opportunity) => o.status === "posted").length,
+            value: publishedCount,
             icon: Send,
           },
         ]}
@@ -812,6 +850,30 @@ export default function DashboardPage() {
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {qa.label}
+                  </Button>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Reports & Tools */}
+          <Card size="sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Reports & Tools</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1">
+              {REPORTS_TOOLS.map((rt) => {
+                const Icon = rt.icon;
+                return (
+                  <Button
+                    key={rt.label}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2.5"
+                    onClick={() => router.push(rt.href)}
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                    {rt.label}
                   </Button>
                 );
               })}

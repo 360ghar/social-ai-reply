@@ -7,13 +7,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.constants.app import (
     DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_GEMINI_API_URL,
     DEFAULT_GEMINI_MODEL,
+    DEFAULT_GLM_MODEL,
+    DEFAULT_LLAMA_MODEL,
     DEFAULT_LLM_PROVIDER,
     DEFAULT_LOG_FORMAT,
     DEFAULT_LOG_LEVEL,
     DEFAULT_OPENAI_MODEL,
     DEFAULT_PERPLEXITY_MODEL,
+    DEFAULT_QWEN_MODEL,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -82,12 +86,19 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
 
     encryption_key: str | None = None
+    enable_response_encryption: bool = False
+    enable_enhanced_search: bool = True
+    search_cache_ttl_seconds: int = Field(default=900, ge=0)
+    file_upload_dir: str = ".uploads"
+    max_upload_bytes: int = Field(default=10_000_000, ge=1)
 
     # LLM Provider selection — Gemini is the default for SignalFlow.
     # See app/core/constants/app.py::DEFAULT_LLM_PROVIDER. Only the active
     # provider's credentials are required; the registry silently skips any
     # provider whose API key is missing.
     llm_provider: str = DEFAULT_LLM_PROVIDER
+    enable_model_routing: bool = True
+    llm_fallback_providers: str = ""
 
     # Gemini (primary — default provider, normally the only one configured)
     gemini_api_key: str | None = None
@@ -107,11 +118,28 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
 
+    # OpenAI-compatible model families (optional alternatives)
+    qwen_api_key: str | None = None
+    qwen_model: str = DEFAULT_QWEN_MODEL
+    qwen_base_url: str | None = None
+
+    deepseek_api_key: str | None = None
+    deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
+    deepseek_base_url: str | None = None
+
+    glm_api_key: str | None = None
+    glm_model: str = DEFAULT_GLM_MODEL
+    glm_base_url: str | None = None
+
+    llama_api_key: str | None = None
+    llama_model: str = DEFAULT_LLAMA_MODEL
+    llama_base_url: str | None = None
+
     # Ollama (optional local LLM)
     ollama_base_url: str | None = None
     local_llm_model: str = "llama3.1"
 
-    embedding_model: str = Field(default="tfidf", description="Embedding model: tfidf or sentence-transformers")
+    embedding_model: str = Field(default="gemini", description="Embedding model: gemini (API-based)")
     # Rollback switch for the 2026-06 scoring unification: when True the
     # scanner uses the legacy scoring.score_post path instead of RelevanceEngine.
     # Default is False — the v2 engine is more permissive and produces more
@@ -124,10 +152,18 @@ class Settings(BaseSettings):
     reddit_base_url: str = "https://old.reddit.com"
     reddit_user_agent: str = "web:signalflow:v1.0 (by /u/SignalFlowBot)"
     reddit_search_provider: str = "auto"
-    # Official Reddit OAuth credentials (https://www.reddit.com/prefs/apps)
-    # Gives 100 req/min for free — much better than RapidAPI's 50/month.
-    reddit_client_id: str = ""
-    reddit_client_secret: str = ""
+    # Reddit OAuth credentials (https://www.reddit.com/prefs/apps).
+    # Used for BOTH: (a) server-to-server client-credentials auth for
+    # RedditClient's search/scrape calls — gives ~100 req/min and, crucially,
+    # is NOT subject to the IP-based blocking that hits anonymous calls to
+    # www.reddit.com/old.reddit.com from datacenter IPs; and (b) the
+    # /v1/reddit/connect per-user OAuth flow (uses reddit_redirect_uri too).
+    # When client_id/secret are empty, RedditClient falls back to anonymous
+    # public JSON endpoints, which Reddit increasingly blocks from server IPs
+    # — this is the most common reason "monitored subreddits" stays empty.
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_redirect_uri: str | None = None
     # Min seconds between requests to reddit.com hosts.  Reddit's public
     # endpoints are strict about rate limits; 4s keeps us safely under.
     reddit_scrape_min_interval: float = 4.0
@@ -135,13 +171,6 @@ class Settings(BaseSettings):
     bing_search_api_key: str | None = None
     bing_search_url: str = "https://api.bing.microsoft.com/v7.0/search"
     duckduckgo_search_url: str = "https://html.duckduckgo.com/html/"
-
-    # Reddit OAuth (for connecting user Reddit accounts). When any of these are
-    # empty, the /v1/reddit/connect endpoint returns a structured 503 instead
-    # of handing out a placeholder authorize URL.
-    reddit_client_id: str | None = None
-    reddit_client_secret: str | None = None
-    reddit_redirect_uri: str | None = None
 
     # RapidAPI (multi-platform social media scraping)
     rapidapi_key: str | None = None

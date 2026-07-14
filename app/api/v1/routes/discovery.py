@@ -96,7 +96,18 @@ def generate_keywords(
     from app.db.tables.discovery import list_personas_for_project
     personas = list_personas_for_project(supabase, project_id, include_inactive=False)
 
-    generated = ProductCopilot().generate_keywords(project.get("brand_profile"), personas, payload.count)
+    # Resolve brand context from brand_profiles + company_profiles (merged).
+    # NOTE: project.get("brand_profile") was a bug — projects rows never had
+    # that key, so this always silently returned an empty keyword list.
+    from app.db.tables.projects import resolve_brand_context
+    brand = resolve_brand_context(supabase, workspace["id"], project_id)
+    if not brand:
+        raise HTTPException(
+            status_code=400,
+            detail="No brand information found. Fill in Company Setup (name, description, audience) before generating keywords.",
+        )
+
+    generated = ProductCopilot().generate_keywords(brand, personas, payload.count)
     created = []
 
     # Batch-fetch all existing keywords for duplicate detection

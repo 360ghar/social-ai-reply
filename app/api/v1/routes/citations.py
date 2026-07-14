@@ -83,7 +83,7 @@ def source_domains(
     if not proj:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No active project found.")
 
-    results = list_source_domains_for_project(supabase, proj["id"], limit=limit)
+    results = list_source_domains_for_project(supabase, proj["id"])
 
     return {"items": [{"domain": r["domain"], "total_citations": r.get("total_citations", 0)} for r in results]}
 

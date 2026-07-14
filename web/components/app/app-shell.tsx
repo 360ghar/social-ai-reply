@@ -36,24 +36,25 @@ import { Card } from "@/components/ui/card";
 import {
   Loader2,
   Bell,
+  Building2,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
   LogOut,
   LayoutDashboard,
   Workflow,
-  Eye,
-  Search,
   Radar,
   FileText,
-  Users,
-  Palette,
-  UserCircle,
-  Terminal,
   Settings,
+  Users,
   Check,
+  Zap,
   BarChart2,
   Crosshair,
+  Search,
+  Palette,
+  Terminal,
+  Eye,
 } from "lucide-react";
 import { MobileNav } from "@/components/shared/mobile-nav";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -87,35 +88,17 @@ const NAV_SECTIONS = [
     icon: LayoutDashboard,
     items: [
       { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/app/analytics", label: "Analytics", icon: BarChart2 },
-      { href: "/app/agent-runs", label: "Agent Runs", icon: Workflow },
-    ],
-  },
-  {
-    title: "INTELLIGENCE",
-    icon: Search,
-    items: [
-      { href: "/app/company", label: "Company Setup", icon: UserCircle },
-      { href: "/app/brand-brain", label: "Brand Brain", icon: Palette },
-      { href: "/app/competitors", label: "Competitor Intel", icon: Crosshair },
-      { href: "/app/sources", label: "Sources", icon: Search },
-    ],
-  },
-  {
-    title: "OPPORTUNITIES",
-    icon: Radar,
-    items: [
-      { href: "/app/agents", label: "Agents Feed", icon: Radar },
+      { href: "/app/workflow", label: "Workflow", icon: Workflow },
       { href: "/app/discovery", label: "Social Radar", icon: Radar },
       { href: "/app/content", label: "Content Studio", icon: FileText },
     ],
   },
   {
-    title: "OPTIMIZE",
-    icon: Eye,
+    title: "COMPANY",
+    icon: Building2,
     items: [
-      { href: "/app/seo-geo", label: "SEO / GEO", icon: Eye },
-      { href: "/app/visibility", label: "AI Visibility", icon: Eye },
+      { href: "/app/company", label: "Company Profile", icon: Building2 },
+      { href: "/app/competitors", label: "Competitors", icon: Users },
     ],
   },
   {
@@ -129,24 +112,27 @@ const NAV_SECTIONS = [
 
 const PATH_TITLES: Record<string, string> = {
   "/app/dashboard": "Dashboard",
-  "/app/auto-pipeline": "Overview / Auto Pipeline",
-  "/app/agent-runs": "Overview / Agent Runs",
-  "/app/analytics": "Overview / Analytics",
-  "/app/company": "Intelligence / Company Setup",
-  "/app/brand-brain": "Intelligence / Brand Brain",
-  "/app/competitors": "Intelligence / Competitor Intel",
-  "/app/sources": "Intelligence / Sources",
-  "/app/agents": "Opportunities / Agents Feed",
-  "/app/discovery": "Opportunities / Social Radar",
-  "/app/content": "Opportunities / Content Studio",
-  "/app/content-studio": "Opportunities / Content Studio (New)",
-  "/app/subreddits": "Engage / Communities",
-  "/app/brand": "Configure / Brand Profile",
-  "/app/persona": "Configure / Personas",
-  "/app/prompts": "Configure / Prompts",
-  "/app/seo-geo": "Optimize / SEO / GEO",
-  "/app/visibility": "Optimize / AI Visibility",
+  "/app/workflow": "Pipeline Workflow",
+  "/app/discovery": "Social Radar",
+  "/app/content": "Content Studio",
   "/app/settings": "Settings",
+  "/app/analytics": "Analytics",
+  "/app/agent-runs": "Agent Runs",
+  "/app/brand-brain": "Brand Brain",
+  "/app/competitors": "Competitors",
+  "/app/sources": "Sources",
+  "/app/seo-geo": "SEO / GEO",
+  "/app/visibility": "AI Visibility",
+  // Reachable via direct URL only (superseded by Workflow page steps,
+  // or kept for backward-compat links)
+  "/app/auto-pipeline": "Auto Pipeline",
+  "/app/company": "Company Setup",
+  "/app/persona": "Personas",
+  "/app/subreddits": "Communities",
+  "/app/agents": "Agents Feed",
+  "/app/brand": "Brand Profile",
+  "/app/prompts": "Prompts",
+  "/app/content-studio": "Content Studio",
 };
 
 /** Group notifications into Today / Yesterday / Older buckets. */
@@ -175,10 +161,20 @@ function groupNotifications(notifications: NotificationItem[]) {
   return groups.filter((g) => g.items.length > 0);
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise
+      .then((value) => resolve(value))
+      .catch((error) => reject(error))
+      .finally(() => window.clearTimeout(timeoutId));
+  });
+}
+
 export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { token, loading: authLoading, logout } = useAuth();
+  const { token, workspace, loading: authLoading, logout } = useAuth();
   const [dash, setDash] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -271,53 +267,45 @@ export default function AppShell({ children }: { children: ReactNode }) {
       setLoading(true);
     }
     try {
-      const [dashRes, notifRes] = await Promise.allSettled([
+      const dashRes = await withTimeout(
         apiRequest<DashData>(withProjectId("/v1/dashboard", projectId), {}, token),
+        12000,
+        "Dashboard request timed out. Please check the backend and try again.",
+      );
+      setDash(dashRes);
+      setError("");
+      if (dashRes.projects) {
+        useProjectStore.getState().setProjects(dashRes.projects);
+      }
+
+      void withTimeout(
         apiRequest<NotificationData>("/v1/notifications", {}, token),
-      ]);
-
-      if (dashRes.status === "fulfilled") {
-        setDash(dashRes.value);
-        if (dashRes.value.projects) {
-          useProjectStore.getState().setProjects(dashRes.value.projects);
-        }
-      }
-      if (notifRes.status === "fulfilled") {
-        setNotifCount(notifRes.value.unread_count || 0);
-      }
-
-      const dashFailed = dashRes.status === "rejected" && isAuthError(dashRes.reason);
-      if (dashFailed) {
-        // Token may have expired between bootstrap and this fetch.
-        // Attempt a Supabase token refresh before giving up entirely.
-        try {
-          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-          if (refreshed?.access_token) {
-            const retryRes = await apiRequest<DashData>(
-              withProjectId("/v1/dashboard", projectId), {}, refreshed.access_token
-            );
-            setDash(retryRes);
-          } else {
-            void logout();
-            router.replace("/login");
-            return;
-          }
-        } catch {
-          void logout();
-          router.replace("/login");
-          return;
-        }
-      }
+        8000,
+        "Notifications request timed out.",
+      )
+        .then((notifRes) => setNotifCount(notifRes.unread_count || 0))
+        .catch(() => {
+          // Notifications are non-critical; never block workspace load.
+        });
     } catch (e: unknown) {
       const msg = getErrorMessage(e);
       if (isAuthError(e)) {
         try {
           const { data: { session: refreshed } } = await supabase.auth.refreshSession();
           if (refreshed?.access_token) {
-            const retryRes = await apiRequest<DashData>(
-              withProjectId("/v1/dashboard", projectId), {}, refreshed.access_token
+            const retryRes = await withTimeout(
+              apiRequest<DashData>(withProjectId("/v1/dashboard", projectId), {}, refreshed.access_token),
+              12000,
+              "Dashboard request timed out. Please check the backend and try again.",
             );
             setDash(retryRes);
+            setError("");
+            if (retryRes.projects) {
+              useProjectStore.getState().setProjects(retryRes.projects);
+            }
+            setLoading(false);
+            setInitialLoad(false);
+            return;
           } else {
             void logout();
             router.replace("/login");
@@ -329,6 +317,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
           return;
         }
       }
+      setDash((current) => current ?? {
+        workspace_name: workspace?.name || "Workspace",
+        projects: useProjectStore.getState().projects,
+      });
       setError(msg || "Failed to load workspace");
     }
     setLoading(false);
@@ -645,7 +637,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
                             href={item.href}
                             className={cn(
                               "flex items-center gap-2.5 rounded-md mx-1 px-2.5 py-2 text-sm text-sidebar-foreground/80 no-underline transition-all duration-150 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                              isActive && "bg-coral-glow text-primary font-medium"
+                              isActive && "bg-coral-glow text-primary font-medium",
+                              (item as any).indent && "ml-4"
                             )}
                             onClick={() => setSidebarOpen(false)}
                           >

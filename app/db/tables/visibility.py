@@ -212,12 +212,12 @@ def get_source_domain_by_id(db: Client, domain_id: int) -> dict[str, Any] | None
 
 
 def list_source_domains_for_project(db: Client, project_id: int, limit: int | None = None) -> list[dict[str, Any]]:
-    """List source domains for a project, ordered by citation count."""
+    """List source domains for a project."""
     query = (
         db.table(SOURCE_DOMAINS_TABLE)
         .select("*")
         .eq("project_id", project_id)
-        .order("total_citations", desc=True)
+        .order("created_at", desc=True)
     )
     if limit is not None:
         query = query.limit(limit)

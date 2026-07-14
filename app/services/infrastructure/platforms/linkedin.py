@@ -62,6 +62,18 @@ class LinkedInAdapter(PlatformAdapter):
                 params=params or {},
                 headers=self._headers(),
             )
+            # Handle rate-limiting gracefully — return empty rather than crashing the scan
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After", "unknown")
+                logger.warning(
+                    "[linkedin] Rate limited (429) — RapidAPI free tier exhausted. "
+                    "Retry-After: %s. Consider upgrading or disabling LinkedIn in settings.",
+                    retry_after,
+                )
+                return {"data": [], "_rate_limited": True}
+            if resp.status_code == 403:
+                logger.warning("[linkedin] 403 Forbidden — check RAPIDAPI_KEY and LinkedIn subscription")
+                return {"data": [], "_error": "forbidden"}
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, dict) and not data.get("success", True):

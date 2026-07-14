@@ -1,6 +1,8 @@
+
 """Reddit scanning and opportunity detection service."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -58,19 +60,44 @@ _SCAN_SEMANTIC_THRESHOLD = 0.0
 _SCAN_MIN_SCORE = 15
 
 
-def _engine_brand_profile(brand: dict[str, Any] | None) -> dict[str, Any]:
-    """Map a brand_profiles row onto the dict shape RelevanceEngine expects."""
+def _engine_brand_profile(
+    brand: dict[str, Any] | None,
+    personas: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Map a brand_profiles row onto the dict shape RelevanceEngine expects.
+
+    When ``personas`` are provided, their pain_points are merged into the
+    brand profile so the RelevanceEngine can match posts that reference the
+    problems our buyers actually describe on social media.
+    """
     brand = brand or {}
     description = " ".join(
         filter(None, [brand.get("summary"), brand.get("product_summary")])
     )
+    # Aggregate pain points from personas so the relevance engine can match
+    # posts that describe problems our buyers actually talk about.
+    pain_points: list[str] = []
+    for persona in personas or []:
+        raw = persona.get("pain_points") or []
+        if isinstance(raw, list):
+            pain_points.extend(str(p) for p in raw if p)
+        elif isinstance(raw, str) and raw:
+            pain_points.extend([pt.strip() for pt in raw.split(",") if pt.strip()])
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_pain_points = []
+    for pt in pain_points:
+        if pt.lower() not in seen:
+            seen.add(pt.lower())
+            unique_pain_points.append(pt)
+
     return {
         "name": brand.get("brand_name", ""),
         "brand_name": brand.get("brand_name", ""),
         "description": description,
         "category": brand.get("business_domain", ""),
         "target_audience": brand.get("target_audience", ""),
-        "pain_points": [],
+        "pain_points": unique_pain_points[:20],  # cap to avoid prompt bloat
         "competitors": [],
     }
 
@@ -155,6 +182,18 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
     workspace_id = project.get("workspace_id")
     feedback_records = _safe_feedback_records(db, workspace_id)
 
+    # Load personas so their pain_points feed into relevance scoring
+    from app.db.tables.discovery import list_personas_for_project as _list_personas
+    project_personas: list[dict[str, Any]] = []
+    try:
+        project_personas = _list_personas(db, project["id"], include_inactive=False) or []
+        logger.info(
+            "Scan: loaded %d personas for project %s (pain_points fed into engine)",
+            len(project_personas), project["id"]
+        )
+    except Exception:
+        logger.warning("Could not load personas for scan — proceeding without persona context")
+
     # Get active keywords
     from app.db.tables.discovery import list_discovery_keywords_for_project
     active_keywords = list_discovery_keywords_for_project(db, project["id"])
@@ -215,10 +254,52 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
             relevance_threshold=effective_min_score,
             semantic_threshold=_SCAN_SEMANTIC_THRESHOLD,
         )
-        engine_brand = _engine_brand_profile(brand)
+        engine_brand = _engine_brand_profile(brand, personas=project_personas)
         engine_kw = _engine_keywords(search_keywords)
         # Kept opportunities queued for the optional LLM buying-stage pass.
         stage_refine_queue: list[dict[str, Any]] = []
+
+        # ── Free supplemental sources (HN + GitHub, no API key needed) ──────────
+        # Run these in the background alongside the Reddit subreddit scan only
+        # when explicitly requested. Normal multi-platform scans use
+        # platform_scanner.py, so a Reddit-only scan should not leak HN/GitHub
+        # rows into the Reddit result set.
+        free_source_futures: list[Any] = []
+        _free_executor = None
+        if not getattr(payload, "include_free_sources", False):
+            logger.info("Free source scrapers disabled for this scan")
+        try:
+            import concurrent.futures as _cf_free
+
+            from app.core.config import get_settings as _gs
+            from app.scrapers.free_sources import scrape_github, scrape_hackernews
+
+            if not getattr(payload, "include_free_sources", False):
+                raise RuntimeError("free sources disabled")
+
+            _settings = _gs()
+            _hn_enabled = getattr(_settings, "enable_hn_scraper", True)
+            _gh_enabled = getattr(_settings, "enable_github_scraper", True)
+            _gh_token   = getattr(_settings, "github_token", None)
+
+            _kw_strs = [k.get("keyword", "") for k in active_keywords if k.get("keyword")][:8]
+
+            _free_executor = _cf_free.ThreadPoolExecutor(max_workers=2, thread_name_prefix="free_src")
+            if _hn_enabled:
+                free_source_futures.append(
+                    (_free_executor.submit(scrape_hackernews, _kw_strs, payload.search_window_hours), "hackernews")
+                )
+            if _gh_enabled:
+                free_source_futures.append(
+                    (_free_executor.submit(scrape_github, _kw_strs, payload.search_window_hours, 15, _gh_token), "github")
+                )
+            logger.info("Free source scrapers queued: HN=%s GitHub=%s", _hn_enabled, _gh_enabled)
+        except RuntimeError as _free_skip:
+            logger.debug("%s", _free_skip)
+        except Exception as _free_err:
+            logger.warning("Could not start free source scrapers: %s", _free_err)
+        if not free_source_futures:
+            free_source_futures = []
 
         def _scan_one_subreddit(subreddit: dict[str, Any]) -> _SubredditScanResult:
             name = subreddit["name"]
@@ -480,6 +561,98 @@ def run_scan(db: Client, project: dict, payload: ScanRequest, scan_run_id: str |
 
         # Update scan run with results
         completed_at = datetime.now(UTC).isoformat()
+        # ── Merge free-source results (HN, GitHub) ───────────────────────────────
+        if free_source_futures:
+            try:
+                for future, src_name in free_source_futures:
+                    try:
+                        free_posts = future.result(timeout=25)
+                        logger.info("Free source %r returned %d posts", src_name, len(free_posts))
+                        for fp in free_posts:
+                            fp_dict = fp.to_dict()
+                            candidate = CandidatePost(
+                                title=fp_dict.get("title", ""),
+                                body=fp_dict.get("body", ""),
+                                platform=src_name,
+                                source_name=fp_dict.get("subreddit", src_name),
+                                upvotes=fp_dict.get("score", 0),
+                                comments_count=fp_dict.get("num_comments", 0),
+                                created_at=fp.created_at,
+                                author=fp_dict.get("author", ""),
+                                post_url=fp_dict.get("url", ""),
+                            )
+                            posts_scanned += 1
+                            if comment_engine:
+                                result: RelevanceResult = comment_engine.score(
+                                    candidate, engine_brand, engine_kw
+                                )
+                                if result.relevance_score >= effective_min_score:
+                                    ext_id = fp.external_id or fp.id
+                                    create_opportunity(db, {
+                                        "project_id": project["id"],
+                                        "platform": src_name,
+                                        "reddit_post_id": f"{src_name}_{ext_id}",
+                                        "title": fp_dict.get("title", ""),
+                                        "body_excerpt": fp_dict.get("body", "")[:1200],
+                                        "permalink": fp_dict.get("url", ""),
+                                        "author": fp_dict.get("author", ""),
+                                        "subreddit_name": src_name,
+                                        "source_type": "post",
+                                        "status": "new",
+                                        **_result_payload(result),
+                                    })
+                                    opportunities_found += 1
+                    except Exception as _fe:
+                        logger.warning("Free source %r merge error: %s", src_name, _fe)
+            except Exception as _free_merge_err:
+                logger.warning("Free source merge failed: %s", _free_merge_err)
+            finally:
+                with contextlib.suppress(Exception):
+                    _free_executor.shutdown(wait=False, cancel_futures=True)
+
+        # ── Competitor Intelligence ────────────────────────────────────────────
+        # Previously this only ran from the legacy auto-pipeline orchestrator,
+        # so the Competitor Intel page stayed empty for manual scans run from
+        # Social Radar / the Launch step. Wiring it here makes every scan path
+        # (auto-pipeline, master_pipeline, manual scan) populate the same page.
+        if opportunities_found > 0:
+            try:
+                from app.db.tables.discovery import list_opportunities_for_project
+                from app.services.product.competitor_intel import (
+                    get_project_competitors,
+                    process_competitor_opportunities,
+                )
+
+                competitors = get_project_competitors(db, project["id"])
+                if competitors:
+                    recent_opps = list_opportunities_for_project(db, project["id"], limit=100)
+                    post_dicts = [
+                        {
+                            "title": o.get("title", ""),
+                            "body": o.get("body_excerpt", "") or o.get("body_text", ""),
+                            "selftext": o.get("body_excerpt", "") or o.get("body_text", ""),
+                            "platform": o.get("platform", "reddit"),
+                            "url": o.get("permalink") or o.get("post_url", ""),
+                        }
+                        for o in recent_opps
+                    ]
+                    # run_scan is synchronous, so spin up a fresh event loop
+                    # rather than trying to await inside a sync function.
+                    import asyncio as _asyncio_comp
+                    _comp_loop = _asyncio_comp.new_event_loop()
+                    try:
+                        comp_mentions = _comp_loop.run_until_complete(
+                            process_competitor_opportunities(db, project["id"], post_dicts, competitors)
+                        )
+                    finally:
+                        _comp_loop.close()
+                    logger.info("Competitor intel: %d mentions detected during scan", len(comp_mentions))
+                else:
+                    logger.info("No competitors configured for project %s — skipping competitor intel", project["id"])
+            except Exception as _comp_err:
+                logger.warning("Competitor intelligence scan failed (non-fatal): %s", _comp_err)
+
+        # Persist final scan results (always runs, regardless of free sources)
         update_scan_run(db, run["id"], {
             "status": "completed",
             "posts_scanned": posts_scanned,

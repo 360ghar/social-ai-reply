@@ -1,95 +1,70 @@
-"""TF-IDF embedding provider using scikit-learn."""
+"""Lightweight local text embedding provider for tests and offline fallback."""
 
 from __future__ import annotations
 
-import logging
+import math
 import re
-from typing import Any
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-logger = logging.getLogger(__name__)
-
-
-def _preprocess(text: str) -> str:
-    """Lowercase, remove extra whitespace, keep only alphanumeric and spaces."""
-    text = text.lower().strip()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9'-]*")
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "in",
+    "is",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "use",
+    "with",
+}
 
 
 class TfidfProvider:
-    """TF-IDF embedding provider backed by scikit-learn TfidfVectorizer."""
+    """Small deterministic bag-of-words embedding provider.
 
-    def __init__(
-        self,
-        max_features: int = 5000,
-        stop_words: str = "english",
-        ngram_range: tuple[int, int] = (1, 2),
-    ) -> None:
-        self.vectorizer = TfidfVectorizer(
-            max_features=max_features,
-            stop_words=stop_words,
-            ngram_range=ngram_range,
-            min_df=1,
-            max_df=0.95,
-        )
-        self._fitted: bool = False
+    The production default remains Gemini, but this local provider keeps tests
+    and offline development usable without external API calls.
+    """
 
-    def fit(self, corpus: list[str]) -> None:
-        """Fit the vectorizer on a corpus."""
-        processed = [_preprocess(t) for t in corpus]
-        if not any(processed):
-            logger.warning("TF-IDF fit called with empty/whitespace-only corpus.")
-            return
-        n_docs = len(processed)
-        effective_max_df = self.vectorizer.max_df
-        if isinstance(effective_max_df, float) and n_docs * effective_max_df < self.vectorizer.min_df:
-            # Adjust max_df so that it doesn't exclude all terms on tiny corpora
-            effective_max_df = 1.0
-            self.vectorizer.set_params(max_df=effective_max_df)
-        self.vectorizer.fit(processed)
-        self._fitted = True
+    def __init__(self, dimensions: int = 2048) -> None:
+        self.dimensions = dimensions
+        self._fitted = False
 
-    def transform(self, texts: list[str]) -> Any:
-        """Transform texts into TF-IDF vectors."""
-        processed = [_preprocess(t) for t in texts]
-        if not self._fitted:
-            self.fit(processed)
-        return self.vectorizer.transform(processed)
+    def fit(self, texts: list[str]) -> None:
+        self._fitted = bool(texts)
 
     def embed(self, text: str) -> list[float]:
-        """Return dense embedding vector for a single text."""
-        vec = self.transform([text])
-        return vec.toarray()[0].tolist()
+        tokens = self._tokens(text)
+        if not tokens:
+            return [0.0] * self.dimensions if self._fitted else []
+
+        vector = [0.0] * self.dimensions
+        for token in tokens:
+            index = self._stable_index(token)
+            vector[index] += 1.0
+
+        norm = math.sqrt(sum(value * value for value in vector))
+        if norm == 0:
+            return vector
+        return [value / norm for value in vector]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Return dense embedding vectors for a batch of texts."""
-        vec = self.transform(texts)
-        return vec.toarray().tolist()
+        if not self._fitted:
+            self.fit(texts)
+        return [self.embed(text) for text in texts]
 
-    def pairwise_similarity(self, text_a: str, text_b: str) -> float:
-        """Cosine similarity between two texts using a vocabulary fitted on the pair.
+    def _tokens(self, text: str) -> list[str]:
+        return [token for token in _TOKEN_RE.findall(text.lower()) if token not in _STOPWORDS]
 
-        TF-IDF vectors are only comparable within the same fitted vocabulary.
-        Reusing a vectorizer fitted on an earlier corpus silently produces
-        zero/garbage similarities for out-of-vocabulary text, so each pair is
-        fitted fresh — cheap at this scale and always correct.
-        """
-        import numpy as np
-
-        processed = [_preprocess(text_a), _preprocess(text_b)]
-        if not all(processed):
-            return 0.0
-        vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1)
-        try:
-            matrix = vectorizer.fit_transform(processed)
-        except ValueError:  # e.g. both texts are only stop words
-            return 0.0
-        dense = matrix.toarray()
-        norm_a = np.linalg.norm(dense[0])
-        norm_b = np.linalg.norm(dense[1])
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return float(np.dot(dense[0], dense[1]) / (norm_a * norm_b))
+    def _stable_index(self, token: str) -> int:
+        return sum((index + 1) * ord(char) for index, char in enumerate(token)) % self.dimensions

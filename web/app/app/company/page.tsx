@@ -1,10 +1,10 @@
 "use client";
-
+import Link from "next/link";
 import { FormEvent, useEffect, useState, useRef } from "react";
-import { Loader2, Globe, Users, Target, Sparkles, Save, Zap } from "lucide-react";
-
+import { Loader2, Globe, Users, Target, Sparkles, Save, Zap, Swords } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useToast } from "@/stores/toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,9 +21,14 @@ import {
   type CompanyProfile,
 } from "@/lib/api/company";
 import { startAutoPipelineV2 } from "@/lib/api/auto-pipeline-v2";
+import { CompanyNav } from "@/components/company/company-nav";
+import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { useProjectStore } from "@/stores/project-store";
+import { competitorNamesFromCompany, parseCompetitorNames } from "@/lib/competitor-insights";
 
 export default function CompanyPage() {
   const { token } = useAuth();
+  const selectedProjectId = useSelectedProjectId();
   const { success, error } = useToast();
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<CompanyProfile | null>(null);
@@ -32,7 +37,6 @@ export default function CompanyPage() {
   const [autoUrl, setAutoUrl] = useState("");
   const [isAutoRunning, setIsAutoRunning] = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // Clean up polling interval when the component unmounts to prevent
   // background polling leaks and state updates after unmount (Issue: PR review).
   useEffect(() => {
@@ -43,17 +47,26 @@ export default function CompanyPage() {
       }
     };
   }, []);
-
   useEffect(() => {
     if (!token) return;
     void loadCompany();
-  }, [token]);
-
+  }, [token, selectedProjectId]);
   async function loadCompany() {
     setLoading(true);
     try {
       const companies = await getCompanies(token!);
-      const active = companies.find((c) => c.is_active) ?? companies[0] ?? null;
+      let active = null;
+      if (selectedProjectId) {
+        const project = useProjectStore.getState().projects.find(p => p.id === selectedProjectId);
+        if (project?.company_id) {
+          active = companies.find((c) => c.id === project.company_id) || null;
+        }
+        // If a project is selected but has no company, we do NOT fall back to a random company.
+        // It should remain null so the user can create one for this project.
+      } else {
+        // Only fall back if no project is selected at all
+        active = companies.find((c) => c.is_active) ?? companies[0] ?? null;
+      }
       setCompany(active);
       if (active?.website_url) {
         setAutoUrl(active.website_url);
@@ -63,7 +76,6 @@ export default function CompanyPage() {
     }
     setLoading(false);
   }
-
   function buildPayload(): Record<string, unknown> {
     if (!company) return {};
     // Only send fields the backend expects (strip id, workspace_id, timestamps, etc.)
@@ -79,9 +91,11 @@ export default function CompanyPage() {
       is_active: _ia,
       ...payload
     } = company;
+    if (selectedProjectId && !_id) {
+      (payload as any).project_id = selectedProjectId;
+    }
     return payload;
   }
-
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || !company) return;
@@ -102,7 +116,6 @@ export default function CompanyPage() {
     }
     setIsSaving(false);
   }
-
   async function handleAnalyze() {
     if (!token || !company?.id) return;
     setIsAnalyzing(true);
@@ -114,7 +127,6 @@ export default function CompanyPage() {
     try {
       const res = await analyzeCompanyWebsite(token, company.id);
       success("Analysis started", `Run ID: ${res.run_id}`);
-
       // Poll for results every 3 seconds for up to 2 minutes (Issue #26).
       // The interval is stored in a ref so the unmount effect can clear it.
       const companyId = company.id;
@@ -161,7 +173,6 @@ export default function CompanyPage() {
       setIsAnalyzing(false);
     }
   }
-
   async function handleAutoPipeline(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     if (!token) return;
@@ -171,15 +182,77 @@ export default function CompanyPage() {
       return;
     }
     setIsAutoRunning(true);
+    
+    // Clear any existing poll before starting a new one
+    if (analysisPollRef.current !== null) {
+      clearInterval(analysisPollRef.current);
+      analysisPollRef.current = null;
+    }
+    
     try {
-      const res = await startAutoPipelineV2(token, { website_url: url });
+      const res = await startAutoPipelineV2(token, {
+        website_url: url,
+        ...(selectedProjectId ? { project_id: selectedProjectId } : {}),
+      });
       success("Auto Pipeline Started", res.message);
       await loadCompany();
+      
+      const tok = token;
+      let attempts = 0;
+      const maxAttempts = 60; // 3 minutes total
+      const stopPolling = () => {
+        if (analysisPollRef.current !== null) {
+          clearInterval(analysisPollRef.current);
+          analysisPollRef.current = null;
+        }
+        setIsAutoRunning(false);
+      };
+      
+      analysisPollRef.current = setInterval(async () => {
+        attempts++;
+        try {
+          const companies = await getCompanies(tok);
+          const updated = companies.find((c) => c.id === res.company_id);
+          if (updated) {
+            // Update company data when extracted_summary changes
+            setCompany((prev) => {
+              if (prev && updated.extracted_summary && updated.extracted_summary !== prev.extracted_summary) {
+                return updated;
+              }
+              // If we didn't have one loaded, load it.
+              if (!prev && updated.extracted_summary) {
+                return updated;
+              }
+              return prev;
+            });
+            // Stop polling once we see extracted data or hit max attempts
+            if (updated.extracted_summary || attempts >= maxAttempts) {
+              stopPolling();
+              if (updated.extracted_summary) {
+                success("Auto Pipeline Initialized", "Company intelligence updated. Agents are running in background.");
+              }
+            }
+          }
+        } catch {
+          // Silently ignore polling errors
+        }
+        if (attempts >= maxAttempts) {
+          stopPolling();
+        }
+      }, 3000);
+      
     } catch (err) {
       error("Auto Pipeline failed", err instanceof Error ? err.message : "Unknown error");
+      setIsAutoRunning(false);
     }
-    setIsAutoRunning(false);
   }
+
+  const configuredCompetitors = competitorNamesFromCompany(company);
+  const extractedCompetitors = parseCompetitorNames(company?.extracted_competitors);
+  const manualCompetitors = parseCompetitorNames(company?.competitors);
+  const hasUnusedExtractedCompetitors =
+    extractedCompetitors.length > 0 &&
+    extractedCompetitors.some((name) => !manualCompetitors.some((manual) => manual.toLowerCase() === name.toLowerCase()));
 
   if (loading) {
     return (
@@ -192,12 +265,11 @@ export default function CompanyPage() {
       </div>
     );
   }
-
   if (!company) {
     return (
       <div className="space-y-8">
+        <CompanyNav />
         <PageHeader title="Company Setup" />
-
         <Card className="border-dashed border-primary/30 bg-primary/5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -225,7 +297,6 @@ export default function CompanyPage() {
             </p>
           </CardContent>
         </Card>
-
         <EmptyState
           icon={Globe}
           title="Or create manually"
@@ -262,11 +333,12 @@ export default function CompanyPage() {
       </div>
     );
   }
-
   return (
     <div className="space-y-8">
+      <CompanyNav />
       <PageHeader
         title="Company Setup"
+        description="Profile details"
         actions={
           <Button variant="secondary" onClick={handleAnalyze} disabled={!company.website_url || isAnalyzing}>
             {isAnalyzing && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -275,7 +347,6 @@ export default function CompanyPage() {
           </Button>
         }
       />
-
       <Card className="border-dashed border-primary/30 bg-primary/5">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -323,7 +394,6 @@ export default function CompanyPage() {
           </p>
         </CardContent>
       </Card>
-
       <form onSubmit={handleSave}>
         <div className="grid gap-8">
           <Card>
@@ -367,7 +437,6 @@ export default function CompanyPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -416,7 +485,6 @@ export default function CompanyPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -454,15 +522,6 @@ export default function CompanyPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="competitors">Competitors (comma-separated)</Label>
-                  <Input
-                    id="competitors"
-                    value={company.competitors ?? ""}
-                    onChange={(e) => setCompany({ ...company, competitors: e.target.value })} 
-                    placeholder="Competitor A, Competitor B"
-                  />
-                </div>
-                <div className="space-y-2">
                   <Label htmlFor="brand_voice">Brand Voice</Label>
                   <Textarea
                     id="brand_voice"
@@ -484,7 +543,74 @@ export default function CompanyPage() {
               </div>
             </CardContent>
           </Card>
-
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Swords className="h-4 w-4 text-muted-foreground" />
+                Competitor Intelligence
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.7fr)]">
+                <div className="space-y-2">
+                  <Label htmlFor="competitors">Competitors</Label>
+                  <Input
+                    id="competitors"
+                    value={company.competitors ?? ""}
+                    onChange={(e) => setCompany({ ...company, competitors: e.target.value })}
+                    placeholder="Competitor A, Competitor B"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Add competitor names to track comparison posts, complaints, alternatives, and switching intent.
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">Tracked competitors</p>
+                      <p className="text-xs text-muted-foreground">Used by scans and competitor reports.</p>
+                    </div>
+                    {selectedProjectId && (
+                      <Link href="/app/competitors">
+                        <Button variant="outline" size="sm" type="button">
+                          View Intel
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                  {configuredCompetitors.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {configuredCompetitors.map((name) => (
+                        <Badge key={name} variant="secondary" className="text-[11px]">
+                          {name}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      No competitors configured yet.
+                    </p>
+                  )}
+                  {hasUnusedExtractedCompetitors && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 px-0 text-xs"
+                      onClick={() =>
+                        setCompany({
+                          ...company,
+                          competitors: configuredCompetitors.join(", "),
+                        })
+                      }
+                    >
+                      Use extracted competitors
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
           {company.extracted_summary && (
             <Card>
               <CardHeader>
@@ -507,10 +633,21 @@ export default function CompanyPage() {
                     <p className="text-sm text-muted-foreground mt-1">{company.extracted_pain_points}</p>
                   </div>
                 )}
+                {company.extracted_competitors && (
+                  <div className="rounded-xl border bg-card p-4">
+                    <strong className="text-sm font-semibold">Competitors</strong>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {extractedCompetitors.map((name) => (
+                        <Badge key={name} variant="outline" className="text-[11px]">
+                          {name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
-
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={isSaving}>
               {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}

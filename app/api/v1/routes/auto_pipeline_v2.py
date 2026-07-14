@@ -26,6 +26,7 @@ router = APIRouter(prefix="/v1", tags=["auto-pipeline"])
 class AutoPipelineV2Request(BaseModel):
     website_url: str | None = Field(default=None, min_length=5, max_length=2000)
     name: str = Field(min_length=1, max_length=255, default="")
+    project_id: int | None = Field(default=None)
 
     @field_validator("website_url", mode="before")
     @classmethod
@@ -67,8 +68,8 @@ def _run_full_pipeline_background(company_id: int) -> None:
         logger.info("[Auto Pipeline v2] Keyword expansion completed (%s keywords)", len(keywords))
 
         logger.info("[Auto Pipeline v2] Starting all agents for company %s", company_id)
-        scheduler = SchedulerService(supabase)
-        scheduler.run_all(company_id)
+        scheduler = SchedulerService()
+        scheduler.run_all(company_id, supabase)
         logger.info("[Auto Pipeline v2] All agents triggered for company %s", company_id)
 
     except Exception:
@@ -86,35 +87,25 @@ def start_auto_pipeline_v2(
     """Start the full multi-agent pipeline from just a website URL."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
-    from app.db.tables.company import get_company_by_workspace, update_company
+    # Derive company name from URL if not provided
+    name = payload.name or payload.website_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0].split(".")[0]
+    name = name.replace("-", " ").replace("_", " ").title() or "My Company"
 
-    existing_company = get_company_by_workspace(supabase, workspace["id"])
+    company_id = None
+    if payload.project_id:
+        from app.db.tables.projects import get_project_by_id
+        project = get_project_by_id(supabase, payload.project_id)
+        if project and project.get("company_id"):
+            company_id = project["company_id"]
+            # Optionally update the website URL if it changed
+            from app.db.tables.company import update_company
+            update_company(supabase, company_id, {"website_url": payload.website_url})
 
-    website_url = payload.website_url
-
-    if existing_company and not website_url:
-        website_url = existing_company.get("website_url")
-
-    if not website_url:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="website_url is required. Set a company website URL first or provide one now.",
-        )
-
-    if existing_company:
-        company_id = existing_company["id"]
-        company = existing_company
-        # Persist new URL if user provided one that differs from the stored one.
-        if payload.website_url and payload.website_url != existing_company.get("website_url"):
-            update_company(supabase, company_id, {"website_url": website_url})
-    else:
-        name = payload.name or website_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0].split(".")[0]
-        name = name.replace("-", " ").replace("_", " ").title() or "My Company"
-
+    if not company_id:
         company_data = {
             "workspace_id": workspace["id"],
             "name": name,
-            "website_url": website_url,
+            "website_url": payload.website_url,
             "description": None,
             "category": None,
             "target_audience": None,
@@ -129,9 +120,12 @@ def start_auto_pipeline_v2(
             "preferred_cta": None,
             "is_active": True,
         }
-
         company = create_company(supabase, company_data)
         company_id = company["id"]
+
+        if payload.project_id:
+            from app.db.tables.projects import update_project
+            update_project(supabase, payload.project_id, {"company_id": company_id})
 
     background_tasks.add_task(_run_full_pipeline_background, company_id)
 

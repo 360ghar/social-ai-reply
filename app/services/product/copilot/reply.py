@@ -180,6 +180,11 @@ def _parse_llm_payload(payload: dict | list | None) -> tuple[str, str] | None:
     return content, rationale
 
 
+def _is_default_llm_client(llm: object) -> bool:
+    """True for the real adapter; false for injected fakes/mocks in tests."""
+    return llm.__class__.__name__ == "LLMClient"
+
+
 # ── Sync reply generation ────────────────────────────────────────────────
 
 
@@ -263,6 +268,23 @@ def _ai_reply(
 ) -> tuple[str, str, str] | None:
     """Generate reply using LLM, with platform-aware tone."""
     effective_platform = (platform or opportunity.get("platform") or "reddit").lower()
+
+    if (
+        effective_platform == "reddit"
+        and voice_profile is None
+        and subreddit_tone_rules is None
+        and _is_default_llm_client(llm)
+    ):
+        try:
+            from app.services.infrastructure.llm.service import generate_reply_sync as llm_generate_reply_sync
+
+            agent_prompts = [{"prompt_type": "reply", "name": "Reply", "instructions": prompt_context}]
+            result = llm_generate_reply_sync(opportunity, brand, agent_prompts)
+            if result is not None:
+                return result
+        except Exception as agent_error:
+            logger.warning("Pydantic AI reply agent failed, falling back to legacy: %s", agent_error)
+
     try:
         system_prompt, user_content = _build_prompts(
             opportunity, brand, prompt_context,
@@ -270,7 +292,7 @@ def _ai_reply(
             subreddit_tone_rules=subreddit_tone_rules,
             platform=effective_platform,
         )
-        payload = llm.call(system_prompt, user_content, temperature=0.4)
+        payload = llm.call(system_prompt, user_content, temperature=0.4, platform=effective_platform)
         parsed = _parse_llm_payload(payload)
         if not parsed:
             logger.warning("LLM returned empty or unparseable reply for opportunity %s", opportunity.get("id"))
@@ -351,7 +373,12 @@ async def _ai_reply_async(
 
     # The Pydantic AI agent path works best for Reddit without voice profiles.
     # For non-Reddit or voice-profile cases, go straight to the prompt-based path.
-    if effective_platform == "reddit" and voice_profile is None and subreddit_tone_rules is None:
+    if (
+        effective_platform == "reddit"
+        and voice_profile is None
+        and subreddit_tone_rules is None
+        and _is_default_llm_client(llm)
+    ):
         try:
             from app.services.infrastructure.llm.service import generate_reply_async as llm_generate_reply_async
 
@@ -370,7 +397,7 @@ async def _ai_reply_async(
             subreddit_tone_rules=subreddit_tone_rules,
             platform=effective_platform,
         )
-        payload = llm.call(system_prompt, user_content, temperature=0.4)
+        payload = llm.call(system_prompt, user_content, temperature=0.4, platform=effective_platform)
         parsed = _parse_llm_payload(payload)
         if not parsed:
             logger.warning("LLM returned empty reply (async) for opportunity %s", opportunity.get("id"))
@@ -428,7 +455,7 @@ def generate_reply_variants(
 
     for temp in temperatures:
         try:
-            payload = llm.call(system_prompt, user_content, temperature=temp)
+            payload = llm.call(system_prompt, user_content, temperature=temp, platform=effective_platform)
             parsed = _parse_llm_payload(payload)
             if parsed:
                 content, rationale = parsed

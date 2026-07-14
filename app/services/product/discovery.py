@@ -39,7 +39,7 @@ from app.services.product.relevance import (
 log = logging.getLogger("signalflow.discovery")
 
 DEFAULT_MIN_SUBREDDIT_FIT = 30
-MAX_DISCOVERY_KEYWORDS = 5
+MAX_DISCOVERY_KEYWORDS = 3
 SUBREDDIT_TRAILING_GENERIC_TOKENS = {
     "app",
     "apps",
@@ -92,7 +92,12 @@ def get_project_search_keywords(supabase: Client, project: dict, limit: int = 15
     active_rows = [r for r in rows if r.get("is_active", True)]
     active_rows.sort(key=lambda x: x.get("priority_score", 50), reverse=True)
 
+    # NOTE: project.get("brand_profile") was a bug — the raw projects row
+    # never embeds that key, so brand_name/biz_domain were always blank here.
     brand = project.get("brand_profile")
+    if brand is None:
+        from app.db.tables.projects import resolve_brand_context
+        brand = resolve_brand_context(supabase, project["workspace_id"], project["id"])
     brand_name = brand.get("brand_name") if brand else None
     biz_domain = brand.get("business_domain", "") if brand else ""
 
@@ -114,7 +119,7 @@ def get_project_search_keywords(supabase: Client, project: dict, limit: int = 15
         if len(selected) >= limit:
             break
         kw_lower = kw.strip().lower()
-        if kw_lower not in seen and len(kw_lower) >= 3:
+        if kw_lower not in seen and len(kw_lower) >= 3 and not is_low_signal_keyword(kw_lower):
             selected.append(kw.strip())
             seen.add(kw_lower)
 
@@ -153,10 +158,20 @@ def discover_and_store_subreddits(
     reddit: RedditClient | None = None,
 ) -> list[dict]:
     """Discover and store subreddits for a project."""
+    using_injected_reddit = reddit is not None
     reddit = reddit or RedditClient()
     base_keywords = get_project_search_keywords(supabase, project, limit=max(MAX_DISCOVERY_KEYWORDS * 2, 8), include_brand=False)
 
-    brand = project.get("brand_profile")
+    # NOTE: project.get("brand_profile") was a bug — the raw projects row
+    # never embeds that key, so every downstream brand-aware call (query
+    # building, candidate scoring) silently lost all brand signal. Resolve
+    # once here and hydrate the project dict so assess_subreddit_candidate
+    # (which has no DB access) picks it up via project.get("brand_profile").
+    from app.db.tables.projects import resolve_brand_context
+    resolved_brand = resolve_brand_context(supabase, project["workspace_id"], project["id"])
+    project = {**project, "brand_profile": resolved_brand}
+
+    brand = resolved_brand
     biz_domain = brand.get("business_domain", "") if brand else ""
 
     domain_context = build_domain_context(
@@ -192,7 +207,7 @@ def discover_and_store_subreddits(
 
     from app.services.product.reddit_discovery import _HTTP_BUDGET, _REDDIT_HOSTS
 
-    reddit_blocked = any(_HTTP_BUDGET.is_open(h) for h in _REDDIT_HOSTS)
+    reddit_blocked = not using_injected_reddit and any(_HTTP_BUDGET.is_open(h) for h in _REDDIT_HOSTS)
     if reddit_blocked:
         log.info("Reddit circuit is open — will skip enrichment calls")
 
@@ -231,11 +246,16 @@ def discover_and_store_subreddits(
             if normalized_name in seen_names:
                 continue
             seen_names.add(normalized_name)
+            if normalized_name in OFFTOPIC_COMMUNITY_NAMES:
+                log.debug("r/%s rejected before enrichment: off-topic community name", match.name)
+                continue
             candidates_reviewed += 1
 
             # Try enrichment (sample posts + rules) unless Reddit is known-blocked
             # or a previous enrichment already failed (no point retrying).
-            skip_enrichment = reddit_blocked or enrichment_failed or any(_HTTP_BUDGET.is_open(h) for h in _REDDIT_HOSTS)
+            skip_enrichment = reddit_blocked or enrichment_failed or (
+                not using_injected_reddit and any(_HTTP_BUDGET.is_open(h) for h in _REDDIT_HOSTS)
+            )
             if skip_enrichment:
                 sample_posts: list[RedditPost] = []
                 rules: list[str] = []
@@ -362,6 +382,12 @@ def refresh_subreddit_analysis(
     about = _safe_subreddit_about(reddit, subreddit["name"])
     rules = _safe_subreddit_rules(reddit, subreddit["name"])
     sample_posts = _safe_subreddit_posts(reddit, subreddit["name"])
+
+    # Same brand_profile hydration as discover_and_store_subreddits — see
+    # note there for why project.get("brand_profile") was always empty.
+    from app.db.tables.projects import resolve_brand_context
+    resolved_brand = resolve_brand_context(supabase, project["workspace_id"], project["id"])
+    project = {**project, "brand_profile": resolved_brand}
 
     assessment = assess_subreddit_candidate(
         match=RedditSubredditMatch(
