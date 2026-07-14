@@ -211,15 +211,17 @@ def get_source_domain_by_id(db: Client, domain_id: int) -> dict[str, Any] | None
     return result.data[0] if result.data else None
 
 
-def list_source_domains_for_project(db: Client, project_id: int) -> list[dict[str, Any]]:
+def list_source_domains_for_project(db: Client, project_id: int, limit: int | None = None) -> list[dict[str, Any]]:
     """List source domains for a project."""
-    result = (
+    query = (
         db.table(SOURCE_DOMAINS_TABLE)
         .select("*")
         .eq("project_id", project_id)
         .order("created_at", desc=True)
-        .execute()
     )
+    if limit is not None:
+        query = query.limit(limit)
+    result = query.execute()
     return list(result.data)
 
 
@@ -282,9 +284,8 @@ def list_ai_responses_for_runs(db: Client, run_ids: list[int]) -> list[dict[str,
     return list(result.data)
 
 
+# Legacy individual count helpers — maintained for backward compatibility
 def count_prompt_runs_for_project(db: Client, project_id: int) -> int:
-    """Count prompt runs for a project (via prompt sets)."""
-    # Get all prompt sets for project first
     sets = list_prompt_sets_for_project(db, project_id)
     if not sets:
         return 0
@@ -300,114 +301,144 @@ def count_prompt_runs_for_project(db: Client, project_id: int) -> int:
 
 
 def count_ai_responses_with_brand_mention_for_project(db: Client, project_id: int) -> int:
-    """Count AI responses with brand mention for a project."""
     sets = list_prompt_sets_for_project(db, project_id)
     if not sets:
         return 0
     set_ids = [s["id"] for s in sets]
-    # Get all prompt runs for these sets
-    runs_result = (
-        db.table(PROMPT_RUNS_TABLE)
-        .select("id")
-        .in_("prompt_set_id", set_ids)
-        .eq("status", "complete")
-        .execute()
-    )
+    runs_result = db.table(PROMPT_RUNS_TABLE).select("id").in_("prompt_set_id", set_ids).eq("status", "complete").execute()
     run_ids = [r["id"] for r in runs_result.data]
     if not run_ids:
         return 0
-    # Count AI responses with brand_mentioned=true
-    result = (
-        db.table(AI_RESPONSES_TABLE)
-        .select("id", count="exact")
-        .in_("prompt_run_id", run_ids)
-        .eq("brand_mentioned", True)
-        .execute()
-    )
+    result = db.table(AI_RESPONSES_TABLE).select("id", count="exact").in_("prompt_run_id", run_ids).eq("brand_mentioned", True).execute()
     return result.count if hasattr(result, "count") else 0
 
 
 def count_citations_for_project(db: Client, project_id: int) -> int:
-    """Count citations for a project."""
     sets = list_prompt_sets_for_project(db, project_id)
     if not sets:
         return 0
     set_ids = [s["id"] for s in sets]
-    # Get all prompt runs
-    runs_result = (
-        db.table(PROMPT_RUNS_TABLE)
-        .select("id")
-        .in_("prompt_set_id", set_ids)
-        .eq("status", "complete")
-        .execute()
-    )
+    runs_result = db.table(PROMPT_RUNS_TABLE).select("id").in_("prompt_set_id", set_ids).eq("status", "complete").execute()
     run_ids = [r["id"] for r in runs_result.data]
     if not run_ids:
         return 0
-    # Get all AI responses
-    ai_result = (
-        db.table(AI_RESPONSES_TABLE)
-        .select("id")
-        .in_("prompt_run_id", run_ids)
-        .execute()
-    )
+    ai_result = db.table(AI_RESPONSES_TABLE).select("id").in_("prompt_run_id", run_ids).execute()
     ai_ids = [r["id"] for r in ai_result.data]
     if not ai_ids:
         return 0
-    # Count citations
-    result = (
-        db.table(CITATIONS_TABLE)
-        .select("id", count="exact")
-        .in_("ai_response_id", ai_ids)
-        .execute()
-    )
+    result = db.table(CITATIONS_TABLE).select("id", count="exact").in_("ai_response_id", ai_ids).execute()
     return result.count if hasattr(result, "count") else 0
 
 
 def count_prompt_runs_with_model(db: Client, project_id: int, model: str) -> int:
-    """Count prompt runs with a specific model for a project."""
     sets = list_prompt_sets_for_project(db, project_id)
     if not sets:
         return 0
     set_ids = [s["id"] for s in sets]
-    result = (
-        db.table(PROMPT_RUNS_TABLE)
-        .select("id", count="exact")
-        .in_("prompt_set_id", set_ids)
-        .eq("model_name", model)
-        .eq("status", "complete")
-        .execute()
-    )
+    result = db.table(PROMPT_RUNS_TABLE).select("id", count="exact").in_("prompt_set_id", set_ids).eq("model_name", model).eq("status", "complete").execute()
     return result.count if hasattr(result, "count") else 0
 
 
 def count_ai_responses_with_model_and_mention(db: Client, project_id: int, model: str) -> int:
-    """Count AI responses with brand mention for a specific model."""
     sets = list_prompt_sets_for_project(db, project_id)
     if not sets:
         return 0
     set_ids = [s["id"] for s in sets]
-    # Get prompt runs with model
-    runs_result = (
-        db.table(PROMPT_RUNS_TABLE)
-        .select("id")
-        .in_("prompt_set_id", set_ids)
-        .eq("model_name", model)
-        .eq("status", "complete")
-        .execute()
-    )
+    runs_result = db.table(PROMPT_RUNS_TABLE).select("id").in_("prompt_set_id", set_ids).eq("model_name", model).eq("status", "complete").execute()
     run_ids = [r["id"] for r in runs_result.data]
     if not run_ids:
         return 0
-    # Count AI responses with brand_mentioned=true
-    result = (
-        db.table(AI_RESPONSES_TABLE)
-        .select("id", count="exact")
-        .in_("prompt_run_id", run_ids)
-        .eq("brand_mentioned", True)
+    result = db.table(AI_RESPONSES_TABLE).select("id", count="exact").in_("prompt_run_id", run_ids).eq("brand_mentioned", True).execute()
+    return result.count if hasattr(result, "count") else 0
+
+
+# ---------------------------------------------------------------------------
+# Optimised batch summary — replaces 10+ individual count queries with 4
+# ---------------------------------------------------------------------------
+def get_visibility_summary(db: Client, project_id: int) -> dict:
+    """Return visibility summary stats with minimal round-trips.
+
+    Instead of chaining N+1 count-via-prompts-set lookups, this function
+    loads prompt-sets once then issues 4 aggregated queries:
+      1. prompt_runs (id, model_name, status)
+      2. ai_responses  (id, prompt_run_id, brand_mentioned)
+      3. citations     (count by ai_response_id)
+    """
+    sets = list_prompt_sets_for_project(db, project_id)
+    if not sets:
+        return _empty_summary()
+
+    set_ids = [s["id"] for s in sets]
+
+    runs_result = (
+        db.table(PROMPT_RUNS_TABLE)
+        .select("id,model_name,status")
+        .in_("prompt_set_id", set_ids)
         .execute()
     )
-    return result.count if hasattr(result, "count") else 0
+    all_runs = runs_result.data or []
+    run_ids = [r["id"] for r in all_runs]
+    if not run_ids:
+        return _empty_summary()
+
+    ai_result = (
+        db.table(AI_RESPONSES_TABLE)
+        .select("id,prompt_run_id,brand_mentioned")
+        .in_("prompt_run_id", run_ids)
+        .execute()
+    )
+    all_ai = ai_result.data or []
+
+    complete_runs = [r for r in all_runs if r.get("status") == "complete"]
+    total_runs = len(complete_runs)
+    complete_run_ids = {r["id"] for r in complete_runs}
+
+    # Only count citations from complete runs to avoid overstating totals.
+    ai_ids = [r["id"] for r in all_ai if r.get("prompt_run_id") in complete_run_ids]
+
+    total_citations = 0
+    if ai_ids:
+        cit_result = (
+            db.table(CITATIONS_TABLE)
+            .select("id", count="exact")
+            .in_("ai_response_id", ai_ids)
+            .execute()
+        )
+        total_citations = int(cit_result.count or 0)
+
+    total_mentioned = sum(
+        1 for r in all_ai if r.get("prompt_run_id") in complete_run_ids and r.get("brand_mentioned")
+    )
+    sov = round((total_mentioned / total_runs * 100), 1) if total_runs > 0 else 0.0
+
+    models = {}
+    for model in ("chatgpt", "perplexity", "gemini", "claude"):
+        m_runs = [r for r in complete_runs if r.get("model_name") == model]
+        m_run_ids = {r["id"] for r in m_runs}
+        m_mentioned = sum(1 for r in all_ai if r.get("prompt_run_id") in m_run_ids and r.get("brand_mentioned"))
+        models[model] = {
+            "total_runs": len(m_runs),
+            "brand_mentioned": m_mentioned,
+            "share_of_voice": round((m_mentioned / len(m_runs) * 100), 1) if m_runs else 0.0,
+        }
+
+    return {
+        "total_runs": total_runs,
+        "brand_mentioned": total_mentioned,
+        "share_of_voice": sov,
+        "total_citations": total_citations,
+        "models": models,
+    }
+
+
+def _empty_summary() -> dict:
+    return {
+        "total_runs": 0,
+        "brand_mentioned": 0,
+        "share_of_voice": 0.0,
+        "total_citations": 0,
+        "models": {m: {"total_runs": 0, "brand_mentioned": 0, "share_of_voice": 0.0} for m in ("chatgpt", "perplexity", "gemini", "claude")},
+    }
 
 
 def list_citations_for_prompt_sets(

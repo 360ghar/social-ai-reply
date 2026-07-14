@@ -37,8 +37,8 @@ export function Pricing() {
             Free for everyone
           </h2>
           <p className="mx-auto mt-4 max-w-lg text-base text-muted-foreground">
-            Our AI CMO is 100% free while we&apos;re in early access — no limits,
-            no credit card, every agent unlocked.
+            SignalFlow is 100% free while we&apos;re in early access — no limits,
+            no credit card, every feature unlocked.
           </p>
         </m.div>
 
