@@ -253,9 +253,9 @@ def run_platform_scan(
         )
 
         logger.info(
-            "[%s] Post '%s' scored %d, keep=%s, reason=%s",
+            "[%s] Post %s scored %d, keep=%s, reason=%s",
             post.platform,
-            (post.title or post.body)[:50],
+            reddit_post_id,
             relevance.relevance_score,
             relevance.should_keep,
             relevance.rejection_reason,

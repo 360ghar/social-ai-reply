@@ -120,7 +120,12 @@ def _exchange_authorization_code(code: str) -> dict:
             detail="Could not reach Reddit to exchange the authorization code.",
         ) from exc
     if resp.status_code >= 400:
-        logger.warning("Reddit token exchange returned %s: %s", resp.status_code, resp.text[:300])
+        # Log length only — body may echo credentials or user-identifying errors.
+        logger.warning(
+            "Reddit token exchange returned %s (body_len=%d)",
+            resp.status_code,
+            len(resp.text or ""),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Reddit rejected the authorization code. Please reconnect your account.",
@@ -133,7 +138,12 @@ def _exchange_authorization_code(code: str) -> dict:
             detail="Reddit returned an unparseable token response.",
         ) from exc
     if data.get("error") or not data.get("access_token"):
-        logger.warning("Reddit token exchange returned error payload: %s", data)
+        # Don't log the payload — error payloads may contain identifying fields.
+        logger.warning(
+            "Reddit token exchange returned error payload (has_error=%s, has_token=%s)",
+            bool(data.get("error")),
+            bool(data.get("access_token")),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Reddit did not return an access token. Please reconnect.",

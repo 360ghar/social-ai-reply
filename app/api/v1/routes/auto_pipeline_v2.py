@@ -9,7 +9,7 @@ Paste a website URL and the system automatically:
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_current_user, get_current_workspace
@@ -24,9 +24,18 @@ router = APIRouter(prefix="/v1", tags=["auto-pipeline"])
 
 
 class AutoPipelineV2Request(BaseModel):
-    website_url: str = Field(min_length=5, max_length=2000)
+    website_url: str | None = Field(default=None, min_length=5, max_length=2000)
     name: str = Field(min_length=1, max_length=255, default="")
     project_id: int | None = Field(default=None)
+
+    @field_validator("website_url", mode="before")
+    @classmethod
+    def _strip_url(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+        return v
 
 
 class AutoPipelineV2Response(BaseModel):
@@ -78,9 +87,7 @@ def start_auto_pipeline_v2(
     """Start the full multi-agent pipeline from just a website URL."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
-    # Derive company name from URL if not provided
-    name = payload.name or payload.website_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0].split(".")[0]
-    name = name.replace("-", " ").replace("_", " ").title() or "My Company"
+    from app.db.tables.company import get_company_by_workspace, update_company
 
     company_id = None
     if payload.project_id:

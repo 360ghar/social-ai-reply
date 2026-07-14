@@ -47,10 +47,12 @@ import {
   ExternalLink,
   Workflow,
 } from "lucide-react";
-import { apiRequest, type Opportunity, type PostDraft, type Project } from "@/lib/api";
+import { apiRequest, type Opportunity, type PostDraft, type Project, type CompanyProfile } from "@/lib/api";
 import { sourceLabel } from "@/lib/opportunity";
 import { setStoredProjectId, withProjectId } from "@/lib/project";
 import { useSelectedProjectId } from "@/hooks/use-selected-project";
+import { getCompanies } from "@/lib/api/company";
+import { startAutoPipelineV2 } from "@/lib/api/auto-pipeline-v2";
 import { PageHeader } from "@/components/shared/page-header";
 import { KPIGrid } from "@/components/shared/kpi-card";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -256,7 +258,9 @@ export default function DashboardPage() {
   const [bizName, setBizName] = useState("");
   const [bizDesc, setBizDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const [company, setCompany] = useState<CompanyProfile | null>(null);
   const [autoPipelineUrl, setAutoPipelineUrl] = useState("");
+  const [isAutoRunning, setIsAutoRunning] = useState(false);
 
   // Wizard state
   const [wizardOpen, setWizardOpen] = useState(true);
@@ -332,6 +336,17 @@ export default function DashboardPage() {
         console.warn("Failed to load activity:", activityRes.reason);
       }
 
+      try {
+        const companies = await getCompanies(token!);
+        const active = companies.find((c: CompanyProfile) => c.is_active) ?? companies[0] ?? null;
+        setCompany(active);
+        if (active?.website_url) {
+          setAutoPipelineUrl(active.website_url);
+        }
+      } catch {
+        // Company not required for dashboard
+      }
+
       setDash(dashData);
       setUsage(usageData);
       setVisibility(visData);
@@ -377,15 +392,22 @@ export default function DashboardPage() {
     setCreating(false);
   }
 
-  /* ---- auto-pipeline (unchanged) ---- */
-  function handleAutoPipeline() {
-    if (!autoPipelineUrl.trim()) {
-      toast.warning("Please enter a URL");
+  /* ---- auto-pipeline ---- */
+  async function handleAutoPipeline() {
+    if (!token) return;
+    const url = autoPipelineUrl.trim() || company?.website_url;
+    if (!url) {
+      toast.warning("Please enter a website URL, or set one in Company Setup first.");
       return;
     }
-    router.push(
-      `/app/auto-pipeline?url=${encodeURIComponent(autoPipelineUrl)}`,
-    );
+    setIsAutoRunning(true);
+    try {
+      const res = await startAutoPipelineV2(token, { website_url: url });
+      toast.success("Auto Pipeline Started", res.message);
+    } catch (err) {
+      toast.warning("Auto Pipeline", err instanceof Error ? err.message : "Could not start pipeline");
+    }
+    setIsAutoRunning(false);
   }
 
   /* ---- wizard dismiss ---- */
@@ -635,7 +657,7 @@ export default function DashboardPage() {
         </Collapsible>
       )}
 
-      {/* ---- Compact Pipeline Card ---- */}
+      {/* ---- Compact Auto Pipeline Card ---- */}
       <Card size="sm">
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
@@ -644,28 +666,36 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="text-sm font-semibold text-foreground">
-                Try Auto Pipeline
+                Auto Pipeline
               </div>
               <div className="text-xs text-muted-foreground">
-                Enter a URL to automatically generate your entire Reddit
-                strategy
+                {autoPipelineUrl
+                  ? `Run full pipeline for ${autoPipelineUrl}`
+                  : "Enter a URL to auto-generate your strategy"}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Input
-              type="url"
-              value={autoPipelineUrl}
-              onChange={(e) => setAutoPipelineUrl(e.target.value)}
-              placeholder="https://example.com"
-              className="h-8 w-full text-sm sm:w-64"
-              onKeyDown={(e) =>
-                e.key === "Enter" && handleAutoPipeline()
-              }
-            />
-            <Button size="sm" onClick={handleAutoPipeline}>
-              Launch
-            </Button>
+            {autoPipelineUrl ? (
+              <Button size="sm" onClick={handleAutoPipeline} disabled={isAutoRunning}>
+                {isAutoRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                {isAutoRunning ? "Running..." : "Run Pipeline"}
+              </Button>
+            ) : (
+              <>
+                <Input
+                  type="url"
+                  value={autoPipelineUrl}
+                  onChange={(e) => setAutoPipelineUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  className="h-8 w-full text-sm sm:w-64"
+                  onKeyDown={(e) => e.key === "Enter" && handleAutoPipeline()}
+                />
+                <Button size="sm" onClick={handleAutoPipeline} disabled={isAutoRunning}>
+                  Launch
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

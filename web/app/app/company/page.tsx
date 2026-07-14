@@ -173,9 +173,14 @@ export default function CompanyPage() {
       setIsAnalyzing(false);
     }
   }
-  async function handleAutoPipeline(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!token || !autoUrl.trim()) return;
+  async function handleAutoPipeline(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    if (!token) return;
+    const url = company?.website_url?.trim() || autoUrl.trim();
+    if (!url) {
+      error("Auto Pipeline", "Enter a website URL or save one in the company profile first.");
+      return;
+    }
     setIsAutoRunning(true);
     
     // Clear any existing poll before starting a new one
@@ -185,13 +190,11 @@ export default function CompanyPage() {
     }
     
     try {
-      const payload: any = { website_url: autoUrl.trim() };
-      if (selectedProjectId) {
-        payload.project_id = selectedProjectId;
-      }
-      const res = await startAutoPipelineV2(token, payload);
+      const res = await startAutoPipelineV2(token, {
+        website_url: url,
+        ...(selectedProjectId ? { project_id: selectedProjectId } : {}),
+      });
       success("Auto Pipeline Started", res.message);
-      // Reload company list to show the newly created one (which will likely not have summary yet)
       await loadCompany();
       
       const tok = token;
@@ -282,7 +285,6 @@ export default function CompanyPage() {
                 value={autoUrl}
                 onChange={(e) => setAutoUrl(e.target.value)}
                 className="flex-1"
-                required
               />
               <Button type="submit" disabled={isAutoRunning} className="shrink-0">
                 {isAutoRunning && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
@@ -353,23 +355,42 @@ export default function CompanyPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAutoPipeline} className="flex flex-col sm:flex-row gap-3">
-            <Input
-              type="url"
-              placeholder="https://your-company.com"
-              value={autoUrl}
-              onChange={(e) => setAutoUrl(e.target.value)}
-              className="flex-1"
-              required
-            />
-            <Button type="submit" disabled={isAutoRunning} className="shrink-0">
-              {isAutoRunning && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              <Zap className="h-4 w-4 mr-1" />
-              {isAutoRunning ? "Running..." : "Auto Setup"}
-            </Button>
-          </form>
+          {company.website_url ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <div className="flex-1">
+                <div className="text-sm font-medium text-foreground">
+                  {company.website_url}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Analyze this website, generate keywords, and run all 9 agents
+                </p>
+              </div>
+              <Button onClick={() => handleAutoPipeline()} disabled={isAutoRunning} className="shrink-0">
+                {isAutoRunning && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                <Zap className="h-4 w-4 mr-1" />
+                {isAutoRunning ? "Running..." : "Run Auto Pipeline"}
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleAutoPipeline} className="flex flex-col sm:flex-row gap-3">
+              <Input
+                type="url"
+                placeholder="https://your-company.com"
+                value={autoUrl}
+                onChange={(e) => setAutoUrl(e.target.value)}
+                className="flex-1"
+              />
+              <Button type="submit" disabled={isAutoRunning} className="shrink-0">
+                {isAutoRunning && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                <Zap className="h-4 w-4 mr-1" />
+                {isAutoRunning ? "Running..." : "Auto Setup"}
+              </Button>
+            </form>
+          )}
           <p className="text-xs text-muted-foreground mt-2">
-            Paste your website URL and we&apos;ll automatically analyze it, generate keywords, and run all 9 agents.
+            {company.website_url
+              ? "Click the button above to run the full pipeline with your saved website URL."
+              : "Paste your website URL and we’ll automatically analyze it, generate keywords, and run all 9 agents."}
           </p>
         </CardContent>
       </Card>

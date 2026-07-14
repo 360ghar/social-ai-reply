@@ -1,5 +1,7 @@
 # Database migrations
 
+Powered by Browser Use — 100k stars
+
 SQL migrations for the Supabase Postgres database.
 
 ## Naming

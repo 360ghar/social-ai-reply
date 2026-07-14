@@ -1,12 +1,27 @@
 """Email service for transactional emails."""
-import logging
+import contextlib
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import structlog
+
 from app.core.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+
+
+def _mask_email(email: str) -> str:
+    """Mask an email address for safe logging: ***@domain.
+
+    Never raises — falls back to '***' for malformed input.
+    """
+    if not isinstance(email, str) or "@" not in email:
+        return "***"
+    user, _, domain = email.partition("@")
+    if not user or not domain:
+        return "***"
+    return f"***@{domain}"
 
 
 class EmailService:
@@ -21,7 +36,7 @@ class EmailService:
                 server.login(settings.smtp_username, settings.smtp_password)
             return server
         except Exception as e:
-            logger.error(f"SMTP connection failed: {e}")
+            logger.error("smtp_connection_failed", error=str(e))
             return None
 
     @staticmethod
@@ -37,16 +52,18 @@ class EmailService:
         msg.attach(MIMEText(html_body, "html"))
         server = EmailService._get_connection()
         if not server:
-            logger.warning(f"Email not sent to {to_email} (no SMTP connection)")
+            logger.warning("email_not_sent", to=_mask_email(to_email), reason="no_smtp_connection")
             return False
         try:
             server.sendmail(sender, [to_email], msg.as_string())
-            server.quit()
-            logger.info(f"Email sent to {to_email}: {subject}")
+            logger.info("email_sent", to=_mask_email(to_email), subject=subject)
             return True
         except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {e}")
+            logger.error("email_send_failed", to=_mask_email(to_email), error=str(e))
             return False
+        finally:
+            with contextlib.suppress(Exception):
+                server.quit()
 
     @staticmethod
     def send_password_reset(to_email: str, reset_token: str, user_name: str = ""):

@@ -11,8 +11,10 @@ from datetime import UTC, datetime
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.requests import Request
 from supabase import Client
 
+from app.core import log_context
 from app.db.supabase_client import get_supabase
 from app.db.tables.projects import (
     create_brand_profile,
@@ -132,6 +134,11 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated.")
     if _is_token_revoked(user, payload, token_str):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
+    # Bind identity onto the structlog contextvar scope (visible to all
+    # downstream logs in this request) and mirror onto request.state so the
+    # tracing middleware's request.complete log can read it after call_next.
+    log_context.bind_user_context(user_id=user["id"])
+    request.state.user_id = user["id"]
     return user
 
 
@@ -161,10 +168,13 @@ def get_current_user_optional(
         return None
     if _is_token_revoked(user, payload, credentials.credentials):
         return None
+    log_context.bind_user_context(user_id=user["id"])
+    request.state.user_id = user["id"]
     return user
 
 
 def get_current_workspace(
+    request: Request,
     current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase),
 ) -> dict:
@@ -184,6 +194,8 @@ def get_current_workspace(
     workspace = get_workspace_by_id(supabase, memberships[0]["workspace_id"])
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+    log_context.bind_user_context(user_id=current_user["id"], workspace_id=workspace["id"])
+    request.state.workspace_id = workspace["id"]
     return workspace
 
 
@@ -227,12 +239,14 @@ def get_active_project(
     if project_id is not None:
         project = get_project_by_id(supabase, project_id)
         if project and project["workspace_id"] == workspace_id and _project_is_active(project):
+            log_context.bind_project_context(project_id=project["id"])
             return project
 
     # Get most recent active project
     projects = list_projects_for_workspace(supabase, workspace_id)
     for project in projects:
         if _project_is_active(project):
+            log_context.bind_project_context(project_id=project["id"])
             return project
     return None
 

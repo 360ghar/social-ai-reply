@@ -26,6 +26,7 @@ dependencies = [
   "ddgs>=9.14.4",
   "pypdf>=6.2.0",
   "openpyxl>=3.1.5",
+  "structlog>=24.1.0",
 ]
 
 [project.optional-dependencies]

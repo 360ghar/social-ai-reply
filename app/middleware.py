@@ -7,11 +7,20 @@ import uuid
 from collections import defaultdict
 from typing import Protocol
 
+import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.core.log_context import bind_request_context, clear_request_context
+
 logger = logging.getLogger(__name__)
+log = structlog.get_logger("app.middleware")
+
+# Cap on accepted incoming X-Request-ID length. Anything longer (or containing
+# whitespace/newlines) is treated as untrusted and replaced with a fresh UUID
+# to prevent header/log injection.
+MAX_REQUEST_ID_LEN = 128
 
 MAX_STORE_KEYS = 10_000
 
@@ -20,6 +29,10 @@ RATE_LIMITS = {
     "scan": (50, 60),           # 50 scans per 60 seconds
     "generate": (100, 60),      # 100 generations per 60 seconds
     "auth": (50, 300),          # 50 auth attempts per 5 minutes
+    # Loose bucket for browser-sourced logs. Client errors can be bursty
+    # (a render loop throwing on every paint) so we keep this permissive
+    # and well above the default to avoid starving real traffic.
+    "client_log": (120, 60),    # 120 client events per 60 seconds
 }
 
 SLOW_ENDPOINTS = {
@@ -151,6 +164,10 @@ def _rate_limit_key(request: Request) -> str:
 
 def _resolve_limit_type(path: str, method: str) -> str:
     """Match path with prefix support for rate limit categories."""
+    # Dedicated loose bucket for client telemetry — bursty browser errors
+    # must not trip the default limiter and block real API traffic.
+    if path.startswith("/v1/telemetry/client-event"):
+        return "client_log"
     for prefix, limit_type in SLOW_ENDPOINTS.items():
         if path.startswith(prefix):
             # Stricter scan/generate limits only apply to mutating requests
@@ -160,19 +177,62 @@ def _resolve_limit_type(path: str, method: str) -> str:
     return "default"
 
 
+def _resolve_request_id(request: Request) -> str:
+    """Return a request id, honoring a sane incoming ``X-Request-ID`` header.
+
+    An incoming header is only trusted when it is reasonably short and free of
+    whitespace/newlines; otherwise we generate a fresh full UUID. This avoids
+    header/log injection while still allowing upstream proxies/services to
+    propagate trace ids. The full (untruncated) UUID is used for production
+    uniqueness.
+    """
+    incoming = request.headers.get("x-request-id")
+    if incoming:
+        incoming = incoming.strip()
+        if incoming and len(incoming) <= MAX_REQUEST_ID_LEN and not any(c.isspace() for c in incoming):
+            return incoming
+    return str(uuid.uuid4())
+
+
 class RequestTracingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        request_id = str(uuid.uuid4())[:8]
+        request_id = _resolve_request_id(request)
         request.state.request_id = request_id
+        # Bind request_id onto the structlog contextvar scope so EVERY log line
+        # emitted during this request — including the RateLimitMiddleware 429
+        # path, which runs AFTER tracing in the execution chain — carries it.
+        # Cleared in finally so context never leaks across requests.
+        bind_request_context(request_id, route=request.url.path)
+        log.info("request.start", method=request.method, path=request.url.path)
         start = time.time()
-        response = await call_next(request)
-        duration = round((time.time() - start) * 1000, 2)
-        logger.info(
-            f"{request.method} {request.url.path} → {response.status_code} ({duration}ms)",
-            extra={"request_id": request_id},
-        )
-        response.headers["X-Request-ID"] = request_id
-        return response
+        try:
+            response = await call_next(request)
+            # Identity fields (user_id/workspace_id) are bound onto request.state
+            # by deps (get_current_user / get_current_workspace). project_id is
+            # bound onto contextvars by get_active_project; contextvars propagate
+            # through BaseHTTPMiddleware's call_next since both run in the same
+            # asyncio task. Read project_id from contextvars with request.state
+            # as a fallback.
+            import structlog.contextvars as _ctxvars
+
+            _cv = _ctxvars.get_contextvars()
+            # Prefer the matched route template over raw path to avoid
+            # high-cardinality / user-controlled path segments in logs.
+            route = getattr(request.scope.get("route"), "path", request.url.path)
+            log.info(
+                "request.complete",
+                method=request.method,
+                path=route,
+                status_code=response.status_code,
+                latency_ms=round((time.time() - start) * 1000, 2),
+                user_id=getattr(request.state, "user_id", None),
+                workspace_id=getattr(request.state, "workspace_id", None),
+                project_id=_cv.get("project_id") or getattr(request.state, "project_id", None),
+            )
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            clear_request_context()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -186,7 +246,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         retry_after = _backend.hit(f"{key}:{limit_type}", max_requests, window)
         if retry_after is not None:
-            logger.warning(f"Rate limit hit: {key}:{limit_type} ({limit_type})")
+            log.warning(
+                "rate_limited",
+                limit_type=limit_type,
+                max_requests=max_requests,
+                window=window,
+                retry_after=retry_after,
+            )
             return JSONResponse(
                 status_code=429,
                 content={"detail": f"Too many requests. Limit: {max_requests} per {window}s. Please wait."},

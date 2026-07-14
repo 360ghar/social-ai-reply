@@ -12,7 +12,8 @@ SEARCH_CACHE_TABLE = "search_cache"
 
 
 def _get_search_row_by_key(db: Client, cache_key: str) -> dict[str, Any] | None:
-    return None
+    result = db.table(SEARCH_CACHE_TABLE).select("*").eq("cache_key", cache_key).execute()
+    return result.data[0] if result.data else None
 
 
 def get_cached_search_result(db: Client, cache_key: str) -> dict[str, Any] | None:
@@ -49,4 +50,9 @@ def upsert_search_result(
         "result": result,
         "expires_at": expires_at.isoformat(),
     }
-    return payload
+    existing = _get_search_row_by_key(db, cache_key)
+    if existing:
+        response = db.table(SEARCH_CACHE_TABLE).update(payload).eq("cache_key", cache_key).execute()
+    else:
+        response = db.table(SEARCH_CACHE_TABLE).insert(payload).execute()
+    return response.data[0] if response.data else None

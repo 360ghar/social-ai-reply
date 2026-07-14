@@ -86,7 +86,7 @@ ENABLE_BILLING = True
 
 # Logging defaults
 DEFAULT_LOG_LEVEL = "INFO"
-DEFAULT_LOG_FORMAT = "json"
+DEFAULT_LOG_FORMAT = "auto"
 
 # Health check defaults
 HEALTH_CHECK_PATH = "/health"

@@ -1,7 +1,7 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from supabase import Client
 
@@ -72,9 +72,10 @@ def delete_scraper_endpoint(
     workspace: dict = Depends(get_current_workspace),
     supabase: Client = Depends(get_supabase),
 ) -> None:
-    """Delete a custom scraper configuration."""
+    """Delete a custom scraper configuration belonging to the current workspace."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
-    delete_custom_scraper(supabase, scraper_id)
+    if not delete_custom_scraper(supabase, scraper_id, workspace["id"]):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scraper not found.")
 
 
 # ── Test Connection ──────────────────────────────────────────────────

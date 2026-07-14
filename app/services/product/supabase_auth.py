@@ -301,7 +301,12 @@ def admin_delete_user(supabase_user_id: str) -> None:
         logger.warning("Failed to delete Supabase user %s due to network error", supabase_user_id, exc_info=True)
         return
     if resp.status_code >= 400:
-        logger.warning("Failed to delete Supabase user %s: %s", supabase_user_id, resp.text)
+        logger.warning(
+            "Failed to delete Supabase user %s (status=%s, body_len=%d)",
+            supabase_user_id,
+            resp.status_code,
+            len(resp.text or ""),
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────
