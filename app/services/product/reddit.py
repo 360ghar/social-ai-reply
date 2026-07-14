@@ -310,7 +310,8 @@ class RedditClient:
                 time.sleep(wait)
                 continue
             if response.status_code >= 400:
-                logger.warning("Reddit HTTP %d on %s params=%s", response.status_code, path, params)
+                # Don't log request params — may contain user-provided keywords/PII.
+                logger.warning("Reddit HTTP %d on %s", response.status_code, path)
             response.raise_for_status()
             payload = response.json()
             self._cache[cache_key] = payload

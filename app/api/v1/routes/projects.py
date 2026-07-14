@@ -13,8 +13,6 @@ from app.api.v1.deps import (
     subscription_response,
 )
 from app.db.supabase_client import get_supabase
-from app.db.tables.discovery import list_personas_for_project as list_personas
-from app.db.tables.discovery import list_subreddits_for_project
 from app.db.tables.projects import (
     create_brand_profile,
     create_project,
@@ -93,20 +91,16 @@ def dashboard(
             opps = list_opportunities_for_project(supabase, pid, limit=12)
             top_opportunities.extend(opps)
 
-    # Build setup status
+    # Build setup status with count queries via data-access layer
     setup = SetupStatus()
-    if selected_project:
-        pid = selected_project["id"]
+    pid = selected_project["id"] if selected_project else (project_ids[0] if project_ids else None)
+    if pid is not None:
+        from app.db.tables.discovery import count_active_personas_for_project, count_monitored_subreddits_for_project
+
         brand = get_brand_profile_by_project(supabase, pid)
         setup.brand_configured = brand is not None and bool(brand.get("brand_name"))
-        setup.personas_count = len(list_personas(supabase, pid))
-        setup.subreddits_count = len(list_subreddits_for_project(supabase, pid))
-    elif project_ids:
-        pid = project_ids[0]
-        brand = get_brand_profile_by_project(supabase, pid)
-        setup.brand_configured = brand is not None and bool(brand.get("brand_name"))
-        setup.personas_count = len(list_personas(supabase, pid))
-        setup.subreddits_count = len(list_subreddits_for_project(supabase, pid))
+        setup.personas_count = count_active_personas_for_project(supabase, pid)
+        setup.subreddits_count = count_monitored_subreddits_for_project(supabase, pid)
 
     return DashboardResponse(
         projects=[ProjectResponse.model_validate(p) for p in projects],

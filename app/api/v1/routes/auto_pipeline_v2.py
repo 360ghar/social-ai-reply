@@ -9,7 +9,7 @@ Paste a website URL and the system automatically:
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_current_user, get_current_workspace
@@ -24,8 +24,17 @@ router = APIRouter(prefix="/v1", tags=["auto-pipeline"])
 
 
 class AutoPipelineV2Request(BaseModel):
-    website_url: str = Field(min_length=5, max_length=2000)
+    website_url: str | None = Field(default=None, min_length=5, max_length=2000)
     name: str = Field(min_length=1, max_length=255, default="")
+
+    @field_validator("website_url", mode="before")
+    @classmethod
+    def _strip_url(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+        return v
 
 
 class AutoPipelineV2Response(BaseModel):
@@ -77,31 +86,52 @@ def start_auto_pipeline_v2(
     """Start the full multi-agent pipeline from just a website URL."""
     ensure_workspace_membership(supabase, workspace["id"], current_user["id"])
 
-    # Derive company name from URL if not provided
-    name = payload.name or payload.website_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0].split(".")[0]
-    name = name.replace("-", " ").replace("_", " ").title() or "My Company"
+    from app.db.tables.company import get_company_by_workspace, update_company
 
-    company_data = {
-        "workspace_id": workspace["id"],
-        "name": name,
-        "website_url": payload.website_url,
-        "description": None,
-        "category": None,
-        "target_audience": None,
-        "geography": None,
-        "language": "en",
-        "features": None,
-        "benefits": None,
-        "pain_points": None,
-        "competitors": None,
-        "brand_voice": None,
-        "forbidden_claims": None,
-        "preferred_cta": None,
-        "is_active": True,
-    }
+    existing_company = get_company_by_workspace(supabase, workspace["id"])
 
-    company = create_company(supabase, company_data)
-    company_id = company["id"]
+    website_url = payload.website_url
+
+    if existing_company and not website_url:
+        website_url = existing_company.get("website_url")
+
+    if not website_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="website_url is required. Set a company website URL first or provide one now.",
+        )
+
+    if existing_company:
+        company_id = existing_company["id"]
+        company = existing_company
+        # Persist new URL if user provided one that differs from the stored one.
+        if payload.website_url and payload.website_url != existing_company.get("website_url"):
+            update_company(supabase, company_id, {"website_url": website_url})
+    else:
+        name = payload.name or website_url.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0].split(".")[0]
+        name = name.replace("-", " ").replace("_", " ").title() or "My Company"
+
+        company_data = {
+            "workspace_id": workspace["id"],
+            "name": name,
+            "website_url": website_url,
+            "description": None,
+            "category": None,
+            "target_audience": None,
+            "geography": None,
+            "language": "en",
+            "features": None,
+            "benefits": None,
+            "pain_points": None,
+            "competitors": None,
+            "brand_voice": None,
+            "forbidden_claims": None,
+            "preferred_cta": None,
+            "is_active": True,
+        }
+
+        company = create_company(supabase, company_data)
+        company_id = company["id"]
 
     background_tasks.add_task(_run_full_pipeline_background, company_id)
 

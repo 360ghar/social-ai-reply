@@ -84,7 +84,10 @@ npm run build     # type-check + production build (used as the "test" step)
 - `config.py` — pydantic-settings, loads from `.env`
 - `exceptions.py` — custom exception hierarchy: `AppException` → `NotFoundError`, `ForbiddenError`, `ConflictError`, `AuthenticationError`, `BusinessRuleError`
 - `constants/` — centralized constants: `limits.py` (rate limits, pagination, max lengths), `timeouts.py` (request timeouts, retry delays), `errors.py` (error codes, messages), `app.py` (app metadata, plan codes)
-- `logging.py` — structured JSON logging configuration
+- `logging.py` — structlog-based logging with dual rendering (ConsoleRenderer for dev, JSONRenderer for prod); contextvar-based request/user auto-stamping via `ProcessorFormatter`
+- `log_context.py` — request-scoped log context (request_id/user_id/workspace_id/project_id/route) via structlog contextvars; bind/clear API for middleware and deps
+- `redaction.py` — defense-in-depth secret-scrubbing structlog processor (Bearer tokens, JWTs, secret-key KV pairs; UUIDs exempted)
+- `log_events.py` — structured flow-event helpers (`timed()`/`log_event()`) for route-level `.start`/`.ok`/`.failed` events
 
 **Workers**: No async task queue. Scans and generations run synchronously in-request. Background tasks use FastAPI `BackgroundTasks`.
 
@@ -318,6 +321,8 @@ Set these in the Railway dashboard (do not commit secrets):
 - `LLM_PROVIDER` — default is `gemini`. Only set this to `openai` / `perplexity` / `claude` if you're switching providers.
 - `OPENAI_API_KEY` — **not required** unless `LLM_PROVIDER=openai`. Leave unset for Gemini-only deployments.
 - `PERPLEXITY_API_KEY`, `ANTHROPIC_API_KEY` — likewise optional alternatives.
+- `LOG_LEVEL` — default `INFO`. Set to `DEBUG` temporarily for production debugging.
+- `LOG_FORMAT` — default `auto` (console in dev, JSON in prod). Override to `console` or `json` to force a format.
 - Optional: `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_*`
 
 ### Netlify environment variables
@@ -326,6 +331,8 @@ Set these in the Netlify dashboard under Site settings → Environment variables
 - `NEXT_PUBLIC_API_BASE_URL` — the Railway backend URL (e.g. `https://redditflow-api.up.railway.app`) — consumed by `web/lib/api.ts:1`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `NEXT_PUBLIC_CLIENT_LOGGING` — `1` (default) to enable client-side error/interaction logging to `POST /v1/telemetry/client-event`; set `0` to disable
+- `NEXT_PUBLIC_CLIENT_LOG_SAMPLE` — sampling rate for non-error events (default `0.1` = 10% of info/warning; errors always sampled at 100%)
 
 ### Cross-origin wiring
 

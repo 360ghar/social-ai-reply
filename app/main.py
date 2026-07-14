@@ -19,7 +19,6 @@ from app.db.supabase_client import get_supabase_client
 from app.middleware import RateLimitMiddleware, RequestTracingMiddleware
 from app.services.infrastructure.llm.providers._registry import get_configured_providers
 
-setup_logging("INFO")
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +52,7 @@ async def lifespan(app: FastAPI):
             "No LLM provider is configured. Set GEMINI_API_KEY in the repo root .env.local, "
             "or configure another provider and restart the backend."
         )
-    # Run pending schema migrations
+    # Run pending schema migrations (run_migrations handles its own exceptions)
     try:
         from app.db.run_migrations import run_migrations
 
@@ -63,13 +62,18 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("No pending migrations.")
     except Exception:
-        logger.exception("Migration runner failed — continuing startup")
+        logger.exception("Migration runner import failed — continuing startup")
     logger.info("SignalFlow API started successfully.")
     yield
     logger.info("Shutting down SignalFlow API.")
 
 
 settings = get_settings()
+# Configure logging AFTER settings load so log_level/log_format/environment take
+# effect. A few logger calls above (module import) used stdlib defaults; that's
+# fine — once setup runs, the structlog ProcessorFormatter owns the root handler.
+setup_logging(settings)
+
 app = FastAPI(
     title="SignalFlow API",
     description="AI Visibility and Community Engagement Platform",
@@ -79,11 +83,15 @@ app = FastAPI(
 
 origins = [o.strip() for o in (settings.cors_origins_raw or "http://localhost:3000").split(",")]
 
-# Starlette executes middleware in reverse order of addition.
-# CORSMiddleware MUST be added last so it runs first — otherwise rate-limit
-# or tracing responses won't carry CORS headers and the browser will block them.
-app.add_middleware(RequestTracingMiddleware)
+# Starlette executes middleware in REVERSE order of addition, so the add-order
+# below yields this inbound execution chain:
+#   CORS  ->  RequestTracing  ->  RateLimit  ->  handler
+# CORSMiddleware is added LAST so it runs FIRST (CORS headers land on every
+# response, including 429s, or the browser blocks them). RequestTracing must run
+# BEFORE RateLimit so the request_id is bound onto the log context BEFORE a 429
+# is returned — otherwise rate-limited responses carry no request_id.
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestTracingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -91,6 +99,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
+logger.info("CORS allow_origins=%s", origins)
 app.include_router(v1_router)
 
 

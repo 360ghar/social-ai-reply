@@ -18,10 +18,6 @@ MONITORED_SUBREDDITS_TABLE = "monitored_subreddits"
 SCAN_RUNS_TABLE = "scan_runs"
 OPPORTUNITIES_TABLE = "opportunities"
 SUBREDDITS_ANALYSES_TABLE = "subreddits_analyses"  # note: plural "subreddits_", DB name is authoritative
-_SCAN_RUN_COLUMN_CACHE: dict[str, bool] = {}
-_OPPORTUNITY_COLUMN_CACHE: dict[str, bool] = {}
-
-
 def _is_missing_column_error(exc: APIError, column: str) -> bool:
     code = (exc.code or "").upper()
     if code == "PGRST204":
@@ -364,6 +360,29 @@ def count_opportunities_for_project(db: Client, project_id: int, status: str | N
     return result.count if hasattr(result, "count") and result.count is not None else 0
 
 
+def count_active_personas_for_project(db: Client, project_id: int) -> int:
+    """Count active personas for a project."""
+    result = (
+        db.table(PERSONAS_TABLE)
+        .select("id", count="exact")
+        .eq("project_id", project_id)
+        .eq("is_active", True)
+        .execute()
+    )
+    return result.count if hasattr(result, "count") and result.count is not None else 0
+
+
+def count_monitored_subreddits_for_project(db: Client, project_id: int) -> int:
+    """Count monitored subreddits for a project."""
+    result = (
+        db.table(MONITORED_SUBREDDITS_TABLE)
+        .select("id", count="exact")
+        .eq("project_id", project_id)
+        .execute()
+    )
+    return result.count if hasattr(result, "count") and result.count is not None else 0
+
+
 def list_personas_for_project(db: Client, project_id: int, source: str | None = None, limit: int = 100, include_inactive: bool = False) -> list[dict[str, Any]]:
     """List personas for a project with optional source filter."""
     query = db.table(PERSONAS_TABLE).select("*").eq("project_id", project_id)
@@ -398,21 +417,14 @@ def list_monitored_subreddits_for_project(db: Client, project_id: int, limit: in
     return list(result.data)
 
 
-def _scan_run_supports_column(db: Client, column: str) -> bool:
-    return _supports_column(db, SCAN_RUNS_TABLE, _SCAN_RUN_COLUMN_CACHE, column)
-
-
 def _prepare_scan_run_payload(db: Client, payload: dict[str, Any]) -> dict[str, Any]:
     prepared: dict[str, Any] = {}
     for key, value in payload.items():
         target_key = key
-        if (
-            key == "completed_at"
-            and not _scan_run_supports_column(db, "completed_at")
-            and _scan_run_supports_column(db, "finished_at")
-        ):
+        if key == "completed_at" and "completed_at" not in _KNOWN_SCAN_RUN_COLUMNS and "finished_at" in _KNOWN_SCAN_RUN_COLUMNS:
             target_key = "finished_at"
-        if not _scan_run_supports_column(db, target_key):
+        if target_key not in _KNOWN_SCAN_RUN_COLUMNS:
+            logger.warning("scan_run payload key %r not in _KNOWN_SCAN_RUN_COLUMNS — dropped (update the set if this is a new column)", key)
             continue
         prepared[target_key] = value
     return prepared
@@ -428,28 +440,80 @@ def _normalize_scan_run_record(record: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _opportunity_supports_column(db: Client, column: str) -> bool:
-    return _supports_column(db, OPPORTUNITIES_TABLE, _OPPORTUNITY_COLUMN_CACHE, column)
+# Known columns for the opportunities table — avoids per-column DB probing
+_KNOWN_OPPORTUNITY_COLUMNS: set[str] = {
+    "id",
+    "project_id",
+    "reddit_post_id",
+    "subreddit",
+    "subreddit_name",
+    "platform",
+    "title",
+    "author",
+    "body_excerpt",
+    "permalink",
+    "url",
+    "upvotes",
+    "comments_count",
+    "score",
+    "score_reasons",
+    "keyword_hits",
+    "rule_risk",
+    "status",
+    "intent",
+    "intent_confidence",
+    "buying_stage",
+    "source_type",
+    "confidence",
+    "semantic_similarity",
+    "rejection_reason",
+    "scoring_breakdown",
+    "matched_keywords",
+    "risk_flags",
+    "reason_relevant",
+    "agent_name",
+    "source",
+    "post_created_at",
+    "engagement_score",
+    "created_at",
+    "updated_at",
+    "is_read",
+}
+_KNOWN_SCAN_RUN_COLUMNS: set[str] = {
+    "id",
+    "project_id",
+    "status",
+    "scan_type",
+    "search_window_hours",
+    "posts_scanned",
+    "opportunities_found",
+    "completed_at",
+    "finished_at",
+    "started_at",
+    "created_at",
+    "updated_at",
+    "error_message",
+    "metadata",
+}
 
 
 def _prepare_opportunity_payload(db: Client, payload: dict[str, Any]) -> dict[str, Any]:
     prepared = dict(payload)
     subreddit_value = prepared.get("subreddit") or prepared.get("subreddit_name")
     if subreddit_value is not None:
-        if _opportunity_supports_column(db, "subreddit"):
-            prepared["subreddit"] = subreddit_value
-        if _opportunity_supports_column(db, "subreddit_name"):
-            prepared["subreddit_name"] = subreddit_value
+        prepared["subreddit"] = subreddit_value
+        prepared["subreddit_name"] = subreddit_value
 
-    # Ensure reddit_post_id is set for non-Reddit agents to avoid NOT NULL violations
     if "reddit_post_id" not in prepared or prepared["reddit_post_id"] is None:
         prepared.setdefault("reddit_post_id", None)
 
-    return {
-        key: value
-        for key, value in prepared.items()
-        if _opportunity_supports_column(db, key)
-    }
+    result: dict[str, Any] = {}
+    for key, value in prepared.items():
+        if key in _KNOWN_OPPORTUNITY_COLUMNS:
+            result[key] = value
+        else:
+            logger.warning("opportunity payload key %r not in _KNOWN_OPPORTUNITY_COLUMNS — dropped (update the set if this is a new column)", key)
+    return result
 
 
 def _normalize_opportunity_record(record: dict[str, Any]) -> dict[str, Any]:

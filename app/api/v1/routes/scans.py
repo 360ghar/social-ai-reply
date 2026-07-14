@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from supabase import Client
 
 from app.api.v1.deps import ensure_workspace_membership, get_active_project, get_current_user, get_current_workspace
+from app.core.log_events import log_event
 from app.db.supabase_client import get_supabase
 from app.db.tables.discovery import create_scan_run, get_scan_run_by_id
 from app.db.tables.projects import get_project_by_id
@@ -15,7 +16,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["scans"])
 
 
-def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_run_id: str) -> None:
+def _run_scan_background(
+    db: Client, project: dict, payload: ScanRequest, scan_run_id: str, _log_ctx: dict | None = None,
+) -> None:
+    import structlog.contextvars as _cv
+
+    if _log_ctx:
+        _cv.bind_contextvars(**{k: v for k, v in _log_ctx.items() if v is not None})
     from app.db.tables.discovery import get_scan_run_by_id, update_scan_run
 
     # Determine which platforms to scan
@@ -55,6 +62,20 @@ def _run_scan_background(db: Client, project: dict, payload: ScanRequest, scan_r
                     "completed_at": datetime.now(UTC).isoformat(),
                 })
                 logger.info("Scan %s: forced status to 'completed' (was still running)", scan_run_id)
+            # Emit completion counts from the final scan_run row. posts_scanned /
+            # opportunities_found are populated by run_platform_scan via
+            # update_scan_run; if it crashed before writing, they default to 0.
+            # Always re-fetch after the status update to get the latest snapshot.
+            final = get_scan_run_by_id(db, scan_run_id)
+            if final:
+                log_event(
+                    "scan.complete",
+                    scan_run_id=scan_run_id,
+                    status=final.get("status"),
+                    posts_scanned=final.get("posts_scanned") or 0,
+                    opportunities_found=final.get("opportunities_found") or 0,
+                    platforms=platforms,
+                )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to finalize scan run %s status", scan_run_id)
 
@@ -110,7 +131,22 @@ def create_scan(
         "opportunities_found": 0,
         "started_at": datetime.now(UTC).isoformat(),
     })
-    background_tasks.add_task(_run_scan_background, supabase, proj, payload, run["id"])
+    log_event(
+        "scan.start",
+        scan_run_id=run["id"],
+        project_id=proj["id"],
+        platforms=payload.platforms or [payload.platform],
+        time_filter=payload.time_filter,
+        max_posts=payload.max_posts_per_subreddit,
+    )
+    # Snapshot request context before the middleware's finally block clears it.
+    import structlog.contextvars as _cv
+
+    _bg_ctx = _cv.get_contextvars()
+    _bg_ctx.setdefault("project_id", proj["id"])
+    _bg_ctx.setdefault("user_id", current_user["id"])
+    _bg_ctx.setdefault("workspace_id", workspace["id"])
+    background_tasks.add_task(_run_scan_background, supabase, proj, payload, run["id"], _bg_ctx)
     return ScanRunResponse.model_validate(run)
 
 
