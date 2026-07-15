@@ -47,3 +47,8 @@ web/sessions/
 .claude/worktrees/
 .factory/
 *.bak
+
+# Local reference scratch dirs, must never be tracked as submodules
+# (accidentally committing a nested git repo here breaks Netlify's checkout)
+claude-reference/
+main-reference/
